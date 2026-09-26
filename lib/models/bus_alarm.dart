@@ -20,6 +20,7 @@ class BusAlarm {
   final bool liveOnly; // ignore schedule times if true
   final String message;
   final bool enabled; // indicates alarm enabled (similar to ios alarm ui alarm toggle)
+  final String? pingId;
 
   const BusAlarm({ //  constructor
     required this.id,
@@ -33,6 +34,7 @@ class BusAlarm {
     this.liveOnly = false,
     required this.message,
     this.enabled = true,
+    this.pingId,
   });
 
   BusAlarm copyWith({
@@ -46,6 +48,7 @@ class BusAlarm {
     bool? liveOnly,
     String? message,
     bool? enabled,
+    String? pingId,
   }) {
     return BusAlarm(
         id: id,
@@ -58,6 +61,7 @@ class BusAlarm {
         liveOnly: liveOnly ?? this.liveOnly,
         message: message ?? this.message,
         enabled: enabled ?? this.enabled,
+        pingId: pingId ?? this.pingId,
     );
   }
 
@@ -73,6 +77,7 @@ class BusAlarm {
     'liveOnly': liveOnly,
     'message': message,
     'enabled': enabled,
+    'pingId': pingId,
   };
 
   static BusAlarm fromJson(Map<String, dynamic> json) => BusAlarm(
@@ -87,6 +92,7 @@ class BusAlarm {
     liveOnly: json['liveOnly'] as bool,
     message: json['message'] as String,
     enabled: json['enabled'] as bool,
+    pingId: json['pingId'] as String?,
   );
 
   static TimeOfDay _minutesToTimeOfDay (int totalMinutes) =>
@@ -121,3 +127,16 @@ class BusAlarm {
 // assuming each user would make 2 alarms with an average upper invokation count of 10 per alarm
 // cloudflare offering 100k invokations per day
 // 100000 / 20 (per user) = 5000 ios users per day cap, realistically 3.5k-4k ios users per day
+
+// ping incoming decision flow
+// each bus alarm obj save a ping_id that the incoming ping to that alarm will have (garunteed to be unique by server db constraint)
+// 1. ping handler will get incoming ping id and point ping toward the correct alarm
+// ALARM LAYER
+// 2. alarm will see last estimated time away and decide accordingly, if app is open the estimate is updated per min
+// 2.1. if over 5 mins api for new estimate, if fail assume last estimate is valid and ask for next ping halfway down
+// 2.2. if under 5 mins api for new estimate and ask for an ack ping on alarm trigger time, assume last estimate is correct on api fail
+// 3. if on or after alarm time ring the alarm and leave ping_id unchanged, as subsequent ping from no ack will have the same id
+// 4. when user acknowledge alarm send ack to server, app also send ack and register next ack ping if next ring threshold is within 1 min
+
+// maybe replace require ack into expire time because cron job runs per minute, is not null means require ack
+// server will run clean up per cron trigger for expired pings before batch pinging

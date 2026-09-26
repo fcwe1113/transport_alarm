@@ -1,4 +1,4 @@
-enum ThresholdOutcome { pending, ringing, acknowledged, superseded }
+enum ThresholdOutcome { pending, ringing, acknowledged, superseded, missed }
 
 class ThresholdState {
   final int minutesBeforeArrival;

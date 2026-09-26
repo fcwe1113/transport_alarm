@@ -60,7 +60,7 @@ Future<void> main() async { // dart entry point
   await initLocalNotifications();
 
   FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-    print("Foreground message received: ${message.messageId}");
+    print("Foreground message received: ${message.messageId}, data: ${message.data}");
     const androidDetails = AndroidNotificationDetails("alarm_test_channel", "Alarm Test", importance: Importance.high, priority: Priority.high);
     const notificationDetails = NotificationDetails(android: androidDetails);
 
