@@ -162,7 +162,7 @@ class _AlarmCardState extends State<AlarmCard> {
                     final arrivals = snapshot.data;
                     final String contents;
 
-                    if (snapshot.hasError) {
+                    if (snapshot.hasError) { // todo implement seamless background load
                       contents = "Unable to fetch arrivals";
                     } else if (arrivals == null || arrivals.isEmpty) {
                       contents = "No upcoming arrivals found";
@@ -182,20 +182,6 @@ class _AlarmCardState extends State<AlarmCard> {
                     ],);
                   }
                 ),
-                // const SizedBox(height: 4,),
-                // ClipRRect(borderRadius: BorderRadius.circular(4),
-                //   child: LinearProgressIndicator(minHeight: 6, value: null,),), // todo hook up to arrival timer below
-                // FutureBuilder(future: resolveArrivals(gtfsStopId: widget.alarm.gtfsStopId, routeNumberFilter: widget.alarm.routeNumbers), builder: (context, snapshot) {
-                //   final arrivals = snapshot.data;
-                //   final contents = arrivals == null ? "Loading arrivals..." : "Next bus arriving in ${arrivals.first.minutesFromNow} minutes";
-                //   return Text(contents, style: TextStyle(
-                //       color: Colors.grey.shade600,
-                //       fontSize: 13,
-                //       fontWeight: FontWeight.w500),
-                //     maxLines: 1,
-                //     overflow: TextOverflow.ellipsis,
-                //   );
-                // })
               ]
             ])),
           ],)

@@ -93,27 +93,24 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
           ),);
         }),
         Expanded(
-          child: FutureBuilder(
-            key: ValueKey(_refreshTick),
-            future: _resolveArrivals(widget.stop),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(),);
-              }
-              final arrivals = snapshot.data ?? [];
-              if (arrivals.isEmpty) {
-                return Text("no scheduled departures found");
-              }
-              
-              return Scrollbar(child: ListView(children: arrivals.map((a) {
-                final label = a.minutesFromNow <= 0 ? "Due" : a.minutesFromNow > 60 ? "${(a.minutesFromNow / 60).toStringAsFixed(2)} hr" : "${a.minutesFromNow} min";
-                return ListTile(
+          child: FutureBuilder(key: ValueKey(_refreshTick), future: _resolveArrivals(widget.stop), builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) { // todo implement seamless background load
+              return const Center(child: CircularProgressIndicator(),);
+            }
+            final arrivals = snapshot.data ?? [];
+            if (arrivals.isEmpty) {
+              return Text("no scheduled departures found");
+            }
+
+            return Scrollbar(child: ListView(children: arrivals.map((a) {
+              final label = a.minutesFromNow <= 0 ? "Due" : a.minutesFromNow > 60 ? "${(a.minutesFromNow / 60).toStringAsFixed(2)} hr" : "${a.minutesFromNow} min";
+              return ListTile(
                   leading: _RoutePill(route: a.route),
                   title: Text(a.route.destinationText["en"] ?? ""),
                   subtitle: Text(a.isLive ? "Live" : "Scheduled"),
                   trailing: Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: a.isLive ? Colors.blueAccent : null),)
-                );
-              }).toList(),));
+              );
+            }).toList(),));
             },
           ),
         )

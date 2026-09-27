@@ -96,7 +96,7 @@ export default {
 		const oneMinuteAgo = now - 60;
 
 		const { results } = await env.DB.prepare(
-			"SELECT * FROM scheduled_pings WHERE (status = 'PENDING' AND scheduled_time <= ?) OR (status = 'SENT' AND require_ack = 1 AND last_sent_at <= ? AND (expire_on IS NULL OR expire_on > ?))"
+			"SELECT * FROM scheduled_pings WHERE (status = 'PENDING' AND scheduled_time >= ?) OR (status = 'SENT' AND require_ack = 1 AND last_sent_at >= ? AND (expire_on IS NULL OR expire_on > ?))"
 		).bind(now, oneMinuteAgo, now).all<ScheduledPing>();
 
 		console.log(`[Cron run at ${new Date().toISOString()}] found ${results.length} jobs to process`);
