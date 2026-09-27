@@ -24,6 +24,6 @@ class AlarmServerService { // todo handle api errors later
   }
 
   Future<void> cancelPing(String pingId) async {
-    await http.post(Uri.parse("${_baseUrl}/ack"), headers: {"content-type": "application/json"}, body: {"ping_id": pingId});
+    await http.post(Uri.parse("${_baseUrl}/ack"), headers: {"content-type": "application/json"}, body: jsonEncode({"ping_id": pingId}));
   }
 }

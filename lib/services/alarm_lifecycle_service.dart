@@ -83,7 +83,7 @@ class AlarmLifecycleService {
   DateTime _todayAt(TimeOfDay time) {
     final now = DateTime.now();
     var result = DateTime(now.year, now.month, now.day, time.hour, time.minute);
-    if (result.isBefore(now)) result.add(Duration(days: 1));
+    if (result.isBefore(now)) result = result.add(Duration(days: 1));
     return result;
   }
 

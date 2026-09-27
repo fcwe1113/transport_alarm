@@ -34,25 +34,39 @@ AlarmDecision evaluateAlarm({required BusAlarm alarm, required int? minutesUntil
     return AlarmDecision(action: AlarmAction.doNothing, updatedAlarm: alarm);
   }
 
-  final threshold = alarm.thresholdStates[activeIndex];
-
   // no valid busses found
   if (minutesUntilArrival == null) { // todo set no bus found retry in 1/4 of active window or 30mins, whichever's lower
     final fallbackWait = const Duration(minutes: 5);
     return AlarmDecision(action: AlarmAction.scheduleNextPing, updatedAlarm: alarm, nextPingTime: DateTime.now().add(fallbackWait));
   }
 
+  final nextIndex = activeIndex + 1;
+  if (nextIndex < alarm.thresholdStates.length) {
+    final nextThreshold = alarm.thresholdStates[nextIndex];
+    final minutesUntilNextThreshold = minutesUntilArrival - nextThreshold.minutesBeforeArrival;
+    if (minutesUntilNextThreshold <= 1) {
+      final updatedStates = List<ThresholdState>.from(alarm.thresholdStates);
+      updatedStates[activeIndex] = updatedStates[activeIndex].copyWith(outcome: ThresholdOutcome.superseded);
+      final supersededAlarm = alarm.copyWith(thresholdStates: updatedStates);
+
+      final arming = armNextThreshold(supersededAlarm, activeIndex, minutesUntilArrival);
+      return AlarmDecision(
+          action: AlarmAction.scheduleNextPing,
+          updatedAlarm: supersededAlarm,
+          nextPingTime: arming?.nextPingTime,
+          nextPingRequiresAck: arming!.requiresAck,
+          expireOn: arming.expireOn
+      );
+    }
+  }
+
+  final threshold = alarm.thresholdStates[activeIndex];
+
   // threshold reached
   if (minutesUntilArrival <= threshold.minutesBeforeArrival) {
-    final updateStates = List<ThresholdState>.from(alarm.thresholdStates);
-    for (var i = 0; i < activeIndex; i++) {
-      if (updateStates[i].outcome == ThresholdOutcome.ringing || updateStates[i].outcome == ThresholdOutcome.pending) {
-        updateStates[i] = updateStates[i].copyWith(outcome: ThresholdOutcome.superseded);
-      }
-    }
-
     final newRingCount = threshold.ringCount + 1;
     final retriesExhausted = newRingCount >= alarm.maxRingsPerThreshold;
+    final updateStates = List<ThresholdState>.from(alarm.thresholdStates);
 
     updateStates[activeIndex] = threshold.copyWith(outcome: retriesExhausted ? ThresholdOutcome.missed : ThresholdOutcome.ringing, ringCount: newRingCount + 1);
 

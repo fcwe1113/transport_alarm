@@ -42,13 +42,9 @@ export default {
 					return new Response(JSON.stringify({ error: "Missing device_token or scheduled_time" }), { status: 400 });
 				}
 
-				console.log("running insert query");
-
 				const info = await env.DB.prepare(
 					"INSERT INTO scheduled_pings (device_token, scheduled_time, require_ack, expire_on) VALUES (?, ?, ?, ?)"
 				).bind(body.device_token, body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? null).run();
-
-				console.log("Insert result meta:", JSON.stringify(info.meta));
 
 				return new Response(JSON.stringify({ success: true, ping_id: info.meta.last_row_id }), { headers: { "Content-Type": "application/json" } });
 			} catch (err) {
