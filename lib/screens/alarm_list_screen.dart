@@ -44,7 +44,10 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   /// Event trigger for switching alarm enabled bool
   Future<void> _toggleAlarm(int index) async { // this will trigger on alarm toggle change, and make a copy of the alarm but with the correct toggle state
     final alarm = _alarms[index];
-    await _lifecycle.setEnabled(alarm.id, !alarm.enabled);
+    final result = await _lifecycle.setEnabled(alarm.id, !alarm.enabled);
+    if (!result.succeeded && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Could not update alarm: ${result.errorMessage}")));
+    }
     await _loadAlarms();
   }
 

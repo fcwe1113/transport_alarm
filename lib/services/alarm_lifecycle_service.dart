@@ -12,24 +12,34 @@ class AlarmLifecycleService {
 
   const AlarmLifecycleService({required this._storage, required this._server});
 
-  Future<void> createAlarm(BusAlarm alarm) async {
-    final scheduled = await _schedulePing(alarm);
-    await _storage.addAlarm(scheduled);
+  Future<AlarmActionResult> createAlarm(BusAlarm alarm) async {
+    try {
+      final scheduled = await _schedulePing(alarm);
+      await _storage.addAlarm(scheduled);
+      return const AlarmActionResult.success();
+    } catch (e) {
+      return AlarmActionResult.failure(e.toString());
+    }
   }
 
-  Future<void> setEnabled(String alarmId, bool enabled) async {
+  Future<AlarmActionResult> setEnabled(String alarmId, bool enabled) async {
     final alarms = await _storage.loadAlarms();
     final alarm = alarms.where((a) => a.id == alarmId).firstOrNull;
-    if (alarm == null) return;
+    if (alarm == null) return AlarmActionResult.failure("Alarm not found");
 
-    if (enabled) {
-      final scheduled = await _schedulePing(alarm.copyWith(enabled: true));
-      await _storage.updateAlarm(scheduled);
-    } else {
-      if (alarm.pingId != null) {
-        await _server.cancelPing(alarm.pingId!);
+    try {
+      if (enabled) {
+        final scheduled = await _schedulePing(alarm.copyWith(enabled: true));
+        await _storage.updateAlarm(scheduled);
+      } else {
+        if (alarm.pingId != null) {
+          await _server.cancelPing(alarm.pingId!);
+        }
+        await _storage.updateAlarm(alarm.copyWith(enabled: false, pingId: null));
       }
-      await _storage.updateAlarm(alarm.copyWith(enabled: false, pingId: null));
+      return AlarmActionResult.success();
+    } catch (e) {
+      return AlarmActionResult.failure(e.toString());
     }
   }
 
@@ -114,4 +124,11 @@ class AlarmLifecycleService {
         return now; // how did you get here lol
     }
   }
+}
+
+class AlarmActionResult {
+  final bool succeeded;
+  final String? errorMessage;
+  const AlarmActionResult.success() : succeeded = true, errorMessage = null;
+  const AlarmActionResult.failure(this.errorMessage) : succeeded = false;
 }
