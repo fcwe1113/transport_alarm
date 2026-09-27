@@ -459,9 +459,9 @@ class GtfsDatabase {
     )).toList();
   }
 
-  Future<List<String>> getOperatorStopIds(String gtfsStopsId, {String? providerCode}) async {
+  Future<List<String>> getOperatorStopIds(String gtfsStopId, {String? providerCode}) async {
     final where = providerCode != null ? "sm.gtfs_stop_id = ? AND os.provider_code = ?" : "sm.gtfs_stop_id = ?";
-    final whereArgs = providerCode != null ? [gtfsStopsId, providerCode] : [gtfsStopsId];
+    final whereArgs = providerCode != null ? [gtfsStopId, providerCode] : [gtfsStopId];
 
     final rows = await (await database).rawQuery('''
     SELECT sm.operator_stop_id

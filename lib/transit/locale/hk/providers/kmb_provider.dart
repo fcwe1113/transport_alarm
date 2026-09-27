@@ -151,6 +151,25 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
     }).toList();
   }
 
+  @override
+  Future<List<LiveEta>> fetchLiveEtaForRoute(String rawStopId, String routeNumber, {String serviceType = "1"}) async {
+    final url = "https://data.etabus.gov.hk/v1/transport/kmb/eta/${rawStopId}/${routeNumber}/${serviceType}";
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode != 200) throw Exception("Live ETA fetch failed: ${response.statusCode}");
+
+    final decoded = jsonDecode(response.body);
+    final data = decoded["data"] as List;
+    return data.map((entry) {
+      final etaString = entry["eta"] as String?;
+      return LiveEta(
+          routeNumber: entry["route"] as String,
+          bound: entry["dir"] as String? ?? "",
+          etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
+          remark: entry["rmk_en"] as String?
+      );
+    }).toList();
+  }
+
   /// transforms stops data into forms the app requires
   /// in this case just slotting the different fields the api
   /// responded into the correct slot

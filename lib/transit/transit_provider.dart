@@ -24,5 +24,6 @@ abstract class TransitProvider {
   RouteColourScheme coloursForRoute(BusRoute route) => RouteColourScheme(iconColour: defaultIconColor, textColour: defaultTextColor);
 
   Future<List<LiveEta>> fetchLiveEta(String rawStopId);
+  Future<List<LiveEta>> fetchLiveEtaForRoute(String rawStopId, String routeNumber);
 
 }

@@ -1,5 +1,6 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/alarm_engine.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
@@ -82,8 +83,7 @@ class AlarmPingHandler {
     final arrivals = await resolveArrivals(gtfsStopId: alarm.gtfsStopId, routeNumberFilter: alarm.routeNumbers);
     final eligible = alarm.liveOnly ? arrivals.where((a) => a.isLive) : arrivals;
     if (eligible.isEmpty) return null;
-    final soonest = eligible.reduce((a, b) => a.minutesFromNow < b.minutesFromNow ? a : b);
-    return soonest.minutesFromNow;
+    return eligible.reduce((a, b) => a.minutesFromNow < b.minutesFromNow ? a : b).minutesFromNow;
   }
 
   Future<void> _triggerRing(BusAlarm alarm) async {

@@ -147,29 +147,34 @@ class CtbProvider extends TransitProvider{
     final routeNumbers = await GtfsDatabase.forLocale("hk").getRouteNumbersForOperatorStop(operatorStopId);
     final allEtas = <LiveEta>[];
     for (final routeNumber in routeNumbers) {
-      final url = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/CTB/$rawStopId/$routeNumber';
       try {
-        final response = await http.get(Uri.parse(url));
-        if (response.statusCode != 200) continue;
-
-        final decoded = jsonDecode(response.body);
-        final data = decoded["data"] as List;
-
-        for (final entry in data) {
-          final etaString = entry["eta"] as String?;
-          allEtas.add(LiveEta(
-            routeNumber: entry["route"] as String,
-            bound: (entry["dir"] as String?) ?? "",
-            etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
-            remark: entry["rmk_en"] as String?
-          ));
-        }
+        allEtas.addAll(await fetchLiveEtaForRoute(rawStopId, routeNumber));
       } catch (_) {
         // do nothing
       }
     }
 
     return allEtas;
+  }
+
+  @override
+  Future<List<LiveEta>> fetchLiveEtaForRoute(String rawStopId, String routeNumber) async {
+    final url = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/CTB/$rawStopId/$routeNumber';
+    final response = await http.get(Uri.parse(url));
+    if (response.statusCode != 200) throw Exception("Live ETA fetch failed: ${response.statusCode}");
+
+    final decoded = jsonDecode(response.body);
+    final data = decoded["data"] as List;
+
+    return data.map((entry) {
+      final etaString = entry["eta"] as String?;
+      return LiveEta(
+          routeNumber: entry["route"] as String,
+          bound: (entry["dir"] as String?) ?? "",
+          etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
+          remark: entry["rmk_en"] as String?
+      );
+    }).toList();
   }
 
   List<BusRoute> _parseRoutesRaw(String rawJson) {

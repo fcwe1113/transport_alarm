@@ -13,7 +13,7 @@ class NotificationService {
     await plugin.initialize(settings: initSettings, onDidReceiveNotificationResponse: _onNotificationResponse);
   }
 
-  static void _onNotificationResponse(NotificationResponse response) {
+  static void _onNotificationResponse(NotificationResponse response) { // todo check if ackking alarm has upcoming threshold, if so schedule that instead of ack
     if (response.actionId == "acknowledge" && response.payload != null) {
       final storage = AlarmStorageService();
       final server = AlarmServerService();
