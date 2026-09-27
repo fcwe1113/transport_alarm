@@ -22,7 +22,7 @@ class AlarmLifecycleService {
     }
   }
 
-  Future<AlarmActionResult> setEnabled(String alarmId, bool enabled) async {
+  Future<AlarmActionResult> setEnabled(String alarmId, bool enabled) async { // todo ignore buses that are arriving before first threshold
     final alarms = await _storage.loadAlarms();
     final alarm = alarms.where((a) => a.id == alarmId).firstOrNull;
     if (alarm == null) return AlarmActionResult.failure("Alarm not found");
@@ -65,15 +65,16 @@ class AlarmLifecycleService {
 
     final resetStates = alarm.thresholdStates.map((t) => ThresholdState(minutesBeforeArrival: t.minutesBeforeArrival)).toList();
     final resetAlarm = alarm.copyWith(thresholdStates: resetStates);
-    final scheduled = await _schedulePingForNextOccurence(resetAlarm);
+    final scheduled = await _schedulePingForNextOccurrence(resetAlarm);
     return _storage.updateAlarm(scheduled);
   }
 
   Future<BusAlarm> _schedulePing(BusAlarm alarm) async {
     final deviceToken = await FirebaseMessaging.instance.getToken();
     if (deviceToken == null) return alarm; // no token yet
+    final now = TimeOfDay.now();
 
-    final scheduledTime = _todayAt(alarm.windowStart);
+    final scheduledTime = alarm.isWithinWindow(now) ? DateTime.now().add(Duration(seconds: 10)) : _todayAt(now);
     // if (scheduledTime.isBefore(DateTime.now())) return // todo api call arrival time if window already started
 
     final pingId = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
@@ -82,7 +83,7 @@ class AlarmLifecycleService {
 
   DateTime _todayAt(TimeOfDay time) {
     final now = DateTime.now();
-    var result = DateTime(now.year, now.month, now.day, time.hour, time.minute);
+    var result = DateTime(now.year, now.month, now.day, time.hour, time.minute, now.second + 5); // add 5 seconds because .isbefore() checks seconds as well
     if (result.isBefore(now)) result = result.add(Duration(days: 1));
     return result;
   }
@@ -91,7 +92,7 @@ class AlarmLifecycleService {
     return alarm.thresholdStates.every((t) => t.outcome == ThresholdOutcome.acknowledged || t.outcome == ThresholdOutcome.superseded || t.outcome == ThresholdOutcome.missed);
   }
 
-  Future<BusAlarm> _schedulePingForNextOccurence(BusAlarm alarm) async {
+  Future<BusAlarm> _schedulePingForNextOccurrence(BusAlarm alarm) async {
     final deviceToken = await FirebaseMessaging.instance.getToken();
     if (deviceToken == null) return alarm;
 

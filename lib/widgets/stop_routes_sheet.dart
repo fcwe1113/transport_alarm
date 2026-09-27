@@ -92,6 +92,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
               child: _RoutePill(route: route),)).toList(),
           ),);
         }),
+        const SizedBox(height: 4,),
         Expanded(
           child: FutureBuilder(key: ValueKey(_refreshTick), future: _resolveArrivals(widget.stop), builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) { // todo implement seamless background load

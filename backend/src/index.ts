@@ -27,6 +27,13 @@ interface ScheduleRequestBody {
 	require_ack: boolean;
 }
 
+interface ScheduleUpdateBody {
+	ping_id: string;
+	scheduled_time: string;
+	require_ack: number;
+	expire_on: number | null;
+}
+
 interface AckRequestBody {
 	ping_id: number;
 }
@@ -55,9 +62,9 @@ export default {
 
 		if (request.method == "POST" && url.pathname === "/reschedule") {
     			try {
-    				const body = (await request.json()) as ScheduleRequestBody;
-    				if (!body.device_token || !body.scheduled_time) {
-    					return new Response(JSON.stringify({ error: "Missing device_token or scheduled_time" }), { status: 400 });
+    				const body = (await request.json()) as ScheduleUpdateBody;
+    				if (!body.ping_id || !body.scheduled_time) {
+    					return new Response(JSON.stringify({ error: "Missing ping_id or scheduled_time" }), { status: 400 });
     				}
 
     				const info = await env.DB.prepare(
@@ -95,8 +102,8 @@ export default {
 		const now = Math.floor(Date.now() / 1000);
 		const oneMinuteAgo = now - 60;
 
-		const { results } = await env.DB.prepare(
-			"SELECT * FROM scheduled_pings WHERE (status = 'PENDING' AND scheduled_time >= ?) OR (status = 'SENT' AND require_ack = 1 AND last_sent_at >= ? AND (expire_on IS NULL OR expire_on > ?))"
+		const { results } = await env.DB.prepare( // send a ping when a pending ping has a scheduled_time past now (current timestamp higher than schedule)
+			"SELECT * FROM scheduled_pings WHERE (status = 'PENDING' AND scheduled_time <= ?) OR (status = 'SENT' AND require_ack = 1 AND last_sent_at <= ? AND (expire_on IS NULL OR expire_on > ?))"
 		).bind(now, oneMinuteAgo, now).all<ScheduledPing>();
 
 		console.log(`[Cron run at ${new Date().toISOString()}] found ${results.length} jobs to process`);
