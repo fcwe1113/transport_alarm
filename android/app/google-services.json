@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "27407470668",
+    "project_id": "transport-alarm",
+    "storage_bucket": "transport-alarm.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:27407470668:android:c83bc59cd34e0134dee4e9",
+        "android_client_info": {
+          "package_name": "com.fcwe1113.transport_alarm"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDpgIni0CWFs-ZnRNKtkHSWKm-rXqF8IOs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

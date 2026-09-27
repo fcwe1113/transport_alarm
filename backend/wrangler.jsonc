@@ -12,7 +12,9 @@
 	},
 	"upload_source_maps": true,
 	"triggers": {
-		"crons": ["* * * * *"]
+		"crons": [
+			"* * * * *"
+		]
 	},
 	"d1_databases": [
 		{

@@ -116,24 +116,6 @@ class ApiCaller {
     return BatchCallResult(results: results, failedKeys: pending.map((i) => i.key).toList());
   }
 
-  // Future<void> saveComputed<T>({
-  //   required String providerCode,
-  //   required String endpointName,
-  //   required T data,
-  //   required String sourceUrl,
-  //   required Map<String, dynamic> Function(T) toJson
-  // }) async {
-  //   return _cache.save(providerCode: providerCode, endpointName: endpointName, data: data, sourceUrl: sourceUrl, toJson: toJson);
-  // }
-  //
-  // Future<CachedEntry<T>?> peek<T>({
-  //   required String providerCode,
-  //   required String endpointName,
-  //   required T Function(Map<String, dynamic>) fromJson
-  // }) async {
-  //   return _cache.load<T>(providerCode: providerCode, endpointName: endpointName, fromJson: fromJson);
-  // }
-
   Future<bool> isEndpointStale(String providerCode, String endpointName, {Duration maxAge = _defaultMaxAge}){
     return _isStale(providerCode, endpointName, maxAge);
   }

@@ -1,5 +1,6 @@
 import 'package:transport_alarm/models/bus_alarm.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
+import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/transit/models/bus_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
@@ -9,6 +10,8 @@ import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import '../services/alarm_lifecycle_service.dart';
 
 class AddAlarmScreen extends StatefulWidget {
   final BusAlarm? alarmToEdit;
@@ -231,13 +234,12 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         ),
         liveOnly: _liveOnly,
         message: _messageController.text,
-        enabled: true
+        enabled: true,
     );
-    if (widget.alarmToEdit != null) {
-      await alarmStorage.updateAlarm(newAlarm);
-    } else {
-      await alarmStorage.addAlarm(newAlarm);
-    }
+
+    final lifecycle = AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService());
+    if (widget.alarmToEdit != null) await lifecycle.deleteAlarm(newAlarm.id); // todo write lifecycle edit alarm method
+    await lifecycle.createAlarm(newAlarm);
     Navigator.pop(context);
   }
 
