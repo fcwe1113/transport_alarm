@@ -96,13 +96,13 @@ class AlarmLifecycleService {
     final deviceToken = await FirebaseMessaging.instance.getToken();
     if (deviceToken == null) return alarm;
 
-    final nextDate = _computeNextOccurenceDate(alarm.repeat);
+    final nextDate = _computeNextOccurrenceDate(alarm.repeat);
     final scheduledTime = DateTime(nextDate.year, nextDate.month, nextDate.day, alarm.windowStart.hour, alarm.windowStart.minute);
     final pingId = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
     return alarm.copyWith(pingId: pingId);
   }
 
-  DateTime _computeNextOccurenceDate(RepeatPattern repeat) {
+  DateTime _computeNextOccurrenceDate(RepeatPattern repeat) {
     final now = DateTime.now();
     switch (repeat.frequency) {
       case RepeatFrequency.daily:

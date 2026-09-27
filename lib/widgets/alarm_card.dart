@@ -34,7 +34,7 @@ class _AlarmCardState extends State<AlarmCard> {
   @override
   void initState() {
     super.initState();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       setState(() => _refreshTick++);
     });
   }

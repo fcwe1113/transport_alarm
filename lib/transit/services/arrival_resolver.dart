@@ -7,16 +7,16 @@ import '../../provider_registry.dart';
 import '../models/gtfs_stop.dart';
 import '../models/live_eta.dart';
 
-Future<List<RouteArrival>> resolveArrivals({
+Future<List<RouteArrival>> resolveArrivals({ // todo change eta api to using stop_id and route_id instead of batching the entire stop
   required String gtfsStopId,
   List<String>? routeNumberFilter,
 }) async {
   final db = GtfsDatabase.forLocale("hk"); // todo fix locale hardcode
   final allRoutes = await db.getRoutesForGtfsStop(gtfsStopId);
   final routes = routeNumberFilter == null ? allRoutes : allRoutes.where((r) => routeNumberFilter.contains(r.routeNumber)).toList();
-  final results = await Future.wait([_fetchLiveEtaForStop((await db.getGtfsStopById(gtfsStopId))!), db.getUpcomingDepartures(gtfsStopId, limit: 50)]);
-  final liveEtas = (results[0] as List<LiveEta>).where((e) => e.etaTime != null).toList();
-  final scheduled = results[1] as List<ScheduledDeparture>;
+  final gtfsStop = await db.getGtfsStopById(gtfsStopId);
+  final liveEtas = routeNumberFilter == null ? (await _fetchLiveEtaForStop(gtfsStop!)).where((e) => e.etaTime != null).toList() : await _fetchLiveEtaForFilteredRoutes(gtfsStopId, routeNumberFilter);
+  final scheduled = await db.getUpcomingDepartures(gtfsStopId, limit: 50);
 
   final routeGroups = <String, List<BusRoute>>{};
   for (final route in routes) {
@@ -71,4 +71,28 @@ Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop) async {
   }
 
   return allEtas;
+}
+
+Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(String gtfsStopId, List<String> routeNumbers) async {
+  final db = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
+  final operatorStops = await db.getOperatorStopIds(gtfsStopId);
+  final results = <LiveEta>[];
+
+  for (final operatorStopId in operatorStops) {
+    final parts = operatorStopId.split(":");
+    final providerCode = parts[0];
+    final rawId = parts[1];
+    final provider = availableProviders.where((p) => p.providerCode == providerCode).firstOrNull;
+    if (provider == null) continue; // skip stops with no valid providers
+    for (final routeNumber in routeNumbers) {
+      try {
+        final etas = await provider.fetchLiveEtaForRoute(rawId, routeNumber);
+        results.addAll(etas.where((e) => e.etaTime != null));
+      } catch (_) {
+        // do nothing
+      }
+    }
+  }
+
+  return results;
 }
