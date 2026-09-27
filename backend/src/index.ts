@@ -16,6 +16,7 @@ interface ScheduledPing {
 	device_token: string;
 	scheduled_time: string;
 	require_ack: number; // 0 or 1
+	expire_on: number | null;
 	status: "PENDING" | "SENT";
 	last_sent_at: number | null;
 }
@@ -41,9 +42,13 @@ export default {
 					return new Response(JSON.stringify({ error: "Missing device_token or scheduled_time" }), { status: 400 });
 				}
 
+				console.log("running insert query");
+
 				const info = await env.DB.prepare(
 					"INSERT INTO scheduled_pings (device_token, scheduled_time, require_ack, expire_on) VALUES (?, ?, ?, ?)"
-				).bind(body.device_token, body.scheduled_time, body.require_ack, expire_on).run();
+				).bind(body.device_token, body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? null).run();
+
+				console.log("Insert result meta:", JSON.stringify(info.meta));
 
 				return new Response(JSON.stringify({ success: true, ping_id: info.meta.last_row_id }), { headers: { "Content-Type": "application/json" } });
 			} catch (err) {
@@ -61,7 +66,7 @@ export default {
 
     				const info = await env.DB.prepare(
     					"UPDATE scheduled_pings SET scheduled_time = ?, require_ack = ?, expire_on = ?, status = 'PENDING', last_sent_at = NULL WHERE id = ?"
-    				).bind(body.scheduled_time, body.require_ack, body.expire_on, ping_id).run();
+    				).bind(body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? null, body.ping_id).run();
 
 					if (info.meta.changes === 0) {
 						return new Response(JSON.stringify({ error: "ping_id not found" }), { status: 404 });
