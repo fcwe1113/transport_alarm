@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:transport_alarm/models/scheduled_departure.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
@@ -8,15 +10,40 @@ import 'package:flutter/material.dart';
 import '../transit/models/bus_route.dart';
 import '../transit/models/gtfs_stop.dart';
 
-class StopRoutesSheet extends StatelessWidget{
+class StopRoutesSheet extends StatefulWidget {
   final GtfsStop stop;
   final bool pickerMode;
 
-  const StopRoutesSheet({super.key, required this.stop, this.pickerMode = false});
+  const StopRoutesSheet(
+      {super.key, required this.stop, this.pickerMode = false});
+
+  @override
+  State<StopRoutesSheet> createState() => _StopRoutesSheetState();
+}
+
+class _StopRoutesSheetState extends State<StopRoutesSheet> {
+  Timer? _refreshTimer;
+  int _refreshTick = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.pickerMode) {
+      _refreshTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+        setState(() => _refreshTick++);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (pickerMode) {
+    if (widget.pickerMode) {
       return _buildPickerContent(context);
     } else {
       return _buildFullContent(context);
@@ -29,9 +56,9 @@ class StopRoutesSheet extends StatelessWidget{
       height: MediaQuery.of(context).size.height * 0.5,
       padding: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(GtfsStop.cleanStopName(stop.name), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
+        Text(GtfsStop.cleanStopName(widget.stop.name), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
         const SizedBox(height: 12,),
-        Expanded(child: FutureBuilder<List<BusRoute>>(future: db.getRoutesForGtfsStop(stop.id), builder: (context, snapshot) {
+        Expanded(child: FutureBuilder<List<BusRoute>>(future: db.getRoutesForGtfsStop(widget.stop.id), builder: (context, snapshot) {
           final routes = BusRoute.dedupeByRouteNumber(snapshot.data ?? []);
           if (routes.isEmpty) return const Text("No routes found for this stop");
           return Scrollbar(child: ListView(children: routes.map((r) => ListTile(
@@ -48,9 +75,9 @@ class StopRoutesSheet extends StatelessWidget{
       height: MediaQuery.of(context).size.height * 0.5,
       padding: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(GtfsStop.cleanStopName(stop.name), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),), // todo check names locale
+        Text(GtfsStop.cleanStopName(widget.stop.name), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),), // todo check names locale
         const SizedBox(height: 12,),
-        FutureBuilder(future: db.getRoutesForGtfsStop(stop.id), builder: (context, snapshot) {
+        FutureBuilder(future: db.getRoutesForGtfsStop(widget.stop.id), builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const SizedBox(height: 32, child: Center(child: CircularProgressIndicator(),),);
           }
@@ -67,7 +94,8 @@ class StopRoutesSheet extends StatelessWidget{
         }),
         Expanded(
           child: FutureBuilder(
-            future: _resolveArrivals(stop),
+            key: ValueKey(_refreshTick),
+            future: _resolveArrivals(widget.stop),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator(),);

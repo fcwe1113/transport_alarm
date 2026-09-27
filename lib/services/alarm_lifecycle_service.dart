@@ -49,7 +49,7 @@ class AlarmLifecycleService {
     if (alarm?.pingId != null) {
       await _server.cancelPing(alarm!.pingId!);
     }
-    await deleteAlarm(alarmId);
+    await _storage.deleteAlarm(alarmId);
   }
 
   Future<void> handleOccurenceConcluded(BusAlarm alarm) async {
