@@ -7,7 +7,7 @@ class AlarmServerService { // todo handle api errors later
 
   Future<String?> schedule({required String deviceToken, required DateTime scheduledTime, required bool requireAck}) async {
     final response = await http.post(Uri.parse("${_baseUrl}/schedule"),
-      headers: {"content-type": "application/json"},
+      // headers: {"content-type": "application/json"},
       body: jsonEncode({"device_token": deviceToken, "scheduled_time": scheduledTime.millisecondsSinceEpoch ~/ 1000, "require_ack": requireAck})
     );
     if (response.statusCode != 200) return null; // todo error handle later

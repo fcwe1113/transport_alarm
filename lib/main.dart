@@ -2,12 +2,16 @@ import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:transport_alarm/screens/add_alarm_screen.dart';
 import 'package:transport_alarm/screens/alarm_list_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/screens/setup_screen.dart';
+import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
+import 'package:transport_alarm/services/alarm_ping_handler.dart';
+import 'package:transport_alarm/services/alarm_server_service.dart';
+import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -15,8 +19,16 @@ import 'package:flutter/services.dart';
 
 @pragma("vm:entry-point")
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  print("Background message received: ${message.messageId}");
-  print("Data: ${message.data}");
+  // print("Background message received: ${message.messageId}");
+  // print("Data: ${message.data}");
+
+  await Firebase.initializeApp();
+  final pingId = message.data["ping_id"];
+  if (pingId == null) return; // should never happen
+  final storage = AlarmStorageService();
+  final server = AlarmServerService();
+  final handler = AlarmPingHandler(storage, server, AlarmLifecycleService(storage: storage, server: server));
+  await handler.handlePing(pingId);
 }
 
 Future<void> main() async { // dart entry point
@@ -49,23 +61,21 @@ Future<void> main() async { // dart entry point
 
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
-
-  Future<void> initLocalNotifications() async {
-    const androidSettings = AndroidInitializationSettings("@mipmap/ic_launcher");
-    const initSettings = InitializationSettings(android: androidSettings);
-    await flutterLocalNotificationsPlugin.initialize(settings: initSettings);
-  }
-
-  await initLocalNotifications();
+  await NotificationService.init();
 
   FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-    print("Foreground message received: ${message.messageId}, data: ${message.data}");
-    const androidDetails = AndroidNotificationDetails("alarm_test_channel", "Alarm Test", importance: Importance.high, priority: Priority.high);
-    const notificationDetails = NotificationDetails(android: androidDetails);
+    // print("Foreground message received: ${message.messageId}, data: ${message.data}");
+    // const androidDetails = AndroidNotificationDetails("alarm_test_channel", "Alarm Test", importance: Importance.high, priority: Priority.high);
+    // const notificationDetails = NotificationDetails(android: androidDetails);
+    //
+    // await flutterLocalNotificationsPlugin.show(id: message.hashCode, title: message.notification?.title ?? "Ping received", body: message.notification?.body ?? "", notificationDetails: notificationDetails);
 
-    await flutterLocalNotificationsPlugin.show(id: message.hashCode, title: message.notification?.title ?? "Ping received", body: message.notification?.body ?? "", notificationDetails: notificationDetails);
-
+    final pingId = message.data["ping_id"];
+    if (pingId == null) return; // should never happen
+    final storage = AlarmStorageService();
+    final server = AlarmServerService();
+    final handler = AlarmPingHandler(storage, server, AlarmLifecycleService(storage: storage, server: server));
+    await handler.handlePing(pingId);
   });
 
   final selectionService = LocaleSelectionService();

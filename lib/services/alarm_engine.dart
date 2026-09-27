@@ -13,6 +13,19 @@ class AlarmDecision {
   const AlarmDecision({required this.action, required this.updatedAlarm, this.nextPingTime, this.nextPingRequiresAck = false, this.expireOn});
 }
 
+NextThresholdArming? armNextThreshold(BusAlarm alarm, int currentIndex, int minutesUntilArrival) {
+  final nextIndex = currentIndex + 1;
+  if (nextIndex >= alarm.thresholdStates.length) return null; // no next threshold
+  final nextThreshold = alarm.thresholdStates[nextIndex];
+  final minutesUntilNext = minutesUntilArrival - nextThreshold.minutesBeforeArrival;
+
+  return NextThresholdArming(
+      nextPingTime: DateTime.now().add(Duration(minutes: minutesUntilNext < 0 ? 0 : minutesUntilNext)),
+      requiresAck: true,
+      expireOn: _nextThresholdExpiry(alarm, nextIndex, minutesUntilArrival)
+  );
+}
+
 AlarmDecision evaluateAlarm({required BusAlarm alarm, required int? minutesUntilArrival}) {
   final activeIndex = alarm.thresholdStates.indexWhere((t) => t.outcome == ThresholdOutcome.pending || t.outcome == ThresholdOutcome.ringing);
 
@@ -47,7 +60,7 @@ AlarmDecision evaluateAlarm({required BusAlarm alarm, required int? minutesUntil
 
     if (!retriesExhausted) return AlarmDecision(action: AlarmAction.ring, updatedAlarm: updatedAlarm);
 
-    final nextArming = _armNextThreshold(updatedAlarm, activeIndex, minutesUntilArrival);
+    final nextArming = armNextThreshold(updatedAlarm, activeIndex, minutesUntilArrival);
     return AlarmDecision(action: AlarmAction.ring, updatedAlarm: updatedAlarm, nextPingTime: nextArming?.nextPingTime, nextPingRequiresAck: nextArming?.requiresAck ?? false, expireOn: nextArming?.expireOn);
   }
 
@@ -62,24 +75,11 @@ AlarmDecision evaluateAlarm({required BusAlarm alarm, required int? minutesUntil
   }
 }
 
-class _NextThresholdArming {
+class NextThresholdArming {
   final DateTime nextPingTime;
   final bool requiresAck;
   final DateTime? expireOn;
-  const _NextThresholdArming({required this.nextPingTime, required this.requiresAck, required this.expireOn});
-}
-
-_NextThresholdArming? _armNextThreshold(BusAlarm alarm, int currentIndex, int minutesUntilArrival) {
-  final nextIndex = currentIndex + 1;
-  if (nextIndex >= alarm.thresholdStates.length) return null; // no next threshold
-  final nextThreshold = alarm.thresholdStates[nextIndex];
-  final minutesUntilNext = minutesUntilArrival - nextThreshold.minutesBeforeArrival;
-  
-  return _NextThresholdArming(
-      nextPingTime: DateTime.now().add(Duration(minutes: minutesUntilNext < 0 ? 0 : minutesUntilNext)),
-      requiresAck: true,
-      expireOn: _nextThresholdExpiry(alarm, nextIndex, minutesUntilArrival)
-  );
+  const NextThresholdArming({required this.nextPingTime, required this.requiresAck, required this.expireOn});
 }
 
 DateTime? _nextThresholdExpiry(BusAlarm alarm, int activeIndex, int minutesUntilArrival) {
