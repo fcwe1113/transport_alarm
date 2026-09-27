@@ -52,7 +52,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _loadMapData() async {
     try {
-      final db = GtfsDatabase.forLocale("hk"); // todo remove hardcode
+      final db = GtfsDatabase.forLocale("hk"); // todo remove hardcoded locale
       final stops = await db.getAllGtfsStops();
 
       setState(() {

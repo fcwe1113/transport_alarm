@@ -56,12 +56,12 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
     await _loadAlarms();
   }
 
-  Future<void> _editAlarm(BusAlarm alarm, int index) async { // todo test
+  Future<void> _editAlarm(BusAlarm alarm, int index) async {
     await Navigator.push(context, MaterialPageRoute(builder: (context) => AddAlarmScreen(alarmToEdit: alarm,)));
     await _loadAlarms();
   }
 
-  Future<void> _navigateToAddAlarm() async { // todo test
+  Future<void> _navigateToAddAlarm() async {
     await Navigator.pushNamed(context, "/add-alarm");
     await _loadAlarms();
   }
