@@ -17,6 +17,15 @@ workflows:
         script: |
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "no profiles directory"
           security find-identity -v -p codesigning
+      - name: Inspect Provisioning Profile
+        script: |
+          PROF=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | head -n 1)
+          echo "=== Profile Name & App ID ==="
+          security cms -D -i "$PROF" | grep -A 2 "<key>application-identifier</key>"
+          echo "=== Profile Type ==="
+          security cms -D -i "$PROF" | grep -A 1 "<key>get-task-allow</key>"
+          echo "=== Team ID ==="
+          security cms -D -i "$PROF" | grep -A 1 "<key>TeamIdentifier</key>"
       - name: Get Flutter packages
         script: flutter pub get
       - name: Install pods
