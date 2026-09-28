@@ -6,8 +6,6 @@ workflows:
       flutter: 3.47.5
       xcode: latest
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.fcwe1113.busArrivalNotificationApp
         certificates:
           - "ios code sign cert"
         provisioning_profiles:
