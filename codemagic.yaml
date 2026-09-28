@@ -31,7 +31,7 @@ workflows:
       - name: Install pods
         script: cd ios && pod install
       - name: Apply signing
-        script: xcode-project use-profiles --project ios/*.xcodeproj
+        script: xcode-project use-profiles --archive-method=app-store --team-id=66RCG95DR7
       - name: Build ipa
         script: |
           flutter build ipa --release \
