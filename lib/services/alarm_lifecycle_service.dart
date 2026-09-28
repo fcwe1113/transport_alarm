@@ -6,6 +6,7 @@ import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 
+///
 class AlarmLifecycleService {
   final AlarmStorageService _storage;
   final AlarmServerService _server;
