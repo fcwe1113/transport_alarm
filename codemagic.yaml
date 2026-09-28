@@ -7,7 +7,7 @@ workflows:
       xcode: latest
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.fcwe1113.busArrivalNotificationApp
+        bundle_identifier: com.fcwe1113.busArrivalNotificationApp.66RCG95DR7
     scripts:
       - name: Generate secrets configuration
         script: |
