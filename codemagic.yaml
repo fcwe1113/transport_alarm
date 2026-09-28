@@ -3,6 +3,8 @@ workflows:
     integrations:
       app_store_connect: "app store connect"
     environment:
+      flutter: 3.47.5
+      xcode: latest
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.fcwe1113.busArrivalNotificationApp
