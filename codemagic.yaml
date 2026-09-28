@@ -1,7 +1,7 @@
 workflows:
   ios-testflight:
     integrations:
-      app_store_connect: "app store connect"
+      app_store_connect: "AppStoreConnect"
     environment:
       flutter: 3.47.5
       xcode: latest
