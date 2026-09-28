@@ -1,4 +1,27 @@
-environment:
-  ios_signing:
-    distribution_type: app_store   # not development or ad_hoc
-    bundle_identifier: JNKGLH227H
+workflows:
+  ios-testflight:
+    integrations:
+      app_store_connect: "app store connect"
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: JNKGLH227H
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Install pods
+        script: cd ios && pod install
+      - name: Apply signing
+        script: xcode-project use-profiles
+      - name: Build ipa
+        script: |
+          flutter build ipa --release \
+            --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID") + 1)) \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+    
