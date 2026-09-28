@@ -10,7 +10,7 @@ workflows:
         bundle_identifier: com.fcwe1113.busArrivalNotificationApp
         certificates:
           - "ios code sign cert"
-        profiles:
+        provisioning_profiles:
           - "TransportAlarmProvProfile"
     scripts:
       - name: Generate secrets configuration
