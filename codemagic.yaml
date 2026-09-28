@@ -6,7 +6,7 @@ workflows:
       flutter: 3.47.5
       xcode: latest
       groups:
-        transport_alarm
+        - transport_alarm
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.fcwe1113.busArrivalNotificationApp.66RCG95DR7
