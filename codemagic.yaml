@@ -13,6 +13,10 @@ workflows:
         script: |
           mkdir -p config
           echo "$SECRETS_JSON" | base64 --decode > config/secrets.json
+      - name: Debug signing state
+        script: |
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "no profiles directory"
+          security find-identity -v -p codesigning
       - name: Get Flutter packages
         script: flutter pub get
       - name: Install pods
