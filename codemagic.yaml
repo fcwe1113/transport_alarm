@@ -9,6 +9,10 @@ workflows:
         distribution_type: app_store
         bundle_identifier: com.fcwe1113.busArrivalNotificationApp
     scripts:
+      - name: Generate secrets configuration
+      - script: | 
+        mkdir -p config
+        echo "$SECRETS_JSON" | base64 --decode > config/secrets.json
       - name: Get Flutter packages
         script: flutter pub get
       - name: Install pods
