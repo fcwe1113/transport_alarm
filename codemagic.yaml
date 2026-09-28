@@ -7,6 +7,8 @@ workflows:
         - $FLUTTER_ROOT/.pub-cache
         - $HOME/Library/Caches/CocoaPods
         - $HOME/.cocoapods
+        - ~/Library/Developer/Xcode/DerivedData/CompilationCache.noindex
+        - ~/Library/Caches/org.swift.swiftpm
     environment:
       flutter: 3.47.5
       xcode: latest
