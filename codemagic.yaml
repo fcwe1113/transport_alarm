@@ -6,10 +6,8 @@ workflows:
       flutter: 3.47.5
       xcode: latest
       ios_signing:
-        certificates:
-          - "ios code sign cert"
-        provisioning_profiles:
-          - "TransportAlarmProvProfile"
+        distribution_type: app_store
+        bundle_identifier: com.fcwe1113.busArrivalNotificationApp
     scripts:
       - name: Generate secrets configuration
         script: |
@@ -20,7 +18,7 @@ workflows:
       - name: Install pods
         script: cd ios && pod install
       - name: Apply signing
-        script: xcode-project use-profiles --archive-method=app-store --code-signing-setup-verbose-logging
+        script: xcode-project use-profiles
       - name: Build ipa
         script: |
           flutter build ipa --release \
