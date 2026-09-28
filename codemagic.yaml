@@ -1,0 +1,4 @@
+environment:
+  ios_signing:
+    distribution_type: app_store   # not development or ad_hoc
+    bundle_identifier: JNKGLH227H
