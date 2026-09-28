@@ -17,13 +17,14 @@ import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'firebase_options.dart';
 
 @pragma("vm:entry-point")
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // print("Background message received: ${message.messageId}");
   // print("Data: ${message.data}");
 
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   final pingId = message.data["ping_id"];
   if (pingId == null) return; // should never happen
   final storage = AlarmStorageService();
@@ -48,7 +49,7 @@ Future<void> main() async { // dart entry point
     }
   }
 
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging messaging = FirebaseMessaging.instance;
   NotificationSettings settings = await messaging.requestPermission(alert: true, badge: true, sound: true);
 
