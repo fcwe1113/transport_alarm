@@ -140,3 +140,19 @@ class BusAlarm {
 
 // maybe replace require ack into expire time because cron job runs per minute, is not null means require ack
 // server will run clean up per cron trigger for expired pings before batch pinging
+
+// NEW ios alarm workflow
+// 0. on alarm register send the next alarm duration start to server
+// 1. server pings on alarm duration start
+// 2. phone gets updated alarm ring estimate, set alarmkit ring(estimate <5 mins), and pings server for estimate update (estimate >5 mins)
+// 3. if alarm is set and next threshold exist then same estimate rules apply but for next threshold, otherwise schedule for next repeat (set alarm status as rang after last alarmkit ring scheduled)
+
+// NEW ping incoming decision flow (also fit in a call when user enables alarm within window?)
+// each bus alarm obj save a ping_id that the incoming ping to that alarm will have (garunteed to be unique by server db constraint)
+// 1. ping handler will get incoming ping id and point ping toward the correct alarm
+// ALARM LAYER
+// 2. alarm will see last estimated time away and decide accordingly, if app is open the estimate is updated per min
+// 2.1. if over 5 mins api for new estimate, if fail assume last estimate is valid and ask for next ping halfway down
+// 2.2. if under 5 mins api for new estimate and set alarmkit alarm, assume last estimate is correct on api fail
+// 2.2.1 if next threshold exist then same estimate rules apply but for next threshold, otherwise schedule for next repeat (set alarm status as rang after last alarmkit ring scheduled)
+// 2.3 if app open and estimate is at 5 min schedule alarmkit alarm, while app open update newest estimate on alarmcard update, incoming pings will ignore thresholds with an active alarm

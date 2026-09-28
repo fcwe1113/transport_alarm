@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -51,8 +52,18 @@ Future<void> main() async { // dart entry point
   FirebaseMessaging messaging = FirebaseMessaging.instance;
   NotificationSettings settings = await messaging.requestPermission(alert: true, badge: true, sound: true);
 
+  if(Platform.isIOS) {
+    String? apnsToken = await messaging.getAPNSToken();
+    var attempts = 0;
+    while (apnsToken == null && attempts < 5) {
+      await Future.delayed(const Duration(seconds: 1));
+      apnsToken = await messaging.getAPNSToken();
+      attempts++;
+    }
+  }
+
   print("User permission status: ${settings.authorizationStatus}");
-  String? token = await messaging.getToken();
+  String? token = Platform.isIOS ? await messaging.getAPNSToken() : await messaging.getToken();
   print("FCM DEVICE TOKEN: ${token}");
 
   FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
