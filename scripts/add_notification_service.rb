@@ -23,8 +23,8 @@ abort "NotificationService target not found" unless extension
 extension.build_configurations.each do |config|
   config.build_settings["CODE_SIGN_STYLE"] = "Manual"
   config.build_settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
-  config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] =
-    "TransportAlarmNotificationExtensionProfile"
+#   config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] =
+#     "TransportAlarmNotificationExtensionProfile"
 end
 
 runner = project.targets.find { |target| target.name == "Runner" }
@@ -32,8 +32,8 @@ runner = project.targets.find { |target| target.name == "Runner" }
 runner.build_configurations.each do |config|
   config.build_settings["CODE_SIGN_STYLE"] = "Manual"
   config.build_settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
-  config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] =
-    "Transport Alarm"
+#   config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] =
+#     "Transport Alarm"
 end
 
 project.save
