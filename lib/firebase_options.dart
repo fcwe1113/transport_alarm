@@ -57,7 +57,6 @@ class DefaultFirebaseOptions {
     projectId: 'transport-alarm',
     storageBucket: 'transport-alarm.firebasestorage.app',
   );
-
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyAzq5tgMOe4xV6ayEfG_JQ-yM21OglJYHA',
     appId: '1:27407470668:ios:1c98e80ddf5d808bdee4e9',
@@ -66,7 +65,6 @@ class DefaultFirebaseOptions {
     storageBucket: 'transport-alarm.firebasestorage.app',
     iosBundleId: 'com.fcwe1113.busArrivalNotificationApp.66RCG95DR7',
   );
-
   static const FirebaseOptions macos = FirebaseOptions(
     apiKey: 'AIzaSyAzq5tgMOe4xV6ayEfG_JQ-yM21OglJYHA',
     appId: '1:27407470668:ios:f87264e8effe2e47dee4e9',
