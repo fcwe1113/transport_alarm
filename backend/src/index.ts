@@ -25,6 +25,7 @@ interface ScheduleRequestBody {
 	device_token: string;
 	scheduled_time: number; // unix timestamp in seconds
 	require_ack: boolean;
+	expire_on?: number | null;
 }
 
 interface ScheduleUpdateBody {
@@ -133,9 +134,163 @@ export default {
 	}
 };
 
+function cleanKeyString(rawKey: string): string {
+	let key = rawKey.trim();
+	// Strip surrounding double or single quotes
+	if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+		key = key.slice(1, -1).trim();
+	}
+	// Replace literal escaped \n and \r with actual newlines
+	key = key.replace(/\\n/g, "\n").replace(/\\r/g, "\r").trim();
+	if (key.includes("\\n")) {
+		key = key.replace(/\\n/g, "\n").replace(/\\r/g, "\r").trim();
+	}
+	return key;
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+	const binaryString = atob(base64);
+	const bytes = new Uint8Array(binaryString.length);
+	for (let i = 0; i < binaryString.length; i++) {
+		bytes[i] = binaryString.charCodeAt(i);
+	}
+	return bytes;
+}
+
+function sec1ToPkcs8(sec1Bytes: Uint8Array): Uint8Array {
+	// PKCS#8 wrapper for EC prime256v1 (P-256)
+	// AlgorithmIdentifier for id-ecPublicKey (1.2.840.10045.2.1) + prime256v1 (1.2.840.10045.3.1.7)
+	const algorithmIdentifier = new Uint8Array([
+		0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07
+	]);
+
+	const sec1Len = sec1Bytes.length;
+	const octetStringHeader: number[] = sec1Len < 128
+		? [0x04, sec1Len]
+		: sec1Len < 256
+		? [0x04, 0x81, sec1Len]
+		: [0x04, 0x82, (sec1Len >> 8) & 0xff, sec1Len & 0xff];
+
+	const bodyLength = 3 + algorithmIdentifier.length + octetStringHeader.length + sec1Len;
+	const sequenceHeader: number[] = bodyLength < 128
+		? [0x30, bodyLength]
+		: bodyLength < 256
+		? [0x30, 0x81, bodyLength]
+		: [0x30, 0x82, (bodyLength >> 8) & 0xff, bodyLength & 0xff];
+
+	const pkcs8 = new Uint8Array(sequenceHeader.length + bodyLength);
+	let offset = 0;
+	pkcs8.set(sequenceHeader, offset); offset += sequenceHeader.length;
+	pkcs8.set([0x02, 0x01, 0x00], offset); offset += 3;
+	pkcs8.set(algorithmIdentifier, offset); offset += algorithmIdentifier.length;
+	pkcs8.set(octetStringHeader, offset); offset += octetStringHeader.length;
+	pkcs8.set(sec1Bytes, offset);
+
+	return pkcs8;
+}
+
+let cachedApnsKey: { raw: string; key: CryptoKey } | null = null;
+
+async function getApnsCryptoKey(rawKey: string): Promise<CryptoKey> {
+	if (cachedApnsKey && cachedApnsKey.raw === rawKey) {
+		return cachedApnsKey.key;
+	}
+
+	const cleaned = cleanKeyString(rawKey);
+	const isSec1 = cleaned.includes("BEGIN EC PRIVATE KEY");
+
+	// Strip PEM headers/footers and any whitespace
+	const cleanBase64 = cleaned
+		.replace(/-----BEGIN [A-Z ]+-----/g, "")
+		.replace(/-----END [A-Z ]+-----/g, "")
+		.replace(/\s+/g, "");
+
+	if (!cleanBase64) {
+		throw new Error("APNS_PRIVATE_KEY is empty after stripping PEM headers.");
+	}
+
+	let der: Uint8Array;
+	try {
+		der = base64ToUint8Array(cleanBase64);
+	} catch (err) {
+		throw new Error(`Failed to base64-decode APNS_PRIVATE_KEY: ${err instanceof Error ? err.message : String(err)}`);
+	}
+
+	if (isSec1) {
+		der = sec1ToPkcs8(der);
+	}
+
+	let importedKey: CryptoKey;
+	try {
+		importedKey = await crypto.subtle.importKey(
+			"pkcs8",
+			der,
+			{ name: "ECDSA", namedCurve: "P-256" },
+			false,
+			["sign"]
+		);
+	} catch (primaryErr) {
+		// If direct PKCS#8 import failed and wasn't explicitly marked SEC1, try converting as SEC1
+		if (!isSec1) {
+			try {
+				const converted = sec1ToPkcs8(der);
+				importedKey = await crypto.subtle.importKey(
+					"pkcs8",
+					converted,
+					{ name: "ECDSA", namedCurve: "P-256" },
+					false,
+					["sign"]
+				);
+			} catch (_) {
+				throw new Error(
+					`Invalid PKCS8/EC input for APNS_PRIVATE_KEY (${primaryErr instanceof Error ? primaryErr.message : String(primaryErr)}). ` +
+					`Key base64 length: ${cleanBase64.length} chars. Ensure this is an EC P-256 key from Apple (.p8).`
+				);
+			}
+		} else {
+			throw primaryErr;
+		}
+	}
+
+	cachedApnsKey = { raw: rawKey, key: importedKey };
+	return importedKey;
+}
+
+let cachedApnsJwt: { token: string; exp: number; teamId: string; keyId: string } | null = null;
+
+async function getApnsJwtToken(env: Env, apnsKey: CryptoKey): Promise<string> {
+	const now = Math.floor(Date.now() / 1000);
+	if (
+		cachedApnsJwt &&
+		cachedApnsJwt.exp > now + 300 &&
+		cachedApnsJwt.teamId === env.APNS_TEAM_ID &&
+		cachedApnsJwt.keyId === env.APNS_KEY_ID
+	) {
+		return cachedApnsJwt.token;
+	}
+
+	// Apple allows tokens to be valid for up to 1 hour (3600s). We'll set 50 minutes (3000s).
+	const token = await jwt.sign(
+		{ iss: env.APNS_TEAM_ID, iat: now },
+		apnsKey,
+		{ algorithm: "ES256", header: { kid: env.APNS_KEY_ID! } }
+	);
+
+	cachedApnsJwt = {
+		token,
+		exp: now + 3000,
+		teamId: env.APNS_TEAM_ID!,
+		keyId: env.APNS_KEY_ID!
+	};
+
+	return token;
+}
+
 async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 	try {
-		const token = await jwt.sign({ iss: env.APNS_TEAM_ID, iat: Math.floor(Date.now() / 1000) }, env.APNS_PRIVATE_KEY!, { algorithm: "ES256", header: { kid: env.APNS_KEY_ID! } });
+		const apnsKey = await getApnsCryptoKey(env.APNS_PRIVATE_KEY!);
+		const token = await getApnsJwtToken(env, apnsKey);
+
 		const payload = {
 			aps: {
 				alert: { title: "server cronjob ping", body: "you should not be able to see this lol" },
@@ -158,7 +313,13 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 			body: JSON.stringify(payload)
 		});
 
-		return response.ok;
+		if (!response.ok) {
+			const errorText = await response.text();
+			console.log(`APNs push failed with HTTP ${response.status} for ping ${job.id}:`, errorText);
+			return false;
+		}
+
+		return true;
 	} catch (error) {
 		console.log(`APNs push failed for ping ${job.id}:`, error);
 		return false;
@@ -179,7 +340,7 @@ async function getFCMAccessToken(env: Env): Promise<string | null> {
 				iat: nowSeconds,
 				exp: nowSeconds + 3600
 			},
-			env.FCM_PRIVATE_KEY!,
+			cleanKeyString(env.FCM_PRIVATE_KEY!),
 			{ algorithm: "RS256" }
 		);
 
