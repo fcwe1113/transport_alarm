@@ -23,7 +23,7 @@ class AlarmLifecycleService {
     }
   }
 
-  Future<AlarmActionResult> setEnabled(String alarmId, bool enabled) async { // todo ignore buses that are arriving before first threshold
+  Future<AlarmActionResult> setEnabled(String alarmId, bool enabled) async { // todo show popup if a bus is found within the threshold, user can skip the bus or skip the alarm state to cathc the bus
     final alarms = await _storage.loadAlarms();
     final alarm = alarms.where((a) => a.id == alarmId).firstOrNull;
     if (alarm == null) return AlarmActionResult.failure("Alarm not found");
