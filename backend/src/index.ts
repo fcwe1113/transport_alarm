@@ -299,7 +299,7 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 				category: "ping",
 				sound: "default",
 				"mutable-content": 1,
-				"content-available": 1,
+// 				"content-available": 1,
 			},
 			ping_id: job.id,
 		};
