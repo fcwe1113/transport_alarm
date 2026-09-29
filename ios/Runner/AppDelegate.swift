@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 import GoogleMaps
 import Firebase
+import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -11,7 +12,14 @@ import Firebase
     ) -> Bool {
         debugPrintEntitlements()
         FirebaseApp.configure()
+
+        if #available(iOS 10.0, *) {
+            UNUserNotificationCenter.current().delegate = self as UNUserNotificationCenterDelegate
+        }
+
         GeneratedPluginRegistrant.register(with: self)
+
+        application.registerForRemoteNotifications()
 
         if let registrar = self.registrar(forPlugin: "GoogleMapsApiKeyHandler") {
             let mapsChannel = FlutterMethodChannel(
@@ -32,6 +40,41 @@ import Firebase
         }
 
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    override func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNUserNotification,
+        withCompletionHandler completionHandler: @escaping (UNUserNotificationPresentationOptions) -> void
+    ) {
+        NSLog("DEBUG_SWIFT_PUSH: Received push notification in foreground: %@", notification.request.content.userInfo)
+        if #available(iOS 14.0, *) {
+            NSLog("DEBUG_SWIFT_PUSH: passing into dart")
+            completionHandler([.banner, .list, .sound, .badge])
+        } else {
+            completionHandler([.alert, .sound, .badge])
+        }
+    }
+
+    // Log successful APNs token acquisition
+    override func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+        NSLog("DEBUG_SWIFT_PUSH: APNs Token successfully registered: %@", tokenString)
+
+        super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+    }
+
+    // Log APNs registration errors
+    override func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        NSLog("DEBUG_SWIFT_PUSH: Failed to register for remote notifications: %@", error.localizedDescription)
+
+        super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
     }
 
     private func debugPrintEntitlements() {
