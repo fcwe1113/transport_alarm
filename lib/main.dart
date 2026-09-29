@@ -21,9 +21,10 @@ import 'firebase_options.dart';
 
 @pragma("vm:entry-point")
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // print("Background message received: ${message.messageId}");
-  // print("Data: ${message.data}");
+  print("Background message received: ${message.messageId}");
+  print("Data: ${message.data}");
 
+  WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   final pingId = message.data["ping_id"];
   if (pingId == null) return; // should never happen

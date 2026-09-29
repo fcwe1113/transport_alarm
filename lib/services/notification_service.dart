@@ -9,12 +9,16 @@ class NotificationService {
 
   static Future<void> init() async {
     const androidSettings = AndroidInitializationSettings("@mipmap/ic_launcher");
-    const darwinSettings = DarwinInitializationSettings(
+    final darwinSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
+      defaultPresentAlert: true,
+      defaultPresentBadge: true,
+      defaultPresentBanner: true,
+      notificationCategories: [DarwinNotificationCategory("ping", actions: [DarwinNotificationAction.plain("acknowledge", "Acknowledge", options: {DarwinNotificationActionOption.foreground})])]
     );
-    const initSettings = InitializationSettings(
+    final initSettings = InitializationSettings(
       android: androidSettings,
       iOS: darwinSettings,
     );

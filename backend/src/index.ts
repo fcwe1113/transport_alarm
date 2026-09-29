@@ -290,15 +290,21 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 	try {
 		const apnsKey = await getApnsCryptoKey(env.APNS_PRIVATE_KEY!);
 		const token = await getApnsJwtToken(env, apnsKey);
+// 		console.log(`key: ${apnsKey}`);
+// 		console.log(`token: ${token}`);
 
 		const payload = {
 			aps: {
 				alert: { title: "server cronjob ping", body: "you should not be able to see this lol" },
+				category: "ping",
 				sound: "default",
-				"mutable-content": 1
+				"mutable-content": 1,
+				"content-available": 1,
 			},
-			ping_id: job.id
+			ping_id: job.id,
 		};
+
+	console.log("sending ping");
 
 		const apnHost = "https://api.push.apple.com";
 		const response = await fetch(`${apnHost}/3/device/${job.device_token}`, {
@@ -318,6 +324,8 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 			console.log(`APNs push failed with HTTP ${response.status} for ping ${job.id}:`, errorText);
 			return false;
 		}
+
+		console.log("sent ping");
 
 		return true;
 	} catch (error) {
