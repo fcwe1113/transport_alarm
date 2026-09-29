@@ -28,13 +28,15 @@ workflows:
           security find-identity -v -p codesigning
       - name: Inspect Provisioning Profile
         script: |
-          PROF=$(ls ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision | head -n 1)
-          echo "=== Profile Name & App ID ==="
-          security cms -D -i "$PROF" | grep -A 2 "<key>application-identifier</key>"
-          echo "=== Profile Type ==="
-          security cms -D -i "$PROF" | grep -A 1 "<key>get-task-allow</key>"
-          echo "=== Team ID ==="
-          security cms -D -i "$PROF" | grep -A 1 "<key>TeamIdentifier</key>"
+          for PROF in ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision; do
+            echo "=========================================="
+            echo "Profile: $PROF"
+            security cms -D -i "$PROF" > /tmp/profile.plist
+            echo "--- Profile Name ---"
+            /usr/libexec/PlistBuddy -c "Print :Name" /tmp/profile.plist || true
+            echo "--- Profile Entitlements ---"
+            /usr/libexec/PlistBuddy -c "Print :Entitlements" /tmp/profile.plist || true
+          done
       - name: Get Flutter packages
         script: flutter pub get
       - name: Install pods
@@ -46,6 +48,10 @@ workflows:
           flutter build ipa --release \
             --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID") + 1)) \
             --export-options-plist=/Users/builder/export_options.plist
+      - name: Verify IPA entitlements
+        script: |
+          echo "=== Inspecting built Runner.app Entitlements ==="
+          codesign -d --entitlements :- build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app || true
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:

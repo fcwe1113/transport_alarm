@@ -35,10 +35,11 @@ import Firebase
     }
 
     private func debugPrintEntitlements() {
-        // Read embedded provisioning profile from app bundle
+        NSLog("DEBUG_ENTITLEMENTS: Checking app bundle provisioning profile...")
+        // Read embedded provisioning profile from app bundle (present in Ad-Hoc / Dev builds, stripped in TestFlight/AppStore)
         guard let profileURL = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
               let profileData = try? Data(contentsOf: profileURL) else {
-            print("DEBUG_ENTITLEMENTS: No embedded.mobileprovision found in bundle")
+            NSLog("DEBUG_ENTITLEMENTS: No embedded.mobileprovision found in bundle (Note: TestFlight/App Store builds strip this file)")
             return
         }
 
@@ -46,29 +47,29 @@ import Firebase
         guard let profileString = String(data: profileData, encoding: .ascii),
               let plistStart = profileString.range(of: "<?xml"),
               let plistEnd = profileString.range(of: "</plist>") else {
-            print("DEBUG_ENTITLEMENTS: Could not parse mobileprovision")
+            NSLog("DEBUG_ENTITLEMENTS: Could not parse mobileprovision")
             return
         }
 
         let plistString = String(profileString[plistStart.lowerBound...plistEnd.upperBound])
         guard let plistData = plistString.data(using: .utf8),
               let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any] else {
-            print("DEBUG_ENTITLEMENTS: Could not deserialize plist")
+            NSLog("DEBUG_ENTITLEMENTS: Could not deserialize plist")
             return
         }
 
-        print("DEBUG_ENTITLEMENTS: Profile Name: %@", plist["Name"] as? String ?? "unknown")
-        print("DEBUG_ENTITLEMENTS: Team: %@", (plist["TeamIdentifier"] as? [String])?.joined(separator: ", ") ?? "unknown")
-        print("DEBUG_ENTITLEMENTS: AppIDName: %@", plist["AppIDName"] as? String ?? "unknown")
-        print("DEBUG_ENTITLEMENTS: ProvisionsAllDevices: %@", plist["ProvisionsAllDevices"] != nil ? "YES" : "NO")
+        NSLog("DEBUG_ENTITLEMENTS: Profile Name: %@", plist["Name"] as? String ?? "unknown")
+        NSLog("DEBUG_ENTITLEMENTS: Team: %@", (plist["TeamIdentifier"] as? [String])?.joined(separator: ", ") ?? "unknown")
+        NSLog("DEBUG_ENTITLEMENTS: AppIDName: %@", plist["AppIDName"] as? String ?? "unknown")
+        NSLog("DEBUG_ENTITLEMENTS: ProvisionsAllDevices: %@", plist["ProvisionsAllDevices"] != nil ? "YES" : "NO")
 
         if let entitlements = plist["Entitlements"] as? [String: Any] {
-            print("DEBUG_ENTITLEMENTS: === Entitlements ===")
+            NSLog("DEBUG_ENTITLEMENTS: === Entitlements ===")
             for (key, value) in entitlements.sorted(by: { $0.key < $1.key }) {
-                print("DEBUG_ENTITLEMENTS:   %@ = %@", key, "\(value)")
+                NSLog("DEBUG_ENTITLEMENTS:   %@ = %@", key, "\(value)")
             }
         } else {
-            print("DEBUG_ENTITLEMENTS: No Entitlements dict found in profile")
+            NSLog("DEBUG_ENTITLEMENTS: No Entitlements dict found in profile")
         }
     }
 
