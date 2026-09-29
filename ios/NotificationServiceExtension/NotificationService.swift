@@ -1,0 +1,24 @@
+import UserNotifications
+
+class NotificationService : UNNotificationServiceExtension {
+
+    var contentHandler: ((UNNotificationContent) -> Void)?
+    var bestAttemptContent: UNMutableNotificationContent?
+
+    override func didReceive(_ request: UNNoficationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        self.contentHandler = contentHandler
+        bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
+
+        if let bestAttemptContent = bestAttemptContent {
+            let originalTitle = bestAttemptContent.title
+            bestAttemptContent.title = "⚡ [Ext]" + originalTitle
+            bestAttemptContent.body = bestAttemptContent.body + " (intercepted by extension)"
+            contentHandler(bestAttemptContent)
+        }
+    }
+
+    override func serviceExtensionTimeWillExpire() {
+        if let contentHandler = contentHandler, let bestAttemptContent = bestAttemptContent {contentHandler(bestAttemptContent)}
+    }
+
+}

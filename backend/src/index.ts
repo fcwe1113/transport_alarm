@@ -298,7 +298,7 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 				alert: { title: "server cronjob ping", body: "you should not be able to see this lol" },
 				category: "ping",
 				sound: "default",
-// 				"mutable-content": 1,
+				"mutable-content": 1,
 				"content-available": 1,
 			},
 			ping_id: job.id,
