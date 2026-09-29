@@ -185,7 +185,7 @@
 				F8414685C08043353570F413 /* Info.plist */,
 			);
 			name = NotificationService;
-			path = NotificationService;
+			path = NotificationServiceExtension;
 			sourceTree = "<group>";
 		};
 		CFE53E11D909E552D2606235 /* Frameworks */ = {
@@ -442,9 +442,9 @@
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
 				DEVELOPMENT_TEAM = 66RCG95DR7;
-				INFOPLIST_FILE = NotificationService/Info.plist;
+				INFOPLIST_FILE = NotificationServiceExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).NotificationService";
+				PRODUCT_BUNDLE_IDENTIFIER = com.fcwe1113.busArrivalNotificationApp.66RCG95DR7.NotificationService;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -588,9 +588,9 @@
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
 				DEVELOPMENT_TEAM = 66RCG95DR7;
-				INFOPLIST_FILE = NotificationService/Info.plist;
+				INFOPLIST_FILE = NotificationServiceExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).NotificationService";
+				PRODUCT_BUNDLE_IDENTIFIER = com.fcwe1113.busArrivalNotificationApp.66RCG95DR7.NotificationService;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -771,9 +771,9 @@
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
 				DEVELOPMENT_TEAM = 66RCG95DR7;
-				INFOPLIST_FILE = NotificationService/Info.plist;
+				INFOPLIST_FILE = NotificationServiceExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_IDENTIFIER).NotificationService";
+				PRODUCT_BUNDLE_IDENTIFIER = com.fcwe1113.busArrivalNotificationApp.66RCG95DR7.NotificationService;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
