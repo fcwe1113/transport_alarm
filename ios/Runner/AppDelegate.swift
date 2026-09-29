@@ -44,8 +44,8 @@ import UserNotifications
 
     override func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNUserNotification,
-        withCompletionHandler completionHandler: @escaping (UNUserNotificationPresentationOptions) -> void
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         NSLog("DEBUG_SWIFT_PUSH: Received push notification in foreground: %@", notification.request.content.userInfo)
         if #available(iOS 14.0, *) {
