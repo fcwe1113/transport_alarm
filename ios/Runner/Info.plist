@@ -76,6 +76,5 @@
 	</array>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>We use your location to show your position on the map while you're using it, no data is retained.</string>
-</array>
 </dict>
 </plist>
