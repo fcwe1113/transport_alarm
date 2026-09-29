@@ -24,7 +24,7 @@ extension.build_configurations.each do |config|
   config.build_settings["CODE_SIGN_STYLE"] = "Manual"
   config.build_settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
   config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] =
-    "MyApp NotificationService AppStore"
+    "TransportAlarmNotificationExtensionProfile"
 end
 
 runner = project.targets.find { |target| target.name == "Runner" }
@@ -33,7 +33,7 @@ runner.build_configurations.each do |config|
   config.build_settings["CODE_SIGN_STYLE"] = "Manual"
   config.build_settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
   config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] =
-    "MyApp AppStore"
+    "Transport Alarm"
 end
 
 project.save
