@@ -50,8 +50,12 @@ workflows:
             --export-options-plist=/Users/builder/export_options.plist
       - name: Verify IPA entitlements
         script: |
-          echo "=== Inspecting built Runner.app Entitlements ==="
+          echo "=== Inspecting xcarchive Runner.app ==="
           codesign -d --entitlements :- build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app || true
+          echo "=== Inspecting exported IPA Payload/Runner.app ==="
+          IPA=$(ls build/ios/ipa/*.ipa | head -n 1)
+          rm -rf /tmp/ipa && unzip -q "$IPA" -d /tmp/ipa
+          codesign -d --entitlements :- /tmp/ipa/Payload/Runner.app || true
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:
