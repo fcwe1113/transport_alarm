@@ -49,9 +49,6 @@ Future<void> main() async { // dart entry point
     }
   }
 
-  // todo Could not locate configuration file: 'GoogleService-Info.plist'.
-  // todo no valid “aps-environment” entitlement string found for application
-
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   FirebaseMessaging messaging = FirebaseMessaging.instance;
   NotificationSettings settings = await messaging.requestPermission(alert: true, badge: true, sound: true);

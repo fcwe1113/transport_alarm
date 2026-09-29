@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:transport_alarm/models/bus_alarm.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/device_token_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 
@@ -71,7 +72,7 @@ class AlarmLifecycleService {
   }
 
   Future<BusAlarm> _schedulePing(BusAlarm alarm) async {
-    final deviceToken = await FirebaseMessaging.instance.getToken();
+    final deviceToken = await DeviceTokenService.getToken();
     if (deviceToken == null) return alarm; // no token yet
     final now = TimeOfDay.now();
 
@@ -94,7 +95,7 @@ class AlarmLifecycleService {
   }
 
   Future<BusAlarm> _schedulePingForNextOccurrence(BusAlarm alarm) async {
-    final deviceToken = await FirebaseMessaging.instance.getToken();
+    final deviceToken = await DeviceTokenService.getToken();
     if (deviceToken == null) return alarm;
 
     final nextDate = _computeNextOccurrenceDate(alarm.repeat);
