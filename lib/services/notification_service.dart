@@ -9,7 +9,15 @@ class NotificationService {
 
   static Future<void> init() async {
     const androidSettings = AndroidInitializationSettings("@mipmap/ic_launcher");
-    const initSettings = InitializationSettings(android: androidSettings);
+    const darwinSettings = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: darwinSettings,
+    );
     await plugin.initialize(settings: initSettings, onDidReceiveNotificationResponse: _onNotificationResponse);
   }
 

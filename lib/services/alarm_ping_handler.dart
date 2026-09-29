@@ -96,7 +96,15 @@ class AlarmPingHandler {
         fullScreenIntent: true,
         actions: const [AndroidNotificationAction("acknowledge", "I\'m up / Got it")]
     );
-    const notificationDetails = NotificationDetails(android: androidDetails);
+    const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+    );
+    const notificationDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+    );
 
     final stop = await GtfsDatabase.forLocale("hk").getGtfsStopById(alarm.gtfsStopId); // todo fix locale hardcode
     await NotificationService.plugin.show(
