@@ -41,6 +41,7 @@ interface AckRequestBody {
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+		const retry_period = 180; // retry_period is 3 minutes
 		const url = new URL(request.url);
 
 		if (request.method == "POST" && url.pathname === "/schedule") {
@@ -52,7 +53,7 @@ export default {
 
 				const info = await env.DB.prepare(
 					"INSERT INTO scheduled_pings (device_token, scheduled_time, require_ack, expire_on) VALUES (?, ?, ?, ?)"
-				).bind(body.device_token, body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? null).run();
+				).bind(body.device_token, body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? body.scheduled_time + retry_period).run();
 
 				return new Response(JSON.stringify({ success: true, ping_id: info.meta.last_row_id }), { headers: { "Content-Type": "application/json" } });
 			} catch (err) {
@@ -70,7 +71,7 @@ export default {
 
     				const info = await env.DB.prepare(
     					"UPDATE scheduled_pings SET scheduled_time = ?, require_ack = ?, expire_on = ?, status = 'PENDING', last_sent_at = NULL WHERE id = ?"
-    				).bind(body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? null, body.ping_id).run();
+    				).bind(body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? body.scheduled_time + retry_period, body.ping_id).run();
 
 					if (info.meta.changes === 0) {
 						return new Response(JSON.stringify({ error: "ping_id not found" }), { status: 404 });
@@ -104,7 +105,7 @@ export default {
 		const oneMinuteAgo = now - 60;
 
 		const { results } = await env.DB.prepare( // send a ping when a pending ping has a scheduled_time past now (current timestamp higher than schedule)
-			"SELECT * FROM scheduled_pings WHERE (status = 'PENDING' AND scheduled_time <= ?) OR (status = 'SENT' AND require_ack = 1 AND last_sent_at <= ? AND (expire_on IS NULL OR expire_on > ?))"
+			"SELECT * FROM scheduled_pings WHERE (status = 'PENDING' AND scheduled_time <= ?) AND (status = 'SENT' AND expire_on > ?))"
 		).bind(now, oneMinuteAgo, now).all<ScheduledPing>();
 
 		console.log(`[Cron run at ${new Date().toISOString()}] found ${results.length} jobs to process`);
@@ -127,7 +128,7 @@ export default {
 				if (job.require_ack === 1) {
 					await env.DB.prepare("UPDATE scheduled_pings SET status = 'SENT', last_sent_at = ? WHERE id = ?").bind(now, job.id).run();
 				} else {
-					await env.DB.prepare("DELETE FROM scheduled_pings WHERE status = 'SENT' AND require_ack = 1 AND expire_on IS NOT NULL AND expire_on <= ?").bind(now).run();
+					await env.DB.prepare("DELETE FROM scheduled_pings WHERE expire_on <= ?").bind(now).run();
 				}
 			}
 		}
