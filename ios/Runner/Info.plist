@@ -76,5 +76,7 @@
 	</array>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>We use your location to show your position on the map while you're using it, no data is retained.</string>
+    <key>NSAlarmKitUsageDescription</key>
+    <string>This app needs permission to schedule alarms for when the live arrival window is arriving.</string>
 </dict>
 </plist>

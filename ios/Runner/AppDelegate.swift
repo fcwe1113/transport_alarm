@@ -3,6 +3,9 @@ import UIKit
 import GoogleMaps
 import Firebase
 import UserNotifications
+import AlarmKit
+
+struct TransportAlarmMetadata: AlarmMetadata {} // intentionally empty, maybe add informational vars later
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -77,42 +80,74 @@ import UserNotifications
         super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
     }
 
-    private func debugPrintEntitlements() {
-        NSLog("DEBUG_ENTITLEMENTS: Checking app bundle provisioning profile...")
-        // Read embedded provisioning profile from app bundle (present in Ad-Hoc / Dev builds, stripped in TestFlight/AppStore)
-        guard let profileURL = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
-              let profileData = try? Data(contentsOf: profileURL) else {
-            NSLog("DEBUG_ENTITLEMENTS: No embedded.mobileprovision found in bundle (Note: TestFlight/App Store builds strip this file)")
-            return
-        }
+    func setupAlarmKitChannel(controller: FlutterViewController) {
+        let channel = FlutterMethodChannel(name: "com.fcwe1113.transport_alarm/alarmkit", binaryMessenger: controller.binaryMessenger)
 
-        // The mobileprovision file is CMS-signed; the plist is between <plist> tags
-        guard let profileString = String(data: profileData, encoding: .ascii),
-              let plistStart = profileString.range(of: "<?xml"),
-              let plistEnd = profileString.range(of: "</plist>") else {
-            NSLog("DEBUG_ENTITLEMENTS: Could not parse mobileprovision")
-            return
-        }
-
-        let plistString = String(profileString[plistStart.lowerBound...plistEnd.upperBound])
-        guard let plistData = plistString.data(using: .utf8),
-              let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any] else {
-            NSLog("DEBUG_ENTITLEMENTS: Could not deserialize plist")
-            return
-        }
-
-        NSLog("DEBUG_ENTITLEMENTS: Profile Name: %@", plist["Name"] as? String ?? "unknown")
-        NSLog("DEBUG_ENTITLEMENTS: Team: %@", (plist["TeamIdentifier"] as? [String])?.joined(separator: ", ") ?? "unknown")
-        NSLog("DEBUG_ENTITLEMENTS: AppIDName: %@", plist["AppIDName"] as? String ?? "unknown")
-        NSLog("DEBUG_ENTITLEMENTS: ProvisionsAllDevices: %@", plist["ProvisionsAllDevices"] != nil ? "YES" : "NO")
-
-        if let entitlements = plist["Entitlements"] as? [String: Any] {
-            NSLog("DEBUG_ENTITLEMENTS: === Entitlements ===")
-            for (key, value) in entitlements.sorted(by: { $0.key < $1.key }) {
-                NSLog("DEBUG_ENTITLEMENTS:   %@ = %@", key, "\(value)")
+        channel.setMethodCaller { (call, result) in
+            switch call.method {
+            case "armAlarm":
+                self.armAlarm(call: call, result: result)
+            case "cancelAalrm":
+                self.cancelAlarm(call: call, result: result)
+            default: //  should never happen
+                result(FlutterMethodNotImplemented)
             }
-        } else {
-            NSLog("DEBUG_ENTITLEMENTS: No Entitlements dict found in profile")
+        }
+    }
+
+    private func armAlarm(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let alarmIdString = args["alarmId"] as? String,
+              let secondsUntilFire = args["secondsUntilFire"] as? Double,
+              let title = args["title"] as? String else {
+            result(FlutterError(code: "BAD_ARGS", message: "Missing alarmId, secondsUntilFire, or title", details: nil))
+            return
+        }
+        
+        guard let alarmId = UUID(uuidString: alarmIdString) else {
+            result(FlutterError(code: "BAD_ARGS", message: "alarmId is not a valid UUID", details: nil))
+            return
+        }
+
+        Task {
+            do {
+                let state = try await AlarmManager.shared.requestAuthorization()
+                guard state == .authorized else {
+                    result(FlutterError(code: "NOT_AUTHORIZED", message: "AlarmKit not authorized", details: nil))
+                    return
+                }
+
+                typealias Config = AlarmManager.AlarmConfiguration<TransportAlarmMetadata>
+
+                let stopButton = AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.circle")
+                let alertPresentation = AlarmPresentation.alert(title: LocalizedStringResource(stringLiteral: title), stopButton: stopButton)
+                let attributes = AlarmAttributes<TransportAlarmMetadata>(presentation: alarmPresentation(alert: alertPresentation), tintColor: .blue)
+                let duration = Alarm.CountDownDuration(preAlert: TimeInterval(secondsUntilFire), postAlert: nil) // todo check
+                let configuration = Config(countdownDuration: duration, attributes: attributes)
+
+                _ = try await AlarmManager.shared.schedule(id: alarmId, configuration: configuration)
+                result(true)
+            } catch {
+                result(FlutterError(code: "SCHEDULE_FAILED", message: error.localizedDescription, details: nil))
+            }
+        }
+    }
+
+    private func cancelAlarm(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let alarmIdString = args["alarmId"] as? String,
+              let alarmId = UUID(uuidString: alarmIdString) else {
+            result(FlutterError(code: "BAD_ARGS", message: "Missing or invalid alarmId", details: nil))
+            return
+        }
+
+        Task {
+            do {
+                try await AlarmManager.shared.cancel(id: alarmId)
+                result(true)
+            } catch {
+                result(FlutterError(ccode: "CALCEL_FAILED", message: error.localizedDescription, details: nil))
+            }
         }
     }
 
