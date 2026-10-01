@@ -7,24 +7,24 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0EC74B1E9A57CFFF0ECF6368 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA842F78E2A33F2110979FE /* AppGroup.swift */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		2147030837A49D38E592A116 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62E5DF5D8F2FB65BE9AFEFD /* NotificationService.swift */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
-		353D4C7CB086CB5F6482C23F /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCA2419FBC88C8416E1D93A2 /* AppGroup.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
-		5CF14073B7406BBD0F27A7F5 /* AlarmKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F6642A58DD8ACF77CA53983 /* AlarmKitBridge.swift */; };
+		709940FA8C261AF604794057 /* AlarmKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E61F4BEEB9A1D9209256EBDE /* AlarmKitBridge.swift */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		753251FB2849AFC82987CDE0 /* Info.plist in None */ = {isa = PBXBuildFile; fileRef = F8414685C08043353570F413 /* Info.plist */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		7B2F3A4E1D9C5B8A00F1E2D3 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 7B2F3A4D1D9C5B8A00F1E2D3 /* GoogleService-Info.plist */; };
 		7C11AC531BE3C9455EFAF205 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 841C7F6BF1EDECAAAA03E5A4 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		7D21457B8C89A995964B7895 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DE34B22B7F6F2254DC75A94 /* AppGroup.swift */; };
-		7E854AE284E72ED8B1033880 /* AlarmKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AA423D878895E0F6999D59 /* AlarmKitBridge.swift */; };
 		8D96370625E2477E0D3CE517 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B2F123B1D38409E858B94D16 /* Foundation.framework */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		B9544FD68E6E494451FEEC07 /* AlarmKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56CF45A7BDD1B73A9A3B13BC /* AlarmKitBridge.swift */; };
+		E2A549C880CA9E8D5E26FF2D /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06D84277ADB6CC2F36720051 /* AppGroup.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -45,16 +45,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		9705A1C41CF9048500538489 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		C079043D176603DA939739BF /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -69,15 +59,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		06D84277ADB6CC2F36720051 /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
-		14D04A8DB44D203A3FBFD5DE /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = ios/Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
 		1706934E936F47B5BEBC875A /* NotificationServiceExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationServiceExtension.entitlements; sourceTree = "<group>"; };
-		24F64385A6D3B84D85386F56 /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitBridge.swift; path = ios/Shared/AlarmKitBridge.swift; sourceTree = SOURCE_ROOT; };
-		2F6642A58DD8ACF77CA53983 /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitBridge.swift; path = ios/Shared/AlarmKitBridge.swift; sourceTree = SOURCE_ROOT; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
+		56CF45A7BDD1B73A9A3B13BC /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitBridge.swift; path = Shared/AlarmKitBridge.swift; sourceTree = SOURCE_ROOT; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
@@ -86,7 +75,6 @@
 		7B2F3A4D1D9C5B8A00F1E2D3 /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		7B2F3A4F1D9C5B8A00F1E2D4 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		841C7F6BF1EDECAAAA03E5A4 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		8DE34B22B7F6F2254DC75A94 /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = ios/Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
 		97C146EE1CF9000F007C117D /* Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Runner.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -96,8 +84,8 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B2F123B1D38409E858B94D16 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		C62E5DF5D8F2FB65BE9AFEFD /* NotificationService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
-		CCA2419FBC88C8416E1D93A2 /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = ios/Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
-		F4AA423D878895E0F6999D59 /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitBridge.swift; path = ios/Shared/AlarmKitBridge.swift; sourceTree = SOURCE_ROOT; };
+		DDA842F78E2A33F2110979FE /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
+		E61F4BEEB9A1D9209256EBDE /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitBridge.swift; path = Shared/AlarmKitBridge.swift; sourceTree = SOURCE_ROOT; };
 		F8414685C08043353570F413 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -158,12 +146,10 @@
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				B799DC5DE1C2F7B6FAC951DD /* NotificationService */,
 				CFE53E11D909E552D2606235 /* Frameworks */,
-				8DE34B22B7F6F2254DC75A94 /* AppGroup.swift */,
-				14D04A8DB44D203A3FBFD5DE /* AppGroup.swift */,
-				F4AA423D878895E0F6999D59 /* AlarmKitBridge.swift */,
-				24F64385A6D3B84D85386F56 /* AlarmKitBridge.swift */,
-				2F6642A58DD8ACF77CA53983 /* AlarmKitBridge.swift */,
-				CCA2419FBC88C8416E1D93A2 /* AppGroup.swift */,
+				DDA842F78E2A33F2110979FE /* AppGroup.swift */,
+				06D84277ADB6CC2F36720051 /* AppGroup.swift */,
+				E61F4BEEB9A1D9209256EBDE /* AlarmKitBridge.swift */,
+				56CF45A7BDD1B73A9A3B13BC /* AlarmKitBridge.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -222,7 +208,6 @@
 			buildConfigurationList = 331C8087294A63A400263BE5 /* Build configuration list for PBXNativeTarget "RunnerTests" */;
 			buildPhases = (
 				331C807D294A63A400263BE5 /* Sources */,
-				331C807F294A63A400263BE5 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -240,7 +225,6 @@
 			buildPhases = (
 				98D47A4FFD350806C8184679 /* Sources */,
 				09EF83CA39DAFC78E757E8BC /* Frameworks */,
-				27CF6390EBECFCBD2F3C07E1 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -260,7 +244,6 @@
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
 				C079043D176603DA939739BF /* Embed Foundation Extensions */,
-				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 			);
 			buildRules = (
@@ -326,20 +309,6 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		27CF6390EBECFCBD2F3C07E1 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		331C807F294A63A400263BE5 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		97C146EC1CF9000F007C117D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -404,8 +373,8 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
-				7D21457B8C89A995964B7895 /* AppGroup.swift in Sources */,
-				7E854AE284E72ED8B1033880 /* AlarmKitBridge.swift in Sources */,
+				0EC74B1E9A57CFFF0ECF6368 /* AppGroup.swift in Sources */,
+				709940FA8C261AF604794057 /* AlarmKitBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -414,8 +383,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				2147030837A49D38E592A116 /* NotificationService.swift in Sources */,
-				5CF14073B7406BBD0F27A7F5 /* AlarmKitBridge.swift in Sources */,
-				353D4C7CB086CB5F6482C23F /* AppGroup.swift in Sources */,
+				E2A549C880CA9E8D5E26FF2D /* AppGroup.swift in Sources */,
+				B9544FD68E6E494451FEEC07 /* AlarmKitBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
