@@ -51,7 +51,7 @@ enum AlarmKitBridge {
                     metadata: nil,
                     tintColor: .blue
                 )
-                let duration = Alarm.CountDownDuration(preAlert: TimeInterval(secondsUntilFire), postAlert: nil) // todo check
+                let duration = Alarm.CountdownDuration(preAlert: TimeInterval(secondsUntilFire), postAlert: nil)
                 let configuration = Config(countdownDuration: duration, attributes: attributes)
 
                 _ = try await AlarmManager.shared.schedule(id: alarmId, configuration: configuration)
