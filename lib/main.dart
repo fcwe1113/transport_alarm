@@ -19,6 +19,34 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'firebase_options.dart';
 
+const _nseChannel = MethodChannel("com.fcwe1113.transport_alarm/nse");
+
+@pragma('vm:entry-point')
+void notificationServiceExtension() {
+  print("DEBUG TEST: NSE triggered dart code");
+  WidgetsFlutterBinding.ensureInitialized();
+
+  _nseChannel.setMethodCallHandler((call) async {
+    if (call.method == 'handlePing') {
+      final pingId = call.arguments as String?;
+      if (pingId == null) {
+        _nseChannel.invokeMethod('done');
+        return;
+      }
+      try {
+        final storage = AlarmStorageService();
+        final server = AlarmServerService();
+        final handler = AlarmPingHandler(storage, server, AlarmLifecycleService(storage: storage, server: server));
+        print("DEBUG TEST: NSE triggered dart code handle ping");
+        await handler.handlePing(pingId);
+      } catch (e) {
+        print('NSE handlePing failed: $e');
+      }
+      _nseChannel.invokeMethod('done');
+    }
+  });
+}
+
 @pragma("vm:entry-point")
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print("Background message received: ${message.messageId}");

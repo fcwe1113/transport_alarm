@@ -211,7 +211,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       if (proceed != true) return;
     }
 
-    if (_repeatPattern.frequency == RepeatFrequency.monthly && splitDays.containsAll({29, 30, 31})) {
+    if (_repeatPattern.frequency == RepeatFrequency.monthly && (splitDays.contains(29) || splitDays.contains(30) || splitDays.contains(31))) {
       final proceed = await _showWarning("You entered days not present in every month, the alarm will not trigger on months without those days.");
       if (proceed != true) return;
     }
