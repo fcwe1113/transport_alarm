@@ -105,7 +105,7 @@ export default {
 		const oneMinuteAgo = now - 60;
 
 		const { results } = await env.DB.prepare( // send a ping when a pending ping has a scheduled_time past now (current timestamp higher than schedule)
-			"SELECT * FROM scheduled_pings WHERE (status = 'PENDING' AND scheduled_time <= ?) AND (status = 'SENT' AND expire_on > ?))"
+			"SELECT * FROM scheduled_pings WHERE (status = 'PENDING' AND scheduled_time <= ?) AND (status = 'SENT' AND expire_on > ?)"
 		).bind(now, oneMinuteAgo, now).all<ScheduledPing>();
 
 		console.log(`[Cron run at ${new Date().toISOString()}] found ${results.length} jobs to process`);
