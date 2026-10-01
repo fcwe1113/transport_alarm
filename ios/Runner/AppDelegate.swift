@@ -8,7 +8,7 @@ let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
 var apnsTokenChannel: FlutterMethodChannel?
 
 @main
-@objc class AppDelegate: FlutterAppDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
 
     private var sharedDefaults: UserDefaults? {
         UserDefaults(suiteName: appGroupId)
@@ -26,15 +26,6 @@ var apnsTokenChannel: FlutterMethodChannel?
             }
         }
 
-        if let registrar = self.registrar(forPlugin: "APNSTokenHandler") {
-            apnsTokenChannel = FlutterMethodChannel(
-                name: "com.fcwe1113.transport_alarm/apns_token",
-                binaryMessenger: registrar.messenger()
-            )
-        } else {
-            NSLog("Unable to create APNs token channel: Flutter plugin registrar is unavailable")
-        }
-
         if let container = AppGroup.containerURL {
             let testFile = container.appendingPathComponent("app_group_test.txt")
             let message = "written by main app at \(Date())"
@@ -48,25 +39,41 @@ var apnsTokenChannel: FlutterMethodChannel?
             NSLog("APP GROUP TEST: containerURL is nil - entitlement likely missing or misconfigged")
         }
 
-        if let registrar = self.registrar(forPlugin: "GoogleMapsApiKeyHandler") {
-            let mapsChannel = FlutterMethodChannel(
-                name: "com.fcwe1113.transport_alarm/google_maps",
-                binaryMessenger: registrar.messenger()
-            )
+        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
 
-            mapsChannel.setMethodCallHandler({ (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
-                if call.method == "setApiKey",
-                   let args = call.arguments as? [String: Any],
-                   let apiKey = args["apiKey"] as? String {
-                    GMSServices.provideAPIKey(apiKey)
-                    result(true)
-                } else {
-                    result(FlutterMethodNotImplemented)
-                }
-            })
+    func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+        GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+
+        let messenger = engineBridge.applicationRegistrar.messenger()
+
+        apnsTokenChannel = FlutterMethodChannel(
+            name: "com.fcwe1113.transport_alarm/apns_token",
+            binaryMessenger: messenger
+        )
+
+        let mapsChannel = FlutterMethodChannel(
+            name: "com.fcwe1113.transport_alarm/google_maps",
+            binaryMessenger: messenger
+        )
+        mapsChannel.setMethodCallHandler { call, result in
+            if call.method == "setApiKey",
+               let args = call.arguments as? [String: Any],
+               let apiKey = args["apiKey"] as? String {
+                GMSServices.provideAPIKey(apiKey)
+                result(true)
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
         }
 
-        return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        let alarmKitChannel = FlutterMethodChannel(
+            name: "com.fcwe1113.transport_alarm/alarmkit",
+            binaryMessenger: messenger
+        )
+        alarmKitChannel.setMethodCallHandler { call, result in
+            AlarmKitBridge.handle(call: call, result: result)
+        }
     }
 
     override func userNotificationCenter(
@@ -105,16 +112,4 @@ var apnsTokenChannel: FlutterMethodChannel?
         super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
     }
 
-    func setupAlarmKitChannel(controller: FlutterViewController) {
-        let channel = FlutterMethodChannel(name: "com.fcwe1113.transport_alarm/alarmkit", binaryMessenger: controller.binaryMessenger)
-        channel.setMethodCallHandler { (call, result) in
-            AlarmKitBridge.handle(call: call, result: result)
-        }
-    }
-
-
-
-//    func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-//        GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-//    }
 }
