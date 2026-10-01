@@ -37,6 +37,13 @@ class NotificationService: UNNotificationServiceExtension {
             contentHandler(request.content)
             return
         }
+
+        // Temporary visible probe: if this appears, the extension ran and
+        // successfully created mutable notification content. The Flutter
+        // decision response should replace it later in this method.
+        bestAttemptContent.title = "NSE DEBUG: mutable copy created"
+        bestAttemptContent.body = "Waiting for the Flutter alarm decision."
+
         guard let pingId = Self.pingId(from: request.content.userInfo) else {
             // Keep this visible while validating APNs payload parsing. This is
             // more useful than NSLog when device logs aren't available.
