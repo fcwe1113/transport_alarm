@@ -1,4 +1,4 @@
-import foundation
+import Foundation
 
 enum AppGroup {
     static let identifier = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
