@@ -1,27 +1,51 @@
 import AlarmKit
+import ActivityKit
 import SwiftUI
 import WidgetKit
 
 /// Supplies the countdown Live Activity UI required by AlarmKit.
 struct TransportAlarmLiveActivity: Widget {
     var body: some WidgetConfiguration {
-        ActivityConfiguration(for: AlarmAttributes<TransportAlarmMetadata>.self) { _ in
-            Text("Transport alarm")
-                .font(.headline)
-                .padding()
-        } dynamicIsland: { _ in
+        ActivityConfiguration(for: AlarmAttributes<TransportAlarmMetadata>.self) { context in
+            activityContent(context)
+        } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.center) {
-                    Text("Transport alarm")
+                    activityContent(context)
                 }
             } compactLeading: {
                 Image(systemName: "bus.fill")
             } compactTrailing: {
-                Text("Alarm")
+                Text("Bus")
             } minimal: {
                 Image(systemName: "bus.fill")
             }
         }
+    }
+}
+
+/// Renders the system-provided AlarmKit state, including a ticking pre-alert countdown.
+@ViewBuilder
+private func activityContent(
+    _ context: ActivityViewContext<AlarmAttributes<TransportAlarmMetadata>>
+) -> some View {
+    switch context.state.mode {
+    case .countdown(let countdown):
+        VStack(spacing: 4) {
+            Text("Transport alarm")
+                .font(.headline)
+            Text(timerInterval: countdown.startDate...countdown.fireDate, countsDown: true)
+                .monospacedDigit()
+        }
+        .padding()
+    case .paused:
+        Text("Transport alarm paused")
+            .font(.headline)
+            .padding()
+    case .alert:
+        Text("Transport alarm")
+            .font(.headline)
+            .padding()
     }
 }
 

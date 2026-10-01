@@ -24,7 +24,12 @@ enum AlarmKitScheduler {
             secondaryButton: nil,
             secondaryButtonBehavior: nil
         )
-        let presentation = AlarmPresentation(alert: alert)
+        // Declaring a countdown presentation makes AlarmKit use the widget extension
+        // for the pre-alert Live Activity associated with this countdown duration.
+        let countdown = AlarmPresentation.Countdown(
+            title: LocalizedStringResource(stringLiteral: title)
+        )
+        let presentation = AlarmPresentation(alert: alert, countdown: countdown, paused: nil)
         let attributes = AlarmAttributes<TransportAlarmMetadata>(
             presentation: presentation,
             metadata: nil,
