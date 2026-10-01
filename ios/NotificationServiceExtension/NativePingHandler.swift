@@ -9,6 +9,13 @@ private struct OperatorStop {
 struct PingResult {
     let title: String
     let body: String
+    let debugMessage: String?
+
+    init(title: String, body: String, debugMessage: String? = nil) {
+        self.title = title
+        self.body = body
+        self.debugMessage = debugMessage
+    }
 }
 
 private enum PingHandlerError: Error {
@@ -150,11 +157,24 @@ final class NativePingHandler {
                         title: title
                     )
                 } catch {
-                    try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: false)
+                    let alarmKitError = Self.describe(error)
+                    do {
+                        try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: false)
+                    } catch {
+                        return PingResult(
+                            title: "Alarm could not be armed",
+                            body: "The extension could not schedule a retry.",
+                            debugMessage: "AlarmKit failed: \(alarmKitError); retry scheduling failed: \(Self.describe(error))"
+                        )
+                    }
                     alarm["iosThresholdStates"] = thresholdStates
                     alarms[alarmIndex] = alarm
                     try saveAlarms(alarms)
-                    return PingResult(title: "Alarm could not be armed", body: "The extension will retry in 1 minute.")
+                    return PingResult(
+                        title: "Alarm could not be armed",
+                        body: "The extension will retry in 1 minute.",
+                        debugMessage: alarmKitError
+                    )
                 }
 
                 thresholdStates[pendingIndex]["outcome"] = "armed"
@@ -535,6 +555,13 @@ final class NativePingHandler {
         if let string = value as? String { return string }
         if let number = value as? NSNumber { return number.stringValue }
         return nil
+    }
+
+    /// Includes both the Swift error representation and NSError details for
+    /// diagnosing framework errors returned to the notification extension.
+    private static func describe(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(String(reflecting: error)) [\(nsError.domain):\(nsError.code)] \(nsError.localizedDescription)"
     }
 
     /// Formats the alarm selected by ping ID as JSON for extension debugging.
