@@ -43,7 +43,7 @@ final class NativePingHandler {
             var alarm = alarms[alarmIndex]
             guard (alarm["enabled"] as? Bool) != false else {
                 try? await acknowledge(pingID: pingID)
-                return PingResult(title: "Alarm is disabled", body: "No alarm action is needed. \(alarm["routeNumbers"][0] ?? "null"), \(alarm["enabled"] ?? "null")")
+                return PingResult(title: "Alarm is disabled", body: "No alarm action is needed. \(String(bytes: alarm, encoding: String.Encoding.utf8))")
             }
 
             var thresholdStates = makeIOSThresholdStates(for: alarm)
