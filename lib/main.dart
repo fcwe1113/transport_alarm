@@ -26,6 +26,7 @@ const _nseChannel = MethodChannel("com.fcwe1113.transport_alarm/nse");
 void notificationServiceExtension() {
   print("DEBUG TEST: NSE triggered dart code");
   WidgetsFlutterBinding.ensureInitialized();
+  final apnsTokenService = ApnsTokenService.instance;
 
   _nseChannel.setMethodCallHandler((call) async {
     if (call.method == 'handlePing') {
@@ -80,11 +81,11 @@ Future<void> main() async { // dart entry point
       }
     }
 
-    String? apnsToken = await ApnsTokenService().currentToken;
+    String? apnsToken = await ApnsTokenService.instance.currentToken;
     var attempts = 0;
     while (apnsToken == null && attempts < 5) {
       await Future.delayed(const Duration(seconds: 1));
-      apnsToken = await ApnsTokenService().currentToken;
+      apnsToken = await ApnsTokenService.instance.currentToken;
       attempts++;
     }
     print("APNS DEVICE TOKEN: ${apnsToken}");

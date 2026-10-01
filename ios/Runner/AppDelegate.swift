@@ -5,10 +5,12 @@ import Firebase
 import UserNotifications
 
 let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
-var apnsTokenChannel: FlutterMethodChannel?
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+
+    private var apnsTokenChannel: FlutterMethodChannel?
+    private var apnsDeviceToken: String?
 
     private var sharedDefaults: UserDefaults? {
         UserDefaults(suiteName: appGroupId)
@@ -22,8 +24,9 @@ var apnsTokenChannel: FlutterMethodChannel?
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             if granted {
                 NSLog("DEBUG TEST: notification init")
-                DispatchQueue.main.async { application.registerForRemoteNotifications() }
             }
+            // APNs device-token registration is separate from alert permission.
+            DispatchQueue.main.async { application.registerForRemoteNotifications() }
         }
 
         if let container = AppGroup.containerURL {
@@ -47,10 +50,18 @@ var apnsTokenChannel: FlutterMethodChannel?
 
         let messenger = engineBridge.applicationRegistrar.messenger()
 
-        apnsTokenChannel = FlutterMethodChannel(
+        let tokenChannel = FlutterMethodChannel(
             name: "com.fcwe1113.transport_alarm/apns_token",
             binaryMessenger: messenger
         )
+        tokenChannel.setMethodCallHandler { [weak self] call, result in
+            if call.method == "getToken" {
+                result(self?.apnsDeviceToken)
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
+        apnsTokenChannel = tokenChannel
 
         let mapsChannel = FlutterMethodChannel(
             name: "com.fcwe1113.transport_alarm/google_maps",
@@ -97,6 +108,7 @@ var apnsTokenChannel: FlutterMethodChannel?
     ) {
         let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         NSLog("APNS TOKEN: \(tokenString)")
+        apnsDeviceToken = tokenString
         apnsTokenChannel?.invokeMethod("onTokenReceived", arguments: tokenString)
 
         super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
