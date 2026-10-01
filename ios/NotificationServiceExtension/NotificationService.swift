@@ -55,9 +55,20 @@ class NotificationService: UNNotificationServiceExtension {
         NSLog("DEBUG TEST: NSE stage 2")
 
         DispatchQueue.main.async {
-            let frameworksPath = Bundle.main.bundlePath + "/Frameworks"
-            let appFrameworkPath = frameworksPath + "/App.framework"
-            let appFrameworkBundle = Bundle(path: appFrameworkPath)
+            // NotificationService.appex is inside Runner.app/PlugIns. Reuse the
+            // single App.framework already embedded in Runner.app/Frameworks.
+            let containingAppURL = Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            let appFrameworkURL = containingAppURL
+                .appendingPathComponent("Frameworks", isDirectory: true)
+                .appendingPathComponent("App.framework", isDirectory: true)
+            guard let appFrameworkBundle = Bundle(url: appFrameworkURL) else {
+                bestAttemptContent.title = "NSE DEBUG: Flutter bundle unavailable"
+                bestAttemptContent.body = "App.framework was not found in the containing app."
+                self.finish(bestAttemptContent)
+                return
+            }
             let flutterProject = FlutterDartProject(precompiledDartBundle: appFrameworkBundle)
             let engine = FlutterEngine(name: "notification_service", project: flutterProject, allowHeadlessExecution: true)
             self.flutterEngine = engine
