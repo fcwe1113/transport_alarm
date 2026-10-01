@@ -1,11 +1,17 @@
 import UserNotifications
 import Flutter
 
+let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
+
 class NotificationService: UNNotificationServiceExtension {
     var contentHandler: ((UNNotificationContent) -> Void)?
     var bestAttemptContent: UNMutableNotificationContent?
     var flutterEngine: FlutterEngine?
     var timeoutWorkItem: DispatchWorkItem?
+
+    private var sharedDefaults: UserDefaults? {
+        UserDefaults(suiteName: appGroupId)
+    }
 
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
 
