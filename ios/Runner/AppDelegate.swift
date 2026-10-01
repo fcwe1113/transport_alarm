@@ -27,13 +27,16 @@ var apnsTokenChannel: FlutterMethodChannel?
         }
 
         let controller = window?.rootViewController as! FlutterViewController
-        apnsTokenChannel = FlutterMethodChannel(name: "com.fcwe1113.transport_alarm/apns_token", binaryMessenger: registrar.messenger())
+        apnsTokenChannel = FlutterMethodChannel(
+            name: "com.fcwe1113.transport_alarm/apns_token",
+            binaryMessenger: controller.binaryMessenger
+        )
 
         if let container = AppGroup.containerURL {
             let testFile = container.appendingPathComponent("app_group_test.txt")
             let message = "written by main app at \(Date())"
             do {
-                try message.write(to: testFile, atomicity: true, encoding: .utf8)
+                try message.write(to: testFile, atomically: true, encoding: .utf8)
                 NSLog("APP GROUP TEST: wrote file to \(testFile.path)")
             } catch {
                 NSLog("APP GROUP TEST: write failed: \(error)")
