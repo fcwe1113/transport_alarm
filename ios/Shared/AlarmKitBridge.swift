@@ -1,5 +1,6 @@
 import Flutter
 import AlarmKit
+import SwiftUI
 
 struct TransportAlarmMetadata: AlarmMetadata {} // intentionally empty, maybe add informational vars later
 
@@ -39,9 +40,17 @@ enum AlarmKitBridge {
 
                 typealias Config = AlarmManager.AlarmConfiguration<TransportAlarmMetadata>
 
-                let stopButton = AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.circle")
-                let alertPresentation = AlarmPresentation.alert(title: LocalizedStringResource(stringLiteral: title), stopButton: stopButton)
-                let attributes = AlarmAttributes<TransportAlarmMetadata>(presentation: alarmPresentation(alert: alertPresentation), tintColor: .blue)
+                let alertPresentation = AlarmPresentation.Alert(
+                    title: LocalizedStringResource(stringLiteral: title),
+                    secondaryButton: nil,
+                    secondaryButtonBehavior: nil
+                )
+                let presentation = AlarmPresentation(alert: alertPresentation)
+                let attributes = AlarmAttributes<TransportAlarmMetadata>(
+                    presentation: presentation,
+                    metadata: nil,
+                    tintColor: .blue
+                )
                 let duration = Alarm.CountDownDuration(preAlert: TimeInterval(secondsUntilFire), postAlert: nil) // todo check
                 let configuration = Config(countdownDuration: duration, attributes: attributes)
 
