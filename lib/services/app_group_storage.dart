@@ -12,11 +12,13 @@ class AppGroupStorage {
   static Future<Directory> get directory async {
     final Directory result;
     if (Platform.isIOS) {
+      print("retrieving working dirs");
       final path = await _channel.invokeMethod<String>('containerPath');
       if (path == null || path.isEmpty) {
         throw StateError('The iOS App Group container is unavailable.');
       }
       result = Directory(path);
+      print("retrieved working dirs: ${result.toString()}");
     } else {
       result = await getApplicationDocumentsDirectory();
     }
