@@ -2,8 +2,6 @@ import AlarmKit
 import CryptoKit
 import SwiftUI
 
-struct TransportAlarmMetadata: AlarmMetadata {}
-
 enum AlarmKitScheduler {
     static func stableID(for alarmID: String) -> UUID {
         var bytes = Array(SHA256.hash(data: Data(alarmID.utf8)).prefix(16))
