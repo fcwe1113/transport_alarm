@@ -33,12 +33,18 @@ class NotificationService: UNNotificationServiceExtension {
         self.contentHandler = contentHandler
         bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
 
-        guard let bestAttemptContent = bestAttemptContent,
-              let pingIdRaw = request.content.userInfo["ping_id"] else {
+        guard let bestAttemptContent = bestAttemptContent else {
             contentHandler(request.content)
             return
         }
-        let pingId = String(describing: pingIdRaw)
+        guard let pingId = Self.pingId(from: request.content.userInfo) else {
+            // Keep this visible while validating APNs payload parsing. This is
+            // more useful than NSLog when device logs aren't available.
+            bestAttemptContent.title = "Ping could not be processed"
+            bestAttemptContent.body = "The notification payload did not contain a readable ping_id."
+            contentHandler(bestAttemptContent)
+            return
+        }
         NSLog("DEBUG TEST: NSE stage 2")
 
         DispatchQueue.main.async {
@@ -132,6 +138,26 @@ class NotificationService: UNNotificationServiceExtension {
         pendingPingId = nil
         contentHandler?(content)
         contentHandler = nil
+    }
+
+    private static func pingId(from userInfo: [AnyHashable: Any]) -> String? {
+        let aps = userInfo["aps"] as? [String: Any]
+        let data = userInfo["data"] as? [String: Any]
+        let candidates: [Any?] = [
+            userInfo["ping_id"],
+            data?["ping_id"],
+            aps?["ping_id"],
+        ]
+
+        for candidate in candidates {
+            if let value = candidate as? String, !value.isEmpty {
+                return value
+            }
+            if let value = candidate as? NSNumber {
+                return value.stringValue
+            }
+        }
+        return nil
     }
 
     override func serviceExtensionTimeWillExpire() {

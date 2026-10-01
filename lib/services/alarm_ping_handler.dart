@@ -24,6 +24,7 @@ class AlarmPingHandler {
   }) async {
     final alarms = await _storage.loadAlarms();
     final alarm = alarms.where((a) => a.pingId == pingId).firstOrNull;
+    print("handler received ping id: ${pingId}");
 
     if (alarm == null) { // ping came for a nonexistent/disabled alarm
       await _server.cancelPing(pingId); // tell server to cancel ping
