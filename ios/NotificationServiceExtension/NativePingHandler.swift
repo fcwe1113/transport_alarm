@@ -43,7 +43,7 @@ final class NativePingHandler {
             var alarm = alarms[alarmIndex]
             guard (alarm["enabled"] as? Bool) != false else {
                 try? await acknowledge(pingID: pingID)
-                return PingResult(title: "Alarm is disabled", body: "No alarm action is needed. \(String(bytes: alarm, encoding: String.Encoding.utf8))")
+                return PingResult(title: "Alarm is disabled", body: "No alarm action is needed. \(Self.alarmDebugJSON(alarm))")
             }
 
             var thresholdStates = makeIOSThresholdStates(for: alarm)
@@ -535,5 +535,33 @@ final class NativePingHandler {
         if let string = value as? String { return string }
         if let number = value as? NSNumber { return number.stringValue }
         return nil
+    }
+
+    /// Formats the alarm selected by ping ID as JSON for extension debugging.
+    /// Empty strings and dictionaries become null while arrays stay intact.
+    private static func alarmDebugJSON(_ alarm: [String: Any]) -> String {
+        let normalized = replacingEmptyValues(alarm)
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: normalized,
+            options: [.prettyPrinted, .sortedKeys]
+        ), let json = String(data: data, encoding: .utf8) else {
+            return "Could not serialize selected alarm"
+        }
+        return json
+    }
+
+    /// Recursively normalizes empty values without dropping array elements.
+    private static func replacingEmptyValues(_ value: Any) -> Any {
+        if let string = value as? String {
+            return string.isEmpty ? NSNull() : string
+        }
+        if let dictionary = value as? [String: Any] {
+            guard !dictionary.isEmpty else { return NSNull() }
+            return dictionary.mapValues { replacingEmptyValues($0) }
+        }
+        if let array = value as? [Any] {
+            return array.map { replacingEmptyValues($0) }
+        }
+        return value
     }
 }
