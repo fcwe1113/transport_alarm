@@ -50,6 +50,18 @@ let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
 
         let messenger = engineBridge.applicationRegistrar.messenger()
 
+        let appGroupChannel = FlutterMethodChannel(
+            name: "com.fcwe1113.transport_alarm/app_group",
+            binaryMessenger: messenger
+        )
+        appGroupChannel.setMethodCallHandler { call, result in
+            if call.method == "containerPath" {
+                result(AppGroup.containerURL?.path)
+            } else {
+                result(FlutterMethodNotImplemented)
+            }
+        }
+
         let tokenChannel = FlutterMethodChannel(
             name: "com.fcwe1113.transport_alarm/apns_token",
             binaryMessenger: messenger

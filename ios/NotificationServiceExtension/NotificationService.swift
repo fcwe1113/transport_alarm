@@ -60,6 +60,18 @@ class NotificationService: UNNotificationServiceExtension {
                 result(nil)
             }
 
+            let appGroupChannel = FlutterMethodChannel(
+                name: "com.fcwe1113.transport_alarm/app_group",
+                binaryMessenger: engine.binaryMessenger
+            )
+            appGroupChannel.setMethodCallHandler { call, result in
+                if call.method == "containerPath" {
+                    result(AppGroup.containerURL?.path)
+                } else {
+                    result(FlutterMethodNotImplemented)
+                }
+            }
+
             // wire AlarmKit onto this engine too — same handler logic as AppDelegate,
             // since this is a separate FlutterEngine instance with its own channels
             let alarmKitChannel = FlutterMethodChannel(name: "com.fcwe1113.busArrivalNotificationApp/alarmkit", binaryMessenger: engine.binaryMessenger)

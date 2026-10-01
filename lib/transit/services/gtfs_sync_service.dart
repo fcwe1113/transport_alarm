@@ -4,8 +4,8 @@ import 'package:archive/archive_io.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/csv_stream_parser.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 abstract class GtfsSyncProvider {
   String get locale;
@@ -32,7 +32,7 @@ class GtfsSyncService {
     final totalFiles = validFiles.length;
     int processedCount = 0;
 
-    final tempDir = await getApplicationDocumentsDirectory();
+    final tempDir = await AppGroupStorage.directory;
 
     for (final file in validFiles) {
       final fileName = p.basename(file.name);

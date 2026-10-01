@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/models/bus_alarm.dart';
-import 'package:path_provider/path_provider.dart';
 
 class AlarmStorageService {
   Future<File> _file() async {
-    return File("${(await getApplicationDocumentsDirectory()).path}/alarms.json");
+    return File("${(await AppGroupStorage.directory).path}/alarms.json");
   }
 
   Future<List<BusAlarm>> loadAlarms() async {

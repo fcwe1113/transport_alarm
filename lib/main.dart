@@ -12,12 +12,14 @@ import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_ping_handler.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import 'firebase_options.dart';
 
 const _nseChannel = MethodChannel("com.fcwe1113.transport_alarm/nse");
@@ -26,7 +28,6 @@ const _nseChannel = MethodChannel("com.fcwe1113.transport_alarm/nse");
 void notificationServiceExtension() {
   print("DEBUG TEST: NSE triggered dart code");
   WidgetsFlutterBinding.ensureInitialized();
-  final apnsTokenService = ApnsTokenService.instance;
 
   _nseChannel.setMethodCallHandler((call) async {
     if (call.method == 'handlePing') {
@@ -67,6 +68,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async { // dart entry point
 
   WidgetsFlutterBinding.ensureInitialized();
+  await AppGroupStorage.migrateLegacyDocuments();
   final String jsonString = await rootBundle.loadString("config/secrets.json");
   final Map<String, dynamic> secrets = jsonDecode(jsonString);
   final String apiKey = secrets["MAPS_API_KEY"];
@@ -81,11 +83,11 @@ Future<void> main() async { // dart entry point
       }
     }
 
-    String? apnsToken = await ApnsTokenService.instance.currentToken;
+    String? apnsToken = await ApnsTokenService.instance.getToken();
     var attempts = 0;
     while (apnsToken == null && attempts < 5) {
       await Future.delayed(const Duration(seconds: 1));
-      apnsToken = await ApnsTokenService.instance.currentToken;
+      apnsToken = await ApnsTokenService.instance.getToken();
       attempts++;
     }
     print("APNS DEVICE TOKEN: ${apnsToken}");

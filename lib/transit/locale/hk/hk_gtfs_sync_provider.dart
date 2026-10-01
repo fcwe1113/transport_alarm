@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/gtfs_sync_service.dart';
+import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class HkGtfsSyncProvider implements GtfsSyncProvider{
+class HkGtfsSyncProvider implements GtfsSyncProvider {
   @override
   final String locale = "hk";
 
@@ -23,7 +23,7 @@ class HkGtfsSyncProvider implements GtfsSyncProvider{
     final cachedEtag = prefs.getString("gtfs_etag_$locale");
     final cacheLastModified = prefs.getString("gtfs_last_modified_$locale");
 
-    if (lastCheckedStr != null){
+    if (lastCheckedStr != null) {
       final lastChecked = DateTime.tryParse(lastCheckedStr);
       if (lastChecked != null && DateTime.now().difference(lastChecked) < ttlThreshhold){
         return false;
@@ -50,7 +50,7 @@ class HkGtfsSyncProvider implements GtfsSyncProvider{
 
   @override
   Future<void> syncFeed({ProgressCallback? onProgress}) async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await AppGroupStorage.directory;
     final zipFile = File("${dir.path}/gtfs_download.zip");
     final request = http.Request("GET", Uri.parse(feedUrl));
     final client = http.Client();

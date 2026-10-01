@@ -6,7 +6,7 @@ import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/geo_utils.dart';
 import 'package:transport_alarm/transit/models/bus_stop.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/bus_route.dart';
@@ -23,11 +23,12 @@ class GtfsDatabase {
   }
 
   Future<Database> get database async {
-    if (_databases.containsKey(locale) && _databases[locale]!.isOpen){
+    if (_databases.containsKey(locale) && _databases[locale]!.isOpen) {
       return _databases[locale]!;
     }
-    final dir = await getApplicationDocumentsDirectory();
-    final db = await _initDB("${dir.path}/gtfs/$locale.db");
+    final dir = Directory('${(await AppGroupStorage.directory).path}/gtfs');
+    await dir.create(recursive: true);
+    final db = await _initDB('${dir.path}/gtfs/$locale.db');
     _databases[locale] = db;
     return db;
   }
@@ -121,10 +122,10 @@ class GtfsDatabase {
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
-      for (var row in rows.skip(1)){
+      for (var row in rows.skip(1)) {
         batch.insert("gtfs_routes", {
           "route_id": _val(row, 0),
-          "route_short_name": _val(row, 2)
+          "route_short_name": _val(row, 2),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -135,12 +136,12 @@ class GtfsDatabase {
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
-      for (var row in rows.skip(1)){
+      for (var row in rows.skip(1)) {
         batch.insert("gtfs_trips", {
           "route_id": _val(row, 0),
           "service_id": _val(row, 1),
           "trip_id": _val(row, 2),
-          "direction_id": int.tryParse(_val(row, 5)) ?? 0
+          "direction_id": int.tryParse(_val(row, 5)) ?? 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -151,7 +152,7 @@ class GtfsDatabase {
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
-      for (var row in rows.skip(1)){
+      for (var row in rows.skip(1)) {
         batch.insert("gtfs_calendar", {
           "service_id": _val(row, 0),
           "monday": int.tryParse(_val(row, 1)) ?? 0,
@@ -162,7 +163,7 @@ class GtfsDatabase {
           "saturday": int.tryParse(_val(row, 6)) ?? 0,
           "sunday": int.tryParse(_val(row, 7)) ?? 0,
           "start_date": _val(row, 8),
-          "end_date": _val(row, 9)
+          "end_date": _val(row, 9),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -173,12 +174,12 @@ class GtfsDatabase {
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
-      for (var row in rows.skip(1)){
+      for (var row in rows.skip(1)) {
         batch.insert("gtfs_stops", {
           "stop_id": _val(row, 0),
           "stop_name": _val(row, 1),
           "stop_lat": double.tryParse(_val(row, 2)) ?? 0,
-          "stop_lon": double.tryParse(_val(row, 3)) ?? 0
+          "stop_lon": double.tryParse(_val(row, 3)) ?? 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -189,13 +190,13 @@ class GtfsDatabase {
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
-      for (var row in rows.skip(1)){
+      for (var row in rows.skip(1)) {
         batch.insert("gtfs_stop_times", {
           "trip_id": _val(row, 0),
           "arrival_time": _val(row, 1),
           "departure_time": _val(row, 2),
           "stop_id": _val(row, 3),
-          "stop_sequence": int.tryParse(_val(row, 4)) ?? 0
+          "stop_sequence": int.tryParse(_val(row, 4)) ?? 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -210,8 +211,8 @@ class GtfsDatabase {
         "provider_code": stop.providerCode,
         "names": jsonEncode(stop.names),
         "lat": stop.lat,
-        "lng": stop.lng},
-      conflictAlgorithm: ConflictAlgorithm.replace);
+        "lng": stop.lng,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
   }
@@ -226,7 +227,7 @@ class GtfsDatabase {
         "bound": route.bound,
         "names": jsonEncode(route.names),
         "origin_text": jsonEncode(route.originText),
-        "destination_text": jsonEncode(route.destinationText)
+        "destination_text": jsonEncode(route.destinationText),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
@@ -239,7 +240,7 @@ class GtfsDatabase {
       batch.insert("route_stops", {
         "operator_route_id": operatorRouteId,
         "operator_stop_id": operatorStopIds[i],
-        "stop_sequence": i
+        "stop_sequence": i,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
 
@@ -301,7 +302,7 @@ class GtfsDatabase {
     final db = await database;
     final operatorRows = await db.query("operator_stops", where: "lat IS NOT NULL AND lng IS NOT NULL");
     final gtfsRows = await db.query("gtfs_stops");
-    
+
     final nameIndex = <String, List<Map<String, dynamic>>>{};
     for (final gRow in gtfsRows) {
       final rawName = gRow["stop_name"] as String;
@@ -326,7 +327,7 @@ class GtfsDatabase {
 
       String? bestGtfsId;
       double bestDistance;
-      
+
       if (nameCandidates.length == 1) {
         bestGtfsId = nameCandidates.first["stop_id"] as String;
         bestDistance = haversineDistanceMeters(opLat, opLng, nameCandidates.first["stop_lat"] as double, nameCandidates.first["stop_lon"] as double
@@ -363,7 +364,7 @@ class GtfsDatabase {
       batch.insert("stop_mapping", {
         "operator_stop_id": opStopId,
         "gtfs_stop_id": bestGtfsId,
-        "match_confidence": bestDistance
+        "match_confidence": bestDistance,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       // print("linked provider stop id ${opStopId} to gtfs stop id ${bestGtfsId}");
     }
@@ -377,7 +378,7 @@ class GtfsDatabase {
       print("${noMatches.length} matched by proximity only (no name match found): ${noMatches.join(", ")}");
     }
   }
-  
+
   Future<List<BusRoute>> getOperatorRoutes(String providerCode) async {
     final rows = await (await database).query("operator_routes", where: "provider_code = ?", whereArgs: [providerCode]);
     
@@ -469,7 +470,7 @@ class GtfsDatabase {
     INNER JOIN operator_stops os ON os.operator_stop_id = sm.operator_stop_id
     WHERE $where
     ''', whereArgs);
-    
+
     return rows.map((r) => r["operator_stop_id"] as String).toList();
   }
 
@@ -478,10 +479,10 @@ class GtfsDatabase {
     if (rows.isEmpty) return null;
     final row = rows.first;
     return GtfsStop(
-        id: row["stop_id"] as String,
-        name: GtfsStop.cleanStopName(row["stop_name"] as String),
-        lat: row["stop_lat"] as double,
-        lng: row["stop_lon"] as double
+      id: row["stop_id"] as String,
+      name: GtfsStop.cleanStopName(row["stop_name"] as String),
+      lat: row["stop_lat"] as double,
+      lng: row["stop_lon"] as double,
     );
   }
 
@@ -510,7 +511,7 @@ class GtfsDatabase {
       await _databases[locale]!.close();
     }
     _databases.remove(locale);
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await AppGroupStorage.directory;
     final file = File("${dir.path}/gtfs/$locale.db");
     if (await file.exists()) {
       await file.delete();
