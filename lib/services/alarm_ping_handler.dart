@@ -35,8 +35,17 @@ class AlarmPingHandler {
       );
     }
 
-    final minutesUntilArrival = await _getMinutesUntilArrival(alarm);
-    final decision = evaluateAlarm(alarm: alarm, minutesUntilArrival: minutesUntilArrival);
+    final fetchedEstimate = await _getMinutesUntilArrival(alarm);
+    final alarmWithLatestEstimate = fetchedEstimate == null
+        ? alarm
+        : alarm.copyWith(lastEstimatedMinutesUntilArrival: fetchedEstimate);
+    // Keep using the last successful estimate when a live lookup fails.
+    final minutesUntilArrival =
+        fetchedEstimate ?? alarm.lastEstimatedMinutesUntilArrival;
+    final decision = evaluateAlarm(
+      alarm: alarmWithLatestEstimate,
+      minutesUntilArrival: minutesUntilArrival,
+    );
     await _storage.updateAlarm(decision.updatedAlarm);
     if (decision.action == AlarmAction.ring && decision.nextPingTime == null) {
       await _alarmLifecycle.handleOccurenceConcluded(alarm);
@@ -92,13 +101,21 @@ class AlarmPingHandler {
     await _storage.updateAlarm(updatedAlarm);
     await _alarmLifecycle.handleOccurenceConcluded(updatedAlarm);
 
-    final minutesUntilArrival = await _getMinutesUntilArrival(updatedAlarm);
+    final fetchedEstimate = await _getMinutesUntilArrival(updatedAlarm);
+    final minutesUntilArrival = fetchedEstimate ?? updatedAlarm.lastEstimatedMinutesUntilArrival;
     if (minutesUntilArrival == null) {
       _server.cancelPing(alarm.pingId!); // todo notify user
       return;
     }
 
-    final arming = armNextThreshold(updatedAlarm, activeIndex, minutesUntilArrival);
+    final alarmWithLatestEstimate = fetchedEstimate == null
+        ? updatedAlarm
+        : updatedAlarm.copyWith(lastEstimatedMinutesUntilArrival: fetchedEstimate);
+    if (fetchedEstimate != null) {
+      await _storage.updateAlarm(alarmWithLatestEstimate);
+    }
+
+    final arming = armNextThreshold(alarmWithLatestEstimate, activeIndex, minutesUntilArrival);
     if (arming == null) {
       await _server.cancelPing(alarm.pingId!);
     } else {

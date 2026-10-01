@@ -128,7 +128,7 @@ export default {
 				if (job.require_ack === 1) {
 					await env.DB.prepare("UPDATE scheduled_pings SET status = 'SENT', last_sent_at = ? WHERE id = ?").bind(now, job.id).run();
 				} else {
-					await env.DB.prepare("DELETE FROM scheduled_pings WHERE expire_on <= ?").bind(now).run();
+					await env.DB.prepare("DELETE FROM scheduled_pings WHERE expire_on <= ? OR (status = 'PENDING' AND scheduled_time <= ?)").bind(now).run();
 				}
 			}
 		}

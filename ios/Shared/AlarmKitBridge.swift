@@ -1,18 +1,28 @@
 import Flutter
 import AlarmKit
-import SwiftUI
-
-struct TransportAlarmMetadata: AlarmMetadata {} // intentionally empty, maybe add informational vars later
+import Foundation
 
 enum AlarmKitBridge {
     static func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
+        case "requestAuthorization":
+            requestAuthorization(result: result)
         case "armAlarm":
             self.armAlarm(call: call, result: result)
         case "cancelAlarm":
             self.cancelAlarm(call: call, result: result)
         default: //  should never happen
             result(FlutterMethodNotImplemented)
+        }
+    }
+
+    private static func requestAuthorization(result: @escaping FlutterResult) {
+        Task {
+            do {
+                result(try await AlarmKitScheduler.requestAuthorization())
+            } catch {
+                result(FlutterError(code: "AUTHORIZATION_FAILED", message: error.localizedDescription, details: nil))
+            }
         }
     }
 
@@ -32,29 +42,11 @@ enum AlarmKitBridge {
 
         Task {
             do {
-                let state = try await AlarmManager.shared.requestAuthorization()
-                guard state == .authorized else {
-                    result(FlutterError(code: "NOT_AUTHORIZED", message: "AlarmKit not authorized", details: nil))
-                    return
-                }
-
-                typealias Config = AlarmManager.AlarmConfiguration<TransportAlarmMetadata>
-
-                let alertPresentation = AlarmPresentation.Alert(
-                    title: LocalizedStringResource(stringLiteral: title),
-                    secondaryButton: nil,
-                    secondaryButtonBehavior: nil
+                try await AlarmKitScheduler.schedule(
+                    alarmID: alarmId,
+                    secondsUntilFire: secondsUntilFire,
+                    title: title
                 )
-                let presentation = AlarmPresentation(alert: alertPresentation)
-                let attributes = AlarmAttributes<TransportAlarmMetadata>(
-                    presentation: presentation,
-                    metadata: nil,
-                    tintColor: .blue
-                )
-                let duration = Alarm.CountdownDuration(preAlert: TimeInterval(secondsUntilFire), postAlert: nil)
-                let configuration = Config(countdownDuration: duration, attributes: attributes)
-
-                _ = try await AlarmManager.shared.schedule(id: alarmId, configuration: configuration)
                 result(true)
             } catch {
                 result(FlutterError(code: "SCHEDULE_FAILED", message: error.localizedDescription, details: nil))
@@ -65,18 +57,39 @@ enum AlarmKitBridge {
     private static func cancelAlarm(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
               let alarmIdString = args["alarmId"] as? String,
-              let alarmId = UUID(uuidString: alarmIdString) else {
-            result(FlutterError(code: "BAD_ARGS", message: "Missing or invalid alarmId", details: nil))
+              !alarmIdString.isEmpty else {
+            result(FlutterError(code: "BAD_ARGS", message: "Missing alarmId", details: nil))
             return
         }
 
         Task {
-            do {
-                try await AlarmManager.shared.cancel(id: alarmId)
-                result(true)
-            } catch {
-                result(FlutterError(code: "CANCEL_FAILED", message: error.localizedDescription, details: nil))
+            for alarmID in alarmKitIDs(for: alarmIdString) {
+                try? AlarmKitScheduler.cancel(alarmID: alarmID)
             }
+            result(true)
         }
+    }
+
+    private static func alarmKitIDs(for alarmId: String) -> [UUID] {
+        if let container = AppGroup.containerURL,
+           let data = try? Data(contentsOf: container.appendingPathComponent("alarms.json")),
+           let alarms = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+           let alarm = alarms.first(where: { ($0["id"] as? String) == alarmId }) {
+            let states = (alarm["iosThresholdStates"] as? [[String: Any]])
+                ?? (alarm["thresholdStates"] as? [[String: Any]])
+                ?? []
+            let occurrenceKey = alarm["iosOccurrenceKey"] as? String ?? "current"
+            let sorted = states.sorted {
+                (($0["minutesBeforeArrival"] as? NSNumber)?.intValue ?? 0) >
+                    (($1["minutesBeforeArrival"] as? NSNumber)?.intValue ?? 0)
+            }
+            let ids = sorted.enumerated().compactMap { index, state -> UUID? in
+                guard let minutes = (state["minutesBeforeArrival"] as? NSNumber)?.intValue else { return nil }
+                return AlarmKitScheduler.stableID(for: "\(alarmId):\(occurrenceKey):threshold:\(minutes):\(index)")
+            }
+            if !ids.isEmpty { return ids }
+        }
+
+        return [UUID(uuidString: alarmId) ?? AlarmKitScheduler.stableID(for: alarmId)]
     }
 }

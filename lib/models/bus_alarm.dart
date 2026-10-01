@@ -12,6 +12,8 @@ class BusAlarm {
   final String id; // maybe gen a uuid for it or something, this is local anyways so whatever
   final List<String> routeNumbers; // stores raw route numbers for deduping
   final String gtfsStopId;
+  // Locale key used by native iOS scheduling and its timezone/GTFS settings.
+  final String localeCode;
   final TimeOfDay windowStart;
   final TimeOfDay windowEnd;
   final List<ThresholdState> thresholdStates; // ordered
@@ -21,10 +23,16 @@ class BusAlarm {
   final String message;
   final bool enabled; // indicates alarm enabled (similar to ios alarm ui alarm toggle)
   final String? pingId;
+  final int? lastEstimatedMinutesUntilArrival;
+  // Native iOS extension state is kept separate from Android's ThresholdOutcome.
+  final List<Map<String, dynamic>> iosThresholdStates;
+  final bool iosNextOccurrenceScheduled;
+  final String? iosOccurrenceKey;
 
   const BusAlarm({ //  constructor
     required this.id,
     required this.gtfsStopId,
+    this.localeCode = 'hk',
     required this.routeNumbers,
     required this.windowStart,
     required this.windowEnd,
@@ -35,10 +43,15 @@ class BusAlarm {
     required this.message,
     this.enabled = true,
     this.pingId,
+    this.lastEstimatedMinutesUntilArrival,
+    this.iosThresholdStates = const [],
+    this.iosNextOccurrenceScheduled = false,
+    this.iosOccurrenceKey,
   });
 
   BusAlarm copyWith({
     String? gtfsStopId,
+    String? localeCode,
     List<String>? routeNumbers,
     TimeOfDay? windowStart,
     TimeOfDay? windowEnd,
@@ -49,10 +62,16 @@ class BusAlarm {
     String? message,
     bool? enabled,
     String? pingId,
+    int? lastEstimatedMinutesUntilArrival,
+    bool clearLastEstimatedMinutesUntilArrival = false,
+    List<Map<String, dynamic>>? iosThresholdStates,
+    bool? iosNextOccurrenceScheduled,
+    String? iosOccurrenceKey,
   }) {
     return BusAlarm(
         id: id,
         gtfsStopId: gtfsStopId ?? this.gtfsStopId,
+        localeCode: localeCode ?? this.localeCode,
         routeNumbers: routeNumbers ?? this.routeNumbers,
         windowStart: windowStart ?? this.windowStart,
         windowEnd: windowEnd ?? this.windowEnd,
@@ -62,12 +81,20 @@ class BusAlarm {
         message: message ?? this.message,
         enabled: enabled ?? this.enabled,
         pingId: pingId ?? this.pingId,
+        lastEstimatedMinutesUntilArrival: clearLastEstimatedMinutesUntilArrival
+            ? null
+            : lastEstimatedMinutesUntilArrival ?? this.lastEstimatedMinutesUntilArrival,
+        iosThresholdStates: iosThresholdStates ?? this.iosThresholdStates,
+        iosNextOccurrenceScheduled:
+            iosNextOccurrenceScheduled ?? this.iosNextOccurrenceScheduled,
+        iosOccurrenceKey: iosOccurrenceKey ?? this.iosOccurrenceKey,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'gtfsStopId': gtfsStopId,
+    'localeCode': localeCode,
     'routeNumbers': routeNumbers,
     'windowStart': windowStart.hour * 60 + windowStart.minute,
     'windowEnd': windowEnd.hour * 60 + windowEnd.minute,
@@ -78,11 +105,16 @@ class BusAlarm {
     'message': message,
     'enabled': enabled,
     'pingId': pingId,
+    'lastEstimatedMinutesUntilArrival': lastEstimatedMinutesUntilArrival,
+    'iosThresholdStates': iosThresholdStates,
+    'iosNextOccurrenceScheduled': iosNextOccurrenceScheduled,
+    'iosOccurrenceKey': iosOccurrenceKey,
   };
 
   static BusAlarm fromJson(Map<String, dynamic> json) => BusAlarm(
     id: json['id'] as String,
     gtfsStopId: json['gtfsStopId'] as String,
+    localeCode: json['localeCode'] as String? ?? 'hk',
     routeNumbers: List<String>.from(json['routeNumbers']),
     windowStart: _minutesToTimeOfDay(json['windowStart'] as int),
     windowEnd: _minutesToTimeOfDay(json['windowEnd'] as int),
@@ -93,6 +125,15 @@ class BusAlarm {
     message: json['message'] as String,
     enabled: json['enabled'] as bool,
     pingId: json['pingId'] as String?,
+    lastEstimatedMinutesUntilArrival:
+        json['lastEstimatedMinutesUntilArrival'] as int?,
+    iosThresholdStates: (json['iosThresholdStates'] as List<dynamic>?)
+            ?.map((state) => Map<String, dynamic>.from(state as Map))
+            .toList() ??
+        const [],
+    iosNextOccurrenceScheduled:
+        json['iosNextOccurrenceScheduled'] as bool? ?? false,
+    iosOccurrenceKey: json['iosOccurrenceKey'] as String?,
   );
 
   static TimeOfDay _minutesToTimeOfDay (int totalMinutes) =>

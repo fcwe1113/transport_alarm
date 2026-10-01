@@ -22,60 +22,6 @@ import 'package:flutter/services.dart';
 
 import 'firebase_options.dart';
 
-const _nseChannel = MethodChannel("com.fcwe1113.transport_alarm/nse");
-
-@pragma('vm:entry-point')
-void notificationServiceExtension() {
-  print("DEBUG TEST: NSE triggered dart code");
-  WidgetsFlutterBinding.ensureInitialized();
-
-  _nseChannel.setMethodCallHandler((call) async {
-    if (call.method == 'handlePing') {
-      final pingId = call.arguments as String?;
-      if (pingId == null) {
-        await _nseChannel.invokeMethod<void>('updateContent', {
-          'action': 'invalidPing',
-          'title': 'Notification could not be processed',
-          'body': 'The notification did not include a ping identifier.',
-        });
-        await _nseChannel.invokeMethod<void>('done');
-        return;
-      }
-
-      late final AlarmPingPresentation presentation;
-      try {
-        final storage = AlarmStorageService();
-        final server = AlarmServerService();
-        final handler = AlarmPingHandler(storage, server, AlarmLifecycleService(storage: storage, server: server));
-        print("DEBUG TEST: NSE triggered dart code handle ping");
-        presentation = await handler.handlePing(
-          pingId,
-          showLocalNotification: false,
-        );
-      } catch (e) {
-        print('NSE handlePing failed: $e');
-        presentation = AlarmPingPresentation(
-          action: 'error',
-          title: 'Alarm update failed',
-          body: 'The alarm could not be processed: $e',
-        );
-      }
-
-      await _nseChannel.invokeMethod<void>(
-        'updateContent',
-        presentation.toMap(),
-      );
-      await _nseChannel.invokeMethod<void>('done');
-    }
-  });
-
-  // Tell the extension that Dart has installed its handler. The native side
-  // waits for this before sending handlePing, avoiding a startup race.
-  _nseChannel.invokeMethod<void>('ready').catchError((Object error) {
-    print('NSE ready handshake failed: $error');
-  });
-}
-
 @pragma("vm:entry-point")
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print("Background message received: ${message.messageId}");
@@ -134,12 +80,6 @@ Future<void> main() async { // dart entry point
     await NotificationService.init();
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      // print("Foreground message received: ${message.messageId}, data: ${message.data}");
-      // const androidDetails = AndroidNotificationDetails("alarm_test_channel", "Alarm Test", importance: Importance.high, priority: Priority.high);
-      // const notificationDetails = NotificationDetails(android: androidDetails);
-      //
-      // await flutterLocalNotificationsPlugin.show(id: message.hashCode, title: message.notification?.title ?? "Ping received", body: message.notification?.body ?? "", notificationDetails: notificationDetails);
-
       final pingId = message.data["ping_id"];
       if (pingId == null) return; // should never happen
       final storage = AlarmStorageService();

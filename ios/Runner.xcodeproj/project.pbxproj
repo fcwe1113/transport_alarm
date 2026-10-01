@@ -8,9 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		0EC74B1E9A57CFFF0ECF6368 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA842F78E2A33F2110979FE /* AppGroup.swift */; };
+		A10000000000000000000001 /* NativePingHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* NativePingHandler.swift */; };
+		A10000000000000000000002 /* AlarmKitScheduler.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AlarmKitScheduler.swift */; };
+		A10000000000000000000003 /* AlarmKitScheduler.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AlarmKitScheduler.swift */; };
+		A10000000000000000000004 /* libsqlite3.tbd in Extension Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* libsqlite3.tbd */; };
+		A10000000000000000000005 /* NativeTransitETAProvider.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* NativeTransitETAProvider.swift */; };
+		A10000000000000000000006 /* NativeTransitLocale.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* NativeTransitLocale.swift */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
-		1C20D0848D6A9F8A91C33101 /* NotificationServicePluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1C20D0848D6A9F8A91C33102 /* NotificationServicePluginRegistrant.m */; };
-		1C20D0848D6A9F8A91C33105 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		2147030837A49D38E592A116 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62E5DF5D8F2FB65BE9AFEFD /* NotificationService.swift */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -25,7 +29,6 @@
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
-		B9544FD68E6E494451FEEC07 /* AlarmKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56CF45A7BDD1B73A9A3B13BC /* AlarmKitBridge.swift */; };
 		E2A549C880CA9E8D5E26FF2D /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06D84277ADB6CC2F36720051 /* AppGroup.swift */; };
 /* End PBXBuildFile section */
 
@@ -64,14 +67,10 @@
 		06D84277ADB6CC2F36720051 /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
-		1C20D0848D6A9F8A91C33102 /* NotificationServicePluginRegistrant.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NotificationServicePluginRegistrant.m; sourceTree = "<group>"; };
-		1C20D0848D6A9F8A91C33103 /* NotificationServicePluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NotificationServicePluginRegistrant.h; sourceTree = "<group>"; };
-		1C20D0848D6A9F8A91C33104 /* NotificationService-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "NotificationService-Bridging-Header.h"; sourceTree = "<group>"; };
 		1706934E936F47B5BEBC875A /* NotificationServiceExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationServiceExtension.entitlements; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
-		56CF45A7BDD1B73A9A3B13BC /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitBridge.swift; path = Shared/AlarmKitBridge.swift; sourceTree = SOURCE_ROOT; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
@@ -90,6 +89,11 @@
 		B2F123B1D38409E858B94D16 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		C62E5DF5D8F2FB65BE9AFEFD /* NotificationService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		DDA842F78E2A33F2110979FE /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000001 /* NativePingHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePingHandler.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* AlarmKitScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitScheduler.swift; path = Shared/AlarmKitScheduler.swift; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000003 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		A20000000000000000000004 /* NativeTransitETAProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTransitETAProvider.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* NativeTransitLocale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTransitLocale.swift; sourceTree = "<group>"; };
 		E61F4BEEB9A1D9209256EBDE /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitBridge.swift; path = Shared/AlarmKitBridge.swift; sourceTree = SOURCE_ROOT; };
 		F8414685C08043353570F413 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -99,7 +103,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1C20D0848D6A9F8A91C33105 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
+				A10000000000000000000004 /* libsqlite3.tbd in Extension Frameworks */,
 				8D96370625E2477E0D3CE517 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -119,6 +123,7 @@
 			isa = PBXGroup;
 			children = (
 				B2F123B1D38409E858B94D16 /* Foundation.framework */,
+				A20000000000000000000003 /* libsqlite3.tbd */,
 			);
 			name = iOS;
 			sourceTree = "<group>";
@@ -155,7 +160,7 @@
 				DDA842F78E2A33F2110979FE /* AppGroup.swift */,
 				06D84277ADB6CC2F36720051 /* AppGroup.swift */,
 				E61F4BEEB9A1D9209256EBDE /* AlarmKitBridge.swift */,
-				56CF45A7BDD1B73A9A3B13BC /* AlarmKitBridge.swift */,
+				A20000000000000000000002 /* AlarmKitScheduler.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -191,9 +196,9 @@
 			isa = PBXGroup;
 			children = (
 				C62E5DF5D8F2FB65BE9AFEFD /* NotificationService.swift */,
-				1C20D0848D6A9F8A91C33102 /* NotificationServicePluginRegistrant.m */,
-				1C20D0848D6A9F8A91C33103 /* NotificationServicePluginRegistrant.h */,
-				1C20D0848D6A9F8A91C33104 /* NotificationService-Bridging-Header.h */,
+				A20000000000000000000001 /* NativePingHandler.swift */,
+				A20000000000000000000004 /* NativeTransitETAProvider.swift */,
+				A20000000000000000000005 /* NativeTransitLocale.swift */,
 				F8414685C08043353570F413 /* Info.plist */,
 				1706934E936F47B5BEBC875A /* NotificationServiceExtension.entitlements */,
 			);
@@ -241,7 +246,6 @@
 			);
 			name = NotificationService;
 			packageProductDependencies = (
-				78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */,
 			);
 			productName = NotificationService;
 			productReference = 841C7F6BF1EDECAAAA03E5A4 /* NotificationService.appex */;
@@ -387,6 +391,7 @@
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				0EC74B1E9A57CFFF0ECF6368 /* AppGroup.swift in Sources */,
 				709940FA8C261AF604794057 /* AlarmKitBridge.swift in Sources */,
+				A10000000000000000000002 /* AlarmKitScheduler.swift in Runner Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -395,9 +400,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				2147030837A49D38E592A116 /* NotificationService.swift in Sources */,
-				1C20D0848D6A9F8A91C33101 /* NotificationServicePluginRegistrant.m in Sources */,
+				A10000000000000000000001 /* NativePingHandler.swift in Sources */,
+				A10000000000000000000005 /* NativeTransitETAProvider.swift in Extension Sources */,
+				A10000000000000000000006 /* NativeTransitLocale.swift in Extension Sources */,
+				A10000000000000000000003 /* AlarmKitScheduler.swift in Extension Sources */,
 				E2A549C880CA9E8D5E26FF2D /* AppGroup.swift in Sources */,
-				B9544FD68E6E494451FEEC07 /* AlarmKitBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -449,7 +456,6 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.fcwe1113.busArrivalNotificationApp.66RCG95DR7.NotificationService;
 				PRODUCT_NAME = NotificationService;
-				SWIFT_OBJC_BRIDGING_HEADER = "NotificationServiceExtension/NotificationService-Bridging-Header.h";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -597,7 +603,6 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.fcwe1113.busArrivalNotificationApp.66RCG95DR7.NotificationService;
 				PRODUCT_NAME = NotificationService;
-				SWIFT_OBJC_BRIDGING_HEADER = "NotificationServiceExtension/NotificationService-Bridging-Header.h";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -782,7 +787,6 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.fcwe1113.busArrivalNotificationApp.66RCG95DR7.NotificationService;
 				PRODUCT_NAME = NotificationService;
-				SWIFT_OBJC_BRIDGING_HEADER = "NotificationServiceExtension/NotificationService-Bridging-Header.h";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

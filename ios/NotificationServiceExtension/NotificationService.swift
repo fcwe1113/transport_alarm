@@ -1,186 +1,85 @@
+import Foundation
 import UserNotifications
-import Flutter
 
-let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
+final class NotificationService: UNNotificationServiceExtension {
+    private var contentHandler: ((UNNotificationContent) -> Void)?
+    private var bestAttemptContent: UNMutableNotificationContent?
+    private var timeoutWorkItem: DispatchWorkItem?
+    private var processingTask: Task<Void, Never>?
+    private var hasFinished = false
 
-class NotificationService: UNNotificationServiceExtension {
-    var contentHandler: ((UNNotificationContent) -> Void)?
-    var bestAttemptContent: UNMutableNotificationContent?
-    var flutterEngine: FlutterEngine?
-    var timeoutWorkItem: DispatchWorkItem?
-    var pendingPingId: String?
-
-    private var sharedDefaults: UserDefaults? {
-        UserDefaults(suiteName: appGroupId)
-    }
-
-    override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
-
-        if let container = AppGroup.containerURL {
-            let testFile = container.appendingPathComponent("app_group_test.txt")
-            do {
-                let contents = try String(contentsOf: testFile, encoding: .utf8)
-                NSLog("APP GROUP TEST: NSE read: \(contents)")
-            } catch {
-                NSLog("APP GROUP TEST: NSE read failed: \(error)")
-            }
-        } else {
-            NSLog("APP GROUP TEST: containerURL is nil")
-        }
-
-        NSLog("DEBUG TEST: NSE stage 1")
-
+    override func didReceive(
+        _ request: UNNotificationRequest,
+        withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
+    ) {
         self.contentHandler = contentHandler
-        bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
+        bestAttemptContent = request.content.mutableCopy() as? UNMutableNotificationContent
 
-        guard let bestAttemptContent = bestAttemptContent else {
+        guard let content = bestAttemptContent else {
             contentHandler(request.content)
             return
         }
 
-        // Temporary visible probe: if this appears, the extension ran and
-        // successfully created mutable notification content. The Flutter
-        // decision response should replace it later in this method.
-        bestAttemptContent.title = "NSE DEBUG: mutable copy created"
-        bestAttemptContent.body = "Waiting for the Flutter alarm decision."
-
-        guard let pingId = Self.pingId(from: request.content.userInfo) else {
-            // Keep this visible while validating APNs payload parsing. This is
-            // more useful than NSLog when device logs aren't available.
-            bestAttemptContent.title = "Ping could not be processed"
-            bestAttemptContent.body = "The notification payload did not contain a readable ping_id."
-            contentHandler(bestAttemptContent)
+        guard let pingID = Self.pingID(from: request.content.userInfo) else {
+            content.title = "Alarm update unavailable"
+            content.body = "The notification did not include an alarm ping identifier."
+            finish(content)
             return
         }
-        NSLog("DEBUG TEST: NSE stage 2")
 
-        DispatchQueue.main.async {
-            // NotificationService.appex is inside Runner.app/PlugIns. Reuse the
-            // single App.framework already embedded in Runner.app/Frameworks.
-            let containingAppURL = Bundle.main.bundleURL
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-            let appFrameworkURL = containingAppURL
-                .appendingPathComponent("Frameworks", isDirectory: true)
-                .appendingPathComponent("App.framework", isDirectory: true)
-            guard let appFrameworkBundle = Bundle(url: appFrameworkURL) else {
-                bestAttemptContent.title = "NSE DEBUG: Flutter bundle unavailable"
-                bestAttemptContent.body = "App.framework was not found in the containing app."
-                self.finish(bestAttemptContent)
-                return
-            }
-            let flutterProject = FlutterDartProject(precompiledDartBundle: appFrameworkBundle)
-            let engine = FlutterEngine(name: "notification_service", project: flutterProject, allowHeadlessExecution: true)
-            self.flutterEngine = engine
-            self.pendingPingId = pingId
-            NSLog("DEBUG TEST: NSE stage 3")
+        guard let container = AppGroup.containerURL else {
+            content.title = "Alarm update unavailable"
+            content.body = "The shared alarm data folder could not be opened."
+            finish(content)
+            return
+        }
 
-            // Install native handlers before Dart starts. Dart sends `ready`
-            // after registering its own handler, so handlePing cannot race startup.
-            let nseChannel = FlutterMethodChannel(
-                name: "com.fcwe1113.transport_alarm/nse",
-                binaryMessenger: engine.binaryMessenger
-            )
-            nseChannel.setMethodCallHandler { [weak self] call, result in
-                guard let self else {
-                    result(FlutterError(code: "extension_unavailable", message: nil, details: nil))
-                    return
-                }
+        let timeout = DispatchWorkItem { [weak self] in
+            guard let self, let content = self.bestAttemptContent else { return }
+            content.title = "Alarm update timed out"
+            content.body = "The alarm update took too long."
+            self.finish(content)
+        }
+        timeoutWorkItem = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 24, execute: timeout)
 
-                switch call.method {
-                case "ready":
-                    guard let pingId = self.pendingPingId else {
-                        result(FlutterError(code: "missing_ping_id", message: nil, details: nil))
-                        return
-                    }
-                    result(nil)
-                    nseChannel.invokeMethod("handlePing", arguments: pingId)
-                case "updateContent":
-                    guard let values = call.arguments as? [String: Any] else {
-                        result(FlutterError(code: "invalid_content", message: nil, details: nil))
-                        return
-                    }
-                    if let title = values["title"] as? String {
-                        bestAttemptContent.title = title
-                    }
-                    if let body = values["body"] as? String {
-                        bestAttemptContent.body = body
-                    }
-                    result(nil)
-                case "done":
-                    result(nil)
-                    DispatchQueue.main.async {
-                        self.finish(bestAttemptContent)
-                    }
-                default:
-                    result(FlutterMethodNotImplemented)
-                }
-            }
-
-            let appGroupChannel = FlutterMethodChannel(
-                name: "com.fcwe1113.transport_alarm/app_group",
-                binaryMessenger: engine.binaryMessenger
-            )
-            appGroupChannel.setMethodCallHandler { call, result in
-                if call.method == "containerPath" {
-                    result(AppGroup.containerURL?.path)
-                } else {
-                    result(FlutterMethodNotImplemented)
-                }
-            }
-
-            // wire AlarmKit onto this engine too — same handler logic as AppDelegate,
-            // since this is a separate FlutterEngine instance with its own channels
-            let alarmKitChannel = FlutterMethodChannel(name: "com.fcwe1113.busArrivalNotificationApp/alarmkit", binaryMessenger: engine.binaryMessenger)
-            alarmKitChannel.setMethodCallHandler { (call, result) in
-                // reuse the same armAlarm/cancelAlarm implementations from AppDelegate,
-                // refactored into a shared helper both can call
-                AlarmKitBridge.handle(call: call, result: result)
-            }
-
-            NotificationServicePluginRegistrant.register(with: engine)
-
-            // safety timeout, ahead of the OS's own ~30s NSE budget
-            let workItem = DispatchWorkItem { self.finish(bestAttemptContent) }
-            self.timeoutWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 25, execute: workItem)
-
-            engine.run(withEntrypoint: "notificationServiceExtension", libraryURI: nil)
+        processingTask = Task { [weak self] in
+            guard let self else { return }
+            let result = await NativePingHandler(appGroupDirectory: container).handle(pingID: pingID)
+            guard !Task.isCancelled, let content = self.bestAttemptContent else { return }
+            content.title = result.title
+            content.body = result.body
+            self.finish(content)
         }
     }
 
     private func finish(_ content: UNMutableNotificationContent) {
-        timeoutWorkItem?.cancel()
-        flutterEngine?.destroyContext()
-        flutterEngine = nil
-        pendingPingId = nil
-        contentHandler?(content)
-        contentHandler = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.hasFinished else { return }
+            self.hasFinished = true
+            self.timeoutWorkItem?.cancel()
+            self.processingTask?.cancel()
+            self.contentHandler?(content)
+            self.contentHandler = nil
+            self.bestAttemptContent = nil
+        }
     }
 
-    private static func pingId(from userInfo: [AnyHashable: Any]) -> String? {
+    private static func pingID(from userInfo: [AnyHashable: Any]) -> String? {
         let aps = userInfo["aps"] as? [String: Any]
         let data = userInfo["data"] as? [String: Any]
-        let candidates: [Any?] = [
-            userInfo["ping_id"],
-            data?["ping_id"],
-            aps?["ping_id"],
-        ]
-
+        let candidates: [Any?] = [userInfo["ping_id"], data?["ping_id"], aps?["ping_id"]]
         for candidate in candidates {
-            if let value = candidate as? String, !value.isEmpty {
-                return value
-            }
-            if let value = candidate as? NSNumber {
-                return value.stringValue
-            }
+            if let value = candidate as? String, !value.isEmpty { return value }
+            if let value = candidate as? NSNumber { return value.stringValue }
         }
         return nil
     }
 
     override func serviceExtensionTimeWillExpire() {
-        if let bestAttemptContent = bestAttemptContent {
-            finish(bestAttemptContent)
-        }
+        guard let content = bestAttemptContent else { return }
+        content.title = "Alarm update timed out"
+        content.body = "The alarm update took too long."
+        finish(content)
     }
 }

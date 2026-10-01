@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:transport_alarm/models/bus_alarm.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 
@@ -34,9 +36,28 @@ class _AlarmCardState extends State<AlarmCard> {
   @override
   void initState() {
     super.initState();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _refreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       setState(() => _refreshTick++);
     });
+  }
+
+  Future<List<RouteArrival>> _loadArrivalsAndPersistEstimate() async {
+    final arrivals = await resolveArrivals(
+      gtfsStopId: widget.alarm.gtfsStopId,
+      routeNumberFilter: widget.alarm.routeNumbers,
+    );
+    if (Platform.isIOS) {
+      final eligible = widget.alarm.liveOnly
+          ? arrivals.where((arrival) => arrival.isLive)
+          : arrivals;
+      if (eligible.isNotEmpty) {
+        final estimate = eligible
+            .reduce((a, b) => a.minutesFromNow <= b.minutesFromNow ? a : b)
+            .minutesFromNow;
+        await AlarmStorageService().updateLastEstimate(widget.alarm.id, estimate);
+      }
+    }
+    return arrivals;
   }
 
   @override
@@ -144,7 +165,8 @@ class _AlarmCardState extends State<AlarmCard> {
               ],), if (widget.alarm.enabled && isActive)...[
                 const SizedBox(height: 4,),
                 FutureBuilder<List<RouteArrival>>(
-                  future: resolveArrivals(gtfsStopId: widget.alarm.gtfsStopId, routeNumberFilter: widget.alarm.routeNumbers),
+                  key: ValueKey(_refreshTick),
+                  future: _loadArrivalsAndPersistEstimate(),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return Column(crossAxisAlignment: CrossAxisAlignment.start ,children: [ClipRRect(
