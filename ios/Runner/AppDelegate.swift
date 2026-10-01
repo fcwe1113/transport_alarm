@@ -26,11 +26,14 @@ var apnsTokenChannel: FlutterMethodChannel?
             }
         }
 
-        let controller = window?.rootViewController as! FlutterViewController
-        apnsTokenChannel = FlutterMethodChannel(
-            name: "com.fcwe1113.transport_alarm/apns_token",
-            binaryMessenger: controller.binaryMessenger
-        )
+        if let registrar = self.registrar(forPlugin: "APNSTokenHandler") {
+            apnsTokenChannel = FlutterMethodChannel(
+                name: "com.fcwe1113.transport_alarm/apns_token",
+                binaryMessenger: registrar.messenger()
+            )
+        } else {
+            NSLog("Unable to create APNs token channel: Flutter plugin registrar is unavailable")
+        }
 
         if let container = AppGroup.containerURL {
             let testFile = container.appendingPathComponent("app_group_test.txt")
