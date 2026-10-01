@@ -50,7 +50,7 @@ class NotificationService: UNNotificationServiceExtension {
             NSLog("DEBUG TEST: NSE stage 3")
 
             engine.run(withEntrypoint: "notificationServiceExtension", libraryURI: nil)
-            GeneratedPluginRegistrant.register(with: engine)
+            NotificationServicePluginRegistrant.register(with: engine)
 
             let doneChannel = FlutterMethodChannel(name: "com.fcwe1113.busArrivalNotificationApp/nse", binaryMessenger: engine.binaryMessenger)
             doneChannel.setMethodCallHandler { (call, result) in

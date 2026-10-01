@@ -7,8 +7,6 @@ import UserNotifications
 let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
 var apnsTokenChannel: FlutterMethodChannel?
 
-struct TransportAlarmMetadata: AlarmMetadata {} // intentionally empty, maybe add informational vars later
-
 @main
 @objc class AppDelegate: FlutterAppDelegate {
 
