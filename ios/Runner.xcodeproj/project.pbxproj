@@ -10,6 +10,7 @@
 		0EC74B1E9A57CFFF0ECF6368 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA842F78E2A33F2110979FE /* AppGroup.swift */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		1C20D0848D6A9F8A91C33101 /* NotificationServicePluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1C20D0848D6A9F8A91C33102 /* NotificationServicePluginRegistrant.m */; };
+		1C20D0848D6A9F8A91C33105 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		2147030837A49D38E592A116 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62E5DF5D8F2FB65BE9AFEFD /* NotificationService.swift */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -98,6 +99,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1C20D0848D6A9F8A91C33105 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				8D96370625E2477E0D3CE517 /* Foundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -238,6 +240,9 @@
 			dependencies = (
 			);
 			name = NotificationService;
+			packageProductDependencies = (
+				78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */,
+			);
 			productName = NotificationService;
 			productReference = 841C7F6BF1EDECAAAA03E5A4 /* NotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
