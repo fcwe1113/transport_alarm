@@ -8,6 +8,7 @@ class NotificationService: UNNotificationServiceExtension {
     var bestAttemptContent: UNMutableNotificationContent?
     var flutterEngine: FlutterEngine?
     var timeoutWorkItem: DispatchWorkItem?
+    var pendingPingId: String?
 
     private var sharedDefaults: UserDefaults? {
         UserDefaults(suiteName: appGroupId)
@@ -47,17 +48,49 @@ class NotificationService: UNNotificationServiceExtension {
             let flutterProject = FlutterDartProject(precompiledDartBundle: appFrameworkBundle)
             let engine = FlutterEngine(name: "notification_service", project: flutterProject, allowHeadlessExecution: true)
             self.flutterEngine = engine
+            self.pendingPingId = pingId
             NSLog("DEBUG TEST: NSE stage 3")
 
-            engine.run(withEntrypoint: "notificationServiceExtension", libraryURI: nil)
-            NotificationServicePluginRegistrant.register(with: engine)
-
-            let doneChannel = FlutterMethodChannel(name: "com.fcwe1113.busArrivalNotificationApp/nse", binaryMessenger: engine.binaryMessenger)
-            doneChannel.setMethodCallHandler { (call, result) in
-                if call.method == "done" {
-                    self.finish(bestAttemptContent)
+            // Install native handlers before Dart starts. Dart sends `ready`
+            // after registering its own handler, so handlePing cannot race startup.
+            let nseChannel = FlutterMethodChannel(
+                name: "com.fcwe1113.transport_alarm/nse",
+                binaryMessenger: engine.binaryMessenger
+            )
+            nseChannel.setMethodCallHandler { [weak self] call, result in
+                guard let self else {
+                    result(FlutterError(code: "extension_unavailable", message: nil, details: nil))
+                    return
                 }
-                result(nil)
+
+                switch call.method {
+                case "ready":
+                    guard let pingId = self.pendingPingId else {
+                        result(FlutterError(code: "missing_ping_id", message: nil, details: nil))
+                        return
+                    }
+                    result(nil)
+                    nseChannel.invokeMethod("handlePing", arguments: pingId)
+                case "updateContent":
+                    guard let values = call.arguments as? [String: Any] else {
+                        result(FlutterError(code: "invalid_content", message: nil, details: nil))
+                        return
+                    }
+                    if let title = values["title"] as? String {
+                        bestAttemptContent.title = title
+                    }
+                    if let body = values["body"] as? String {
+                        bestAttemptContent.body = body
+                    }
+                    result(nil)
+                case "done":
+                    result(nil)
+                    DispatchQueue.main.async {
+                        self.finish(bestAttemptContent)
+                    }
+                default:
+                    result(FlutterMethodNotImplemented)
+                }
             }
 
             let appGroupChannel = FlutterMethodChannel(
@@ -81,12 +114,14 @@ class NotificationService: UNNotificationServiceExtension {
                 AlarmKitBridge.handle(call: call, result: result)
             }
 
-            doneChannel.invokeMethod("handlePing", arguments: pingId)
+            NotificationServicePluginRegistrant.register(with: engine)
 
             // safety timeout, ahead of the OS's own ~30s NSE budget
             let workItem = DispatchWorkItem { self.finish(bestAttemptContent) }
             self.timeoutWorkItem = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + 25, execute: workItem)
+
+            engine.run(withEntrypoint: "notificationServiceExtension", libraryURI: nil)
         }
     }
 
@@ -94,6 +129,7 @@ class NotificationService: UNNotificationServiceExtension {
         timeoutWorkItem?.cancel()
         flutterEngine?.destroyContext()
         flutterEngine = nil
+        pendingPingId = nil
         contentHandler?(content)
         contentHandler = nil
     }

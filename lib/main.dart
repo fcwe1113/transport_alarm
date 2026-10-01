@@ -33,20 +33,46 @@ void notificationServiceExtension() {
     if (call.method == 'handlePing') {
       final pingId = call.arguments as String?;
       if (pingId == null) {
-        _nseChannel.invokeMethod('done');
+        await _nseChannel.invokeMethod<void>('updateContent', {
+          'action': 'invalidPing',
+          'title': 'Notification could not be processed',
+          'body': 'The notification did not include a ping identifier.',
+        });
+        await _nseChannel.invokeMethod<void>('done');
         return;
       }
+
+      late final AlarmPingPresentation presentation;
       try {
         final storage = AlarmStorageService();
         final server = AlarmServerService();
         final handler = AlarmPingHandler(storage, server, AlarmLifecycleService(storage: storage, server: server));
         print("DEBUG TEST: NSE triggered dart code handle ping");
-        await handler.handlePing(pingId);
+        presentation = await handler.handlePing(
+          pingId,
+          showLocalNotification: false,
+        );
       } catch (e) {
         print('NSE handlePing failed: $e');
+        presentation = AlarmPingPresentation(
+          action: 'error',
+          title: 'Alarm update failed',
+          body: 'The alarm could not be processed: $e',
+        );
       }
-      _nseChannel.invokeMethod('done');
+
+      await _nseChannel.invokeMethod<void>(
+        'updateContent',
+        presentation.toMap(),
+      );
+      await _nseChannel.invokeMethod<void>('done');
     }
+  });
+
+  // Tell the extension that Dart has installed its handler. The native side
+  // waits for this before sending handlePing, avoiding a startup race.
+  _nseChannel.invokeMethod<void>('ready').catchError((Object error) {
+    print('NSE ready handshake failed: $error');
   });
 }
 
