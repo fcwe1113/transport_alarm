@@ -112,7 +112,12 @@ class _AppLanguageSettingsScreenState extends State<AppLanguageSettingsScreen> {
     await AppStrings.load(code);
     await AppGroupStorage.setAppLanguageCode(code);
     appLanguageCodeNotifier.value = code;
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) {
+      appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+        '/settings',
+        (_) => false,
+      );
+    }
   }
 
   @override

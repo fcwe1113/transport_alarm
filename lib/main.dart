@@ -73,6 +73,7 @@ class MyApp extends StatelessWidget { // statelesswidget only has constant inter
     return ValueListenableBuilder<String>(
       valueListenable: appLanguageCodeNotifier,
       builder: (context, languageCode, _) => MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: AppStrings.text('app.title'),
       locale: localeForAppLanguage(languageCode),
       supportedLocales: const [
