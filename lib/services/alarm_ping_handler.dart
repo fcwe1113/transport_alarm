@@ -5,6 +5,7 @@ import 'package:transport_alarm/services/alarm_engine.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
@@ -99,12 +100,29 @@ class AlarmPingHandler {
     final updatedAlarm = alarm.copyWith(thresholdStates: updatedStates);
 
     await _storage.updateAlarm(updatedAlarm);
-    await _alarmLifecycle.handleOccurenceConcluded(updatedAlarm);
+
+    final nextPendingIndex = updatedStates.indexWhere(
+      (state) => state.outcome == ThresholdOutcome.pending,
+    );
+    if (nextPendingIndex == -1) {
+      if (updatedAlarm.repeat.frequency != RepeatFrequency.none &&
+          updatedAlarm.pingId != null) {
+        await _server.cancelPing(updatedAlarm.pingId!);
+      }
+      await _alarmLifecycle.handleOccurenceConcluded(updatedAlarm);
+      return;
+    }
 
     final fetchedEstimate = await _getMinutesUntilArrival(updatedAlarm);
     final minutesUntilArrival = fetchedEstimate ?? updatedAlarm.lastEstimatedMinutesUntilArrival;
     if (minutesUntilArrival == null) {
-      _server.cancelPing(alarm.pingId!); // todo notify user
+      if (alarm.pingId != null) {
+        await _server.reschedule(
+          pingId: alarm.pingId!,
+          scheduledTime: DateTime.now().add(const Duration(minutes: 1)),
+          requireAck: false,
+        );
+      }
       return;
     }
 
@@ -115,11 +133,31 @@ class AlarmPingHandler {
       await _storage.updateAlarm(alarmWithLatestEstimate);
     }
 
-    final arming = armNextThreshold(alarmWithLatestEstimate, activeIndex, minutesUntilArrival);
-    if (arming == null) {
-      await _server.cancelPing(alarm.pingId!);
+    final nextThreshold = alarmWithLatestEstimate.thresholdStates[nextPendingIndex];
+    final minutesUntilNextThreshold = minutesUntilArrival - nextThreshold.minutesBeforeArrival;
+    final DateTime nextPingTime;
+    final bool requireAck;
+    if (minutesUntilNextThreshold > 5) {
+      final estimateHalf = (minutesUntilArrival / 2).round();
+      nextPingTime = DateTime.now().add(
+        Duration(minutes: estimateHalf < 1 ? 1 : estimateHalf),
+      );
+      requireAck = false;
+    } else if (minutesUntilNextThreshold > 0) {
+      nextPingTime = DateTime.now().add(Duration(minutes: minutesUntilNextThreshold));
+      requireAck = true;
     } else {
-      await _server.reschedule(pingId: alarm.pingId!, scheduledTime: arming.nextPingTime, requireAck: arming.requiresAck, expireOn: arming.expireOn);
+      // The next threshold is already due or less than a minute away; check it
+      // on the next server ping and keep the same alarm ping ID.
+      nextPingTime = DateTime.now().add(const Duration(minutes: 1));
+      requireAck = true;
+    }
+    if (alarm.pingId != null) {
+      await _server.reschedule(
+        pingId: alarm.pingId!,
+        scheduledTime: nextPingTime,
+        requireAck: requireAck,
+      );
     }
   }
 

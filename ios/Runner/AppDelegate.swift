@@ -21,6 +21,18 @@ let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        let acknowledgeAction = UNNotificationAction(
+            identifier: "transport_alarm_acknowledge",
+            title: "Acknowledge",
+            options: [.foreground]
+        )
+        let ringCategory = UNNotificationCategory(
+            identifier: "transport_alarm_ring",
+            actions: [acknowledgeAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([ringCategory])
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             if granted {
                 NSLog("DEBUG TEST: notification init")
@@ -110,6 +122,35 @@ let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
             completionHandler([.banner, .list, .sound, .badge])
         } else {
             completionHandler([.alert, .sound, .badge])
+        }
+    }
+
+    override func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        guard response.actionIdentifier == "transport_alarm_acknowledge" else {
+            super.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
+            return
+        }
+
+        let info = response.notification.request.content.userInfo
+        let data = info["data"] as? [String: Any]
+        let candidates = [info["ping_id"], data?["ping_id"]]
+        let pingID = candidates.compactMap { candidate -> String? in
+            if let string = candidate as? String { return string }
+            if let number = candidate as? NSNumber { return number.stringValue }
+            return nil
+        }.first
+
+        guard let pingID else {
+            completionHandler()
+            return
+        }
+        Task {
+            await PingAcknowledgementHandler.acknowledge(pingID: pingID)
+            completionHandler()
         }
     }
 

@@ -9,7 +9,6 @@ import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/screens/setup_screen.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
-import 'package:transport_alarm/services/alarm_kit_service.dart';
 import 'package:transport_alarm/services/alarm_ping_handler.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
@@ -47,11 +46,6 @@ Future<void> main() async { // dart entry point
   final String apiKey = secrets["MAPS_API_KEY"];
 
   if (defaultTargetPlatform == TargetPlatform.iOS) {
-    // Diagnostic: request AlarmKit authorization in the foreground app and
-    // schedule a one-minute test alarm. If this succeeds while the NSE reports
-    // `.notDetermined`, that isolates the authorization problem to the extension.
-    await _scheduleStartupAlarmKitDiagnostic();
-
     if (apiKey.isNotEmpty) {
       const channel = MethodChannel("com.fcwe1113.transport_alarm/google_maps");
       try {
@@ -99,35 +93,6 @@ Future<void> main() async { // dart entry point
   final setupDone = await selectionService.hasCompletedSetup(); // check if user did setup before
 
   runApp(MyApp(initialRoute: setupDone ? "/" : "/setup",)); // app entry point, working with flutter from this point on
-}
-
-Future<void> _scheduleStartupAlarmKitDiagnostic() async {
-  const diagnosticAlarmId = "8FBD6A31-15DE-4C7E-B0C4-A50B79271C9E";
-  final alarmKit = AlarmKitService();
-
-  // Clear a prior diagnostic instance so relaunching does not collide with it.
-  await alarmKit.cancelAlarm(
-    alarmId: diagnosticAlarmId,
-    secondsUntilFire: 0,
-    title: '',
-  );
-
-  final authorized = await alarmKit.requestAuthorization();
-  if (!authorized) {
-    debugPrint("ALARMKIT STARTUP TEST: authorization was not granted");
-    return;
-  }
-
-  final scheduled = await alarmKit.armAlarm(
-    alarmId: diagnosticAlarmId,
-    secondsUntilFire: 60,
-    title: "AlarmKit startup test",
-  );
-  debugPrint(
-    scheduled
-        ? "ALARMKIT STARTUP TEST: scheduled to fire in 60 seconds"
-        : "ALARMKIT STARTUP TEST: scheduling failed; see native/Dart error output",
-  );
 }
 
 class MyApp extends StatelessWidget { // statelesswidget only has constant internal data

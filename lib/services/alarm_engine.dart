@@ -13,19 +13,6 @@ class AlarmDecision {
   const AlarmDecision({required this.action, required this.updatedAlarm, this.nextPingTime, this.nextPingRequiresAck = false, this.expireOn});
 }
 
-NextThresholdArming? armNextThreshold(BusAlarm alarm, int currentIndex, int minutesUntilArrival) {
-  final nextIndex = currentIndex + 1;
-  if (nextIndex >= alarm.thresholdStates.length) return null; // no next threshold
-  final nextThreshold = alarm.thresholdStates[nextIndex];
-  final minutesUntilNext = minutesUntilArrival - nextThreshold.minutesBeforeArrival;
-
-  return NextThresholdArming(
-      nextPingTime: DateTime.now().add(Duration(minutes: minutesUntilNext < 0 ? 0 : minutesUntilNext)),
-      requiresAck: true,
-      expireOn: _nextThresholdExpiry(alarm, nextIndex, minutesUntilArrival)
-  );
-}
-
 AlarmDecision evaluateAlarm({required BusAlarm alarm, required int? minutesUntilArrival}) {
   final activeIndex = alarm.thresholdStates.indexWhere((t) => t.outcome == ThresholdOutcome.pending || t.outcome == ThresholdOutcome.ringing);
 
@@ -34,66 +21,51 @@ AlarmDecision evaluateAlarm({required BusAlarm alarm, required int? minutesUntil
     return AlarmDecision(action: AlarmAction.doNothing, updatedAlarm: alarm);
   }
 
-  // no valid busses found
+  final threshold = alarm.thresholdStates[activeIndex];
+
+  // A ringing threshold repeats on the existing ping every minute until the
+  // user acknowledges it, even when the live ETA is unavailable.
+  if (threshold.outcome == ThresholdOutcome.ringing) {
+    final updatedStates = List<ThresholdState>.from(alarm.thresholdStates);
+    updatedStates[activeIndex] = threshold.copyWith(ringCount: threshold.ringCount + 1);
+    return AlarmDecision(
+      action: AlarmAction.ring,
+      updatedAlarm: alarm.copyWith(thresholdStates: updatedStates),
+      nextPingTime: DateTime.now().add(const Duration(minutes: 1)),
+      nextPingRequiresAck: true,
+    );
+  }
+
+  // no valid buses found
   if (minutesUntilArrival == null) { // todo set no bus found retry in 1/4 of active window or 30mins, whichever's lower
     final fallbackWait = const Duration(minutes: 5);
     return AlarmDecision(action: AlarmAction.scheduleNextPing, updatedAlarm: alarm, nextPingTime: DateTime.now().add(fallbackWait));
   }
 
-  final nextIndex = activeIndex + 1;
-  if (nextIndex < alarm.thresholdStates.length) {
-    final nextThreshold = alarm.thresholdStates[nextIndex];
-    final minutesUntilNextThreshold = minutesUntilArrival - nextThreshold.minutesBeforeArrival;
-    if (minutesUntilNextThreshold <= 1) {
-      final updatedStates = List<ThresholdState>.from(alarm.thresholdStates);
-      updatedStates[activeIndex] = updatedStates[activeIndex].copyWith(outcome: ThresholdOutcome.superseded);
-      final supersededAlarm = alarm.copyWith(thresholdStates: updatedStates);
-
-      final arming = armNextThreshold(supersededAlarm, activeIndex, minutesUntilArrival);
-      return AlarmDecision(
-          action: AlarmAction.scheduleNextPing,
-          updatedAlarm: supersededAlarm,
-          nextPingTime: arming?.nextPingTime,
-          nextPingRequiresAck: arming!.requiresAck,
-          expireOn: arming.expireOn
-      );
-    }
-  }
-
-  final threshold = alarm.thresholdStates[activeIndex];
-
   // threshold reached
   if (minutesUntilArrival <= threshold.minutesBeforeArrival) {
-    final newRingCount = threshold.ringCount + 1;
-    final retriesExhausted = newRingCount >= alarm.maxRingsPerThreshold;
     final updateStates = List<ThresholdState>.from(alarm.thresholdStates);
-
-    updateStates[activeIndex] = threshold.copyWith(outcome: retriesExhausted ? ThresholdOutcome.missed : ThresholdOutcome.ringing, ringCount: newRingCount + 1);
-
-    final updatedAlarm = alarm.copyWith(thresholdStates: updateStates);
-
-    if (!retriesExhausted) return AlarmDecision(action: AlarmAction.ring, updatedAlarm: updatedAlarm);
-
-    final nextArming = armNextThreshold(updatedAlarm, activeIndex, minutesUntilArrival);
-    return AlarmDecision(action: AlarmAction.ring, updatedAlarm: updatedAlarm, nextPingTime: nextArming?.nextPingTime, nextPingRequiresAck: nextArming?.requiresAck ?? false, expireOn: nextArming?.expireOn);
+    updateStates[activeIndex] = threshold.copyWith(
+      outcome: ThresholdOutcome.ringing,
+      ringCount: threshold.ringCount + 1,
+    );
+    return AlarmDecision(
+      action: AlarmAction.ring,
+      updatedAlarm: alarm.copyWith(thresholdStates: updateStates),
+      nextPingTime: DateTime.now().add(const Duration(minutes: 1)),
+      nextPingRequiresAck: true,
+    );
   }
 
   final minutesUntilThreshold = minutesUntilArrival - threshold.minutesBeforeArrival;
 
   // not yet at threshold
   if (minutesUntilThreshold > 5) {
-    final halfway = Duration(minutes: (minutesUntilThreshold / 2).round());
+    final halfway = Duration(minutes: (minutesUntilArrival / 2).round());
     return AlarmDecision(action: AlarmAction.scheduleNextPing, updatedAlarm: alarm, nextPingTime: DateTime.now().add(halfway));
   } else {
     return AlarmDecision(action: AlarmAction.scheduleNextPing, updatedAlarm: alarm, nextPingTime: DateTime.now().add(Duration(minutes: minutesUntilThreshold)), nextPingRequiresAck: true, expireOn: _nextThresholdExpiry(alarm, activeIndex, minutesUntilArrival));
   }
-}
-
-class NextThresholdArming {
-  final DateTime nextPingTime;
-  final bool requiresAck;
-  final DateTime? expireOn;
-  const NextThresholdArming({required this.nextPingTime, required this.requiresAck, required this.expireOn});
 }
 
 DateTime? _nextThresholdExpiry(BusAlarm alarm, int activeIndex, int minutesUntilArrival) {

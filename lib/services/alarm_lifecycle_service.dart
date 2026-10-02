@@ -1,9 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/models/bus_alarm.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
-import 'package:transport_alarm/services/alarm_kit_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/device_token_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
@@ -18,9 +15,6 @@ class AlarmLifecycleService {
 
   Future<AlarmActionResult> createAlarm(BusAlarm alarm) async {
     try {
-      if (Platform.isIOS && !await AlarmKitService().requestAuthorization()) {
-        return AlarmActionResult.failure("AlarmKit authorization was not granted.");
-      }
       final scheduled = await _schedulePing(alarm);
       await _storage.addAlarm(scheduled);
       return const AlarmActionResult.success();
@@ -36,27 +30,15 @@ class AlarmLifecycleService {
 
     try {
       if (enabled) {
-        if (Platform.isIOS && !await AlarmKitService().requestAuthorization()) {
-          return AlarmActionResult.failure("AlarmKit authorization was not granted.");
-        }
         final reenabled = alarm.copyWith(
           enabled: true,
           clearLastEstimatedMinutesUntilArrival: true,
-          iosThresholdStates: const [],
-          iosNextOccurrenceScheduled: false,
         );
         final scheduled = await _schedulePing(reenabled);
         await _storage.updateAlarm(scheduled);
       } else {
         if (alarm.pingId != null) {
           await _server.cancelPing(alarm.pingId!);
-        }
-        if (Platform.isIOS) {
-          await AlarmKitService().cancelAlarm(
-            alarmId: alarm.id,
-            secondsUntilFire: 0,
-            title: '',
-          );
         }
         await _storage.updateAlarm(alarm.copyWith(enabled: false, pingId: null));
       }
@@ -71,13 +53,6 @@ class AlarmLifecycleService {
     final alarm = alarms.where((a) => a.id == alarmId).firstOrNull;
     if (alarm?.pingId != null) {
       await _server.cancelPing(alarm!.pingId!);
-    }
-    if (Platform.isIOS && alarm != null) {
-      await AlarmKitService().cancelAlarm(
-        alarmId: alarm.id,
-        secondsUntilFire: 0,
-        title: '',
-      );
     }
     await _storage.deleteAlarm(alarmId);
   }

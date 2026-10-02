@@ -10,11 +10,13 @@ struct PingResult {
     let title: String
     let body: String
     let debugMessage: String?
+    let categoryIdentifier: String?
 
-    init(title: String, body: String, debugMessage: String? = nil) {
+    init(title: String, body: String, debugMessage: String? = nil, categoryIdentifier: String? = nil) {
         self.title = title
         self.body = body
         self.debugMessage = debugMessage
+        self.categoryIdentifier = categoryIdentifier
     }
 }
 
@@ -34,9 +36,8 @@ final class NativePingHandler {
         self.appGroupDirectory = appGroupDirectory
     }
 
-    /// Processes one server ping. It finds the alarm, refreshes its arrival
-    /// estimate, arms due AlarmKit thresholds, and either acknowledges or
-    /// reschedules the ping depending on what work remains.
+    /// Processes one server ping. A visible push is the ring itself; the same
+    /// server ping ID is rescheduled until the user acknowledges the threshold.
     func handle(pingID: String) async -> PingResult {
         do {
             var alarms = try loadAlarms()
@@ -53,160 +54,129 @@ final class NativePingHandler {
                 return PingResult(title: "Alarm is disabled", body: "No alarm action is needed. \(Self.alarmDebugJSON(alarm))")
             }
 
-            var thresholdStates = makeIOSThresholdStates(for: alarm)
-            let repeatFrequency = repeatFrequency(of: alarm)
-            if Self.stringValue(alarm["iosOccurrenceKey"]) == nil {
-                alarm["iosOccurrenceKey"] = occurrenceKey(for: Date(), alarm: alarm)
+            var thresholdStates = (alarm["thresholdStates"] as? [[String: Any]] ?? []).sorted {
+                (Self.intValue($0["minutesBeforeArrival"]) ?? 0) >
+                    (Self.intValue($1["minutesBeforeArrival"]) ?? 0)
             }
-
-            // Once all thresholds are armed, a later ping represents the next
-            // repeat. Reset the threshold states before processing that occurrence.
-            if !thresholdStates.isEmpty,
-               thresholdStates.allSatisfy({ $0["outcome"] as? String == "armed" }),
-               repeatFrequency != "none" {
-                if alarm["iosNextOccurrenceScheduled"] as? Bool == true {
-                    thresholdStates = thresholdStates.map { state in
-                        var reset = state
-                        reset["outcome"] = "pending"
-                        reset.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
-                        return reset
-                    }
-                    alarm["lastEstimatedMinutesUntilArrival"] = NSNull()
-                    alarm["iosThresholdStates"] = thresholdStates
-                    alarm["iosNextOccurrenceScheduled"] = false
-                    alarm["iosOccurrenceKey"] = occurrenceKey(for: Date(), alarm: alarm)
-                    alarms[alarmIndex] = alarm
-                    try saveAlarms(alarms)
-                } else {
-                    // The prior push armed every threshold but failed before the server
-                    // could move the ping to the next repeat. Retry that update safely.
+            alarm["thresholdStates"] = thresholdStates
+            guard let activeIndex = thresholdStates.firstIndex(where: {
+                let outcome = $0["outcome"] as? String
+                return outcome == "pending" || outcome == "ringing"
+            }) else {
+                if repeatFrequency(of: alarm) != "none" {
                     let nextRepeat = try nextRepeatDate(for: alarm)
                     try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)
-                    alarm["iosNextOccurrenceScheduled"] = true
+                    for index in thresholdStates.indices {
+                        thresholdStates[index]["outcome"] = "pending"
+                        thresholdStates[index]["ringCount"] = 0
+                    }
+                    alarm["thresholdStates"] = thresholdStates
+                    alarm["lastEstimatedMinutesUntilArrival"] = NSNull()
                     alarms[alarmIndex] = alarm
                     try saveAlarms(alarms)
                     return PingResult(title: "Next alarm occurrence scheduled", body: "The next repeat is scheduled.")
                 }
-            }
-
-            guard let firstPendingIndex = thresholdStates.firstIndex(where: {
-                $0["outcome"] as? String == "pending"
-            }) else {
+                alarm["enabled"] = false
+                alarm["pingId"] = NSNull()
+                alarms[alarmIndex] = alarm
+                try saveAlarms(alarms)
                 try? await acknowledge(pingID: pingID)
-                return PingResult(title: "Alarm already armed", body: "There are no pending alarm thresholds.")
+                return PingResult(title: "Alarm complete", body: "All alarm thresholds are complete.")
             }
 
-            // Prefer a fresh live or scheduled estimate, then fall back to the
-            // last estimate stored with the alarm or its first pending threshold.
+            // Use a fresh arrival estimate when available, otherwise retain the
+            // last good value so a transient API failure does not stop the alarm.
             let freshEstimate = await estimateMinutesUntilArrival(for: alarm)
             let cachedEstimate = Self.intValue(alarm["lastEstimatedMinutesUntilArrival"])
-                ?? Self.intValue(thresholdStates[firstPendingIndex]["lastEstimatedMinutesUntilArrival"])
             let estimate = freshEstimate ?? cachedEstimate
-
             if let freshEstimate {
                 alarm["lastEstimatedMinutesUntilArrival"] = freshEstimate
-                for index in thresholdStates.indices where thresholdStates[index]["outcome"] as? String == "pending" {
-                    thresholdStates[index]["lastEstimatedMinutesUntilArrival"] = freshEstimate
+            }
+
+            guard let thresholdMinutes = Self.intValue(thresholdStates[activeIndex]["minutesBeforeArrival"]) else {
+                throw PingHandlerError.invalidAlarmData
+            }
+
+            // Once a threshold is ringing, keep sending the same visible push
+            // every minute until its notification action acknowledges it.
+            if thresholdStates[activeIndex]["outcome"] as? String == "ringing" {
+                do {
+                    try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
+                    alarm["thresholdStates"] = thresholdStates
+                    if let freshEstimate {
+                        alarm["lastEstimatedMinutesUntilArrival"] = freshEstimate
+                    }
+                    alarms[alarmIndex] = alarm
+                    try saveAlarms(alarms)
+                    return ringResult(alarm: alarm, thresholdMinutes: thresholdMinutes)
+                } catch {
+                    return ringResult(alarm: alarm, thresholdMinutes: thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
                 }
             }
 
             guard let estimate else {
                 let retryAt = Date().addingTimeInterval(5 * 60)
                 try await reschedule(pingID: pingID, at: retryAt, requireAck: false)
-                alarm["iosThresholdStates"] = thresholdStates
                 alarms[alarmIndex] = alarm
                 try saveAlarms(alarms)
                 return PingResult(title: "Arrival estimate unavailable", body: "Another update is scheduled in 5 minutes.")
             }
 
-            // Process pending thresholds from largest to smallest. A threshold
-            // more than five minutes away gets another ping; a near threshold is
-            // armed in AlarmKit, after which the next pending threshold is checked.
-            while let pendingIndex = thresholdStates.firstIndex(where: {
-                $0["outcome"] as? String == "pending"
-            }) {
-                guard let thresholdMinutes = Self.intValue(thresholdStates[pendingIndex]["minutesBeforeArrival"]) else {
-                    throw PingHandlerError.invalidAlarmData
-                }
-
-                let minutesUntilThreshold = estimate - thresholdMinutes
-                if minutesUntilThreshold > 5 {
-                    let nextPingDelayMinutes = max(1, Int((Double(estimate) / 2).rounded()))
-                    try await reschedule(
-                        pingID: pingID,
-                        at: Date().addingTimeInterval(TimeInterval(nextPingDelayMinutes * 60)),
-                        requireAck: false
-                    )
-                    alarm["iosThresholdStates"] = thresholdStates
-                    alarms[alarmIndex] = alarm
-                    try saveAlarms(alarms)
-                    return PingResult(
-                        title: "Alarm update scheduled",
-                        body: "The arrival estimate is about \(estimate) minutes. Another check is scheduled before the alarm."
-                    )
-                }
-
-                let secondsUntilAlarm = max(1, minutesUntilThreshold * 60)
-                let title = (alarm["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Bus arriving soon"
-                do {
-                    try await AlarmKitScheduler.schedule(
-                        alarmID: AlarmKitScheduler.stableID(
-                            for: "\(Self.stringValue(alarm["id"]) ?? pingID):\(Self.stringValue(alarm["iosOccurrenceKey"]) ?? "current"):threshold:\(thresholdMinutes):\(pendingIndex)"
-                        ),
-                        secondsUntilFire: TimeInterval(secondsUntilAlarm),
-                        title: title
-                    )
-                } catch {
-                    let alarmKitError = Self.describe(error)
-                    do {
-                        try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: false)
-                    } catch {
-                        return PingResult(
-                            title: "Alarm could not be armed",
-                            body: "The extension could not schedule a retry.",
-                            debugMessage: "AlarmKit failed: \(alarmKitError); retry scheduling failed: \(Self.describe(error))"
-                        )
-                    }
-                    alarm["iosThresholdStates"] = thresholdStates
-                    alarms[alarmIndex] = alarm
-                    try saveAlarms(alarms)
-                    return PingResult(
-                        title: "Alarm could not be armed",
-                        body: "The extension will retry in 1 minute.",
-                        debugMessage: alarmKitError
-                    )
-                }
-
-                thresholdStates[pendingIndex]["outcome"] = "armed"
-                thresholdStates[pendingIndex]["lastEstimatedMinutesUntilArrival"] = estimate
-            }
-
-            alarm["iosThresholdStates"] = thresholdStates
-            if repeatFrequency == "none" {
-                alarm["enabled"] = false
-                alarm["pingId"] = NSNull()
+            let minutesUntilThreshold = estimate - thresholdMinutes
+            if minutesUntilThreshold > 5 {
+                // Recheck halfway through the current estimate (7 minutes -> 4).
+                let delayMinutes = max(1, Int((Double(estimate) / 2).rounded()))
+                try await reschedule(
+                    pingID: pingID,
+                    at: Date().addingTimeInterval(TimeInterval(delayMinutes * 60)),
+                    requireAck: false
+                )
+                alarm["thresholdStates"] = thresholdStates
                 alarms[alarmIndex] = alarm
                 try saveAlarms(alarms)
-                try await acknowledge(pingID: pingID)
-                return PingResult(title: "Alarm armed", body: "The final alarm threshold is armed.")
+                return PingResult(
+                    title: "Alarm update scheduled",
+                    body: "The arrival estimate is about \(estimate) minutes. Another check is scheduled in \(delayMinutes) minutes."
+                )
             }
 
-            let nextRepeat = try nextRepeatDate(for: alarm)
-            alarm["iosThresholdStates"] = thresholdStates
-            alarm["iosNextOccurrenceScheduled"] = false
+            if minutesUntilThreshold > 0 {
+                try await reschedule(
+                    pingID: pingID,
+                    at: Date().addingTimeInterval(TimeInterval(minutesUntilThreshold * 60)),
+                    requireAck: true
+                )
+                alarm["thresholdStates"] = thresholdStates
+                alarms[alarmIndex] = alarm
+                try saveAlarms(alarms)
+                return PingResult(title: "Alarm approaching", body: "The alarm will check again at the threshold time.")
+            }
+
+            thresholdStates[activeIndex]["outcome"] = "ringing"
+            let oldCount = Self.intValue(thresholdStates[activeIndex]["ringCount"]) ?? 0
+            thresholdStates[activeIndex]["ringCount"] = oldCount + 1
+            alarm["thresholdStates"] = thresholdStates
             alarms[alarmIndex] = alarm
-            try saveAlarms(alarms)
-            try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)
-            alarm["iosNextOccurrenceScheduled"] = true
-            alarms[alarmIndex] = alarm
-            try saveAlarms(alarms)
-            return PingResult(
-                title: "Alarm armed",
-                body: "The final threshold is armed. The next alarm occurrence is scheduled."
-            )
+            try? saveAlarms(alarms)
+            do {
+                try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
+                return ringResult(alarm: alarm, thresholdMinutes: thresholdMinutes)
+            } catch {
+                return ringResult(alarm: alarm, thresholdMinutes: thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
+            }
         } catch {
             return PingResult(title: "Alarm update failed", body: "The existing notification schedule could not be updated.")
         }
+    }
+
+    private func ringResult(alarm: [String: Any], thresholdMinutes: Int, debugMessage: String? = nil) -> PingResult {
+        let title = (alarm["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Bus arriving soon"
+        return PingResult(
+            title: title,
+            body: "Your bus alarm has reached its \(thresholdMinutes)-minute threshold. Acknowledge to continue.",
+            debugMessage: debugMessage,
+            categoryIdentifier: "transport_alarm_ring"
+        )
     }
 
     // MARK: Shared alarm data
@@ -231,28 +201,6 @@ final class NativePingHandler {
     private func saveAlarms(_ alarms: [[String: Any]]) throws {
         let data = try JSONSerialization.data(withJSONObject: alarms, options: [.sortedKeys])
         try data.write(to: alarmsFile, options: [.atomic])
-    }
-
-    /// Loads iOS-specific pending/armed states, or initializes them from the
-    /// shared threshold definitions, always ordered from largest to smallest.
-    private func makeIOSThresholdStates(for alarm: [String: Any]) -> [[String: Any]] {
-        if let existing = alarm["iosThresholdStates"] as? [[String: Any]], !existing.isEmpty {
-            return existing.sorted {
-                (Self.intValue($0["minutesBeforeArrival"]) ?? 0) >
-                    (Self.intValue($1["minutesBeforeArrival"]) ?? 0)
-            }
-        }
-
-        let thresholds = (alarm["thresholdStates"] as? [[String: Any]] ?? []).sorted {
-            (Self.intValue($0["minutesBeforeArrival"]) ?? 0) >
-                (Self.intValue($1["minutesBeforeArrival"]) ?? 0)
-        }
-        return thresholds.map { threshold in
-            [
-                "minutesBeforeArrival": Self.intValue(threshold["minutesBeforeArrival"]) ?? 0,
-                "outcome": "pending",
-            ]
-        }
     }
 
     /// Reads the repeat mode, treating a missing repeat configuration as one-shot.

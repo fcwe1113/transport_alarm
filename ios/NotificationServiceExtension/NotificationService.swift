@@ -49,8 +49,9 @@ final class NotificationService: UNNotificationServiceExtension {
             guard !Task.isCancelled, let content = self.bestAttemptContent else { return }
             content.title = result.title
             content.body = result.body
+            content.categoryIdentifier = result.categoryIdentifier ?? ""
             if let debugMessage = result.debugMessage {
-                content.body += "\n\nAlarmKit error: \(debugMessage)"
+                content.body += "\n\nAlarm update detail: \(debugMessage)"
             }
             self.finish(content)
         }

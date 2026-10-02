@@ -1,7 +1,3 @@
-import 'dart:convert';
-import 'dart:math';
-
-import 'package:http/http.dart' as http;
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:flutter/material.dart';
 
@@ -12,7 +8,7 @@ class BusAlarm {
   final String id; // maybe gen a uuid for it or something, this is local anyways so whatever
   final List<String> routeNumbers; // stores raw route numbers for deduping
   final String gtfsStopId;
-  // Locale key used by native iOS scheduling and its timezone/GTFS settings.
+  // Locale key used for operator API, timezone, and GTFS arrival lookups.
   final String localeCode;
   final TimeOfDay windowStart;
   final TimeOfDay windowEnd;
@@ -24,10 +20,6 @@ class BusAlarm {
   final bool enabled; // indicates alarm enabled (similar to ios alarm ui alarm toggle)
   final String? pingId;
   final int? lastEstimatedMinutesUntilArrival;
-  // Native iOS extension state is kept separate from Android's ThresholdOutcome.
-  final List<Map<String, dynamic>> iosThresholdStates;
-  final bool iosNextOccurrenceScheduled;
-  final String? iosOccurrenceKey;
 
   const BusAlarm({ //  constructor
     required this.id,
@@ -44,9 +36,6 @@ class BusAlarm {
     this.enabled = true,
     this.pingId,
     this.lastEstimatedMinutesUntilArrival,
-    this.iosThresholdStates = const [],
-    this.iosNextOccurrenceScheduled = false,
-    this.iosOccurrenceKey,
   });
 
   BusAlarm copyWith({
@@ -64,9 +53,6 @@ class BusAlarm {
     String? pingId,
     int? lastEstimatedMinutesUntilArrival,
     bool clearLastEstimatedMinutesUntilArrival = false,
-    List<Map<String, dynamic>>? iosThresholdStates,
-    bool? iosNextOccurrenceScheduled,
-    String? iosOccurrenceKey,
   }) {
     return BusAlarm(
         id: id,
@@ -84,10 +70,6 @@ class BusAlarm {
         lastEstimatedMinutesUntilArrival: clearLastEstimatedMinutesUntilArrival
             ? null
             : lastEstimatedMinutesUntilArrival ?? this.lastEstimatedMinutesUntilArrival,
-        iosThresholdStates: iosThresholdStates ?? this.iosThresholdStates,
-        iosNextOccurrenceScheduled:
-            iosNextOccurrenceScheduled ?? this.iosNextOccurrenceScheduled,
-        iosOccurrenceKey: iosOccurrenceKey ?? this.iosOccurrenceKey,
     );
   }
 
@@ -106,9 +88,6 @@ class BusAlarm {
     'enabled': enabled,
     'pingId': pingId,
     'lastEstimatedMinutesUntilArrival': lastEstimatedMinutesUntilArrival,
-    'iosThresholdStates': iosThresholdStates,
-    'iosNextOccurrenceScheduled': iosNextOccurrenceScheduled,
-    'iosOccurrenceKey': iosOccurrenceKey,
   };
 
   static BusAlarm fromJson(Map<String, dynamic> json) => BusAlarm(
@@ -127,13 +106,6 @@ class BusAlarm {
     pingId: json['pingId'] as String?,
     lastEstimatedMinutesUntilArrival:
         json['lastEstimatedMinutesUntilArrival'] as int?,
-    iosThresholdStates: (json['iosThresholdStates'] as List<dynamic>?)
-            ?.map((state) => Map<String, dynamic>.from(state as Map))
-            .toList() ??
-        const [],
-    iosNextOccurrenceScheduled:
-        json['iosNextOccurrenceScheduled'] as bool? ?? false,
-    iosOccurrenceKey: json['iosOccurrenceKey'] as String?,
   );
 
   static TimeOfDay _minutesToTimeOfDay (int totalMinutes) =>
@@ -154,46 +126,7 @@ class BusAlarm {
   }
 }
 
-// IOS alarm workflow
-// 0. on alarm register send the next alarm duration start to server
-// 1. server pings on alarm duration start
-// 2. phone gets updated alarm ring estimate, pings server on next when to ping next, either for estimate update (estimate >5 mins) or actual alarm ring(estimate <5 mins)
-// 3. server pings on alarm ring
-// 4. phone rings and set server ping in 1 min, if user acknowledge the send delete to remove repeat ring, user can define max run tries (default 10)
-// 5. any subsequent alarm rings would be set by phone calculating the next server ping time
-// note: if server does not receive an ACK from phone on ping, it will retry in 1 min
-// assuming that step 2 runs one estimate update in addition to final check before alarm, user acknowledges alarm on first ring, and all api packets arrive successfully
-// each alarm would take 8 server invokations assuming invokations only counts sending/receiving api calls
-
-// assuming each user would make 2 alarms with an average upper invokation count of 10 per alarm
-// cloudflare offering 100k invokations per day
-// 100000 / 20 (per user) = 5000 ios users per day cap, realistically 3.5k-4k ios users per day
-
-// ping incoming decision flow
-// each bus alarm obj save a ping_id that the incoming ping to that alarm will have (garunteed to be unique by server db constraint)
-// 1. ping handler will get incoming ping id and point ping toward the correct alarm
-// ALARM LAYER
-// 2. alarm will see last estimated time away and decide accordingly, if app is open the estimate is updated per min
-// 2.1. if over 5 mins api for new estimate, if fail assume last estimate is valid and ask for next ping halfway down
-// 2.2. if under 5 mins api for new estimate and ask for an ack ping on alarm trigger time, assume last estimate is correct on api fail
-// 3. if on or after alarm time ring the alarm and leave ping_id unchanged, as subsequent ping from no ack will have the same id
-// 4. when user acknowledge alarm send ack to server, app also send ack and register next ack ping if next ring threshold is within 1 min
-
-// maybe replace require ack into expire time because cron job runs per minute, is not null means require ack
-// server will run clean up per cron trigger for expired pings before batch pinging
-
-// NEW ios alarm workflow
-// 0. on alarm register send the next alarm duration start to server
-// 1. server pings on alarm duration start
-// 2. phone gets updated alarm ring estimate, set alarmkit ring(estimate <5 mins), and pings server for estimate update (estimate >5 mins)
-// 3. if alarm is set and next threshold exist then same estimate rules apply but for next threshold, otherwise schedule for next repeat (set alarm status as rang after last alarmkit ring scheduled)
-
-// NEW ping incoming decision flow (also fit in a call when user enables alarm within window?)
-// each bus alarm obj save a ping_id that the incoming ping to that alarm will have (garunteed to be unique by server db constraint)
-// 1. ping handler will get incoming ping id and point ping toward the correct alarm
-// ALARM LAYER
-// 2. alarm will see last estimated time away and decide accordingly, if app is open the estimate is updated per min
-// 2.1. if over 5 mins api for new estimate, if fail assume last estimate is valid and ask for next ping halfway down
-// 2.2. if under 5 mins api for new estimate and set alarmkit alarm, assume last estimate is correct on api fail
-// 2.2.1 if next threshold exist then same estimate rules apply but for next threshold, otherwise schedule for next repeat (set alarm status as rang after last alarmkit ring scheduled)
-// 2.3 if app open and estimate is at 5 min schedule alarmkit alarm, while app open update newest estimate on alarmcard update, incoming pings will ignore thresholds with an active alarm
+// iOS uses the same saved threshold outcomes as Android. The server ping ID is
+// kept while a threshold is ringing and is rescheduled every minute until the
+// user acknowledges it. Acknowledging advances to the next pending threshold;
+// after the final threshold, the ping is stopped or moved to the next repeat.

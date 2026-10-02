@@ -218,7 +218,8 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
 
     final alarmThresholds = _thresholdController.text.split(",").map((t) => int.tryParse(t.trim())).whereType<int>().map(
             (m) => ThresholdState(minutesBeforeArrival: m, ringCount: int.tryParse(_attemptsController.text) ?? 10)
-    ).toList();
+    ).toList()
+      ..sort((a, b) => b.minutesBeforeArrival.compareTo(a.minutesBeforeArrival));
 
     final newAlarm = BusAlarm(
         id: widget.alarmToEdit?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
