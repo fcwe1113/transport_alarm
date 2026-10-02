@@ -31,7 +31,8 @@ class AlarmPingHandler {
     var alarm = alarms.where((a) => a.pingId == pingId).firstOrNull;
     print("handler received ping id: ${pingId}");
 
-    if (alarm == null) { // ping came for a nonexistent/disabled alarm
+    if (alarm == null) {
+      // ping came for a nonexistent/disabled alarm
       await _server.cancelPing(pingId); // tell server to cancel ping
       return const AlarmPingPresentation(
         action: 'noMatchingAlarm',
@@ -45,7 +46,11 @@ class AlarmPingHandler {
       alarm = alarm.copyWith(
         spent: false,
         thresholdStates: alarm.thresholdStates
-            .map((state) => ThresholdState(minutesBeforeArrival: state.minutesBeforeArrival))
+            .map(
+              (state) => ThresholdState(
+                minutesBeforeArrival: state.minutesBeforeArrival,
+              ),
+            )
             .toList(),
         clearLastEstimatedMinutesUntilThreshold: true,
       );
@@ -53,19 +58,25 @@ class AlarmPingHandler {
     }
 
     final activeThreshold = alarm.thresholdStates
-        .where((state) =>
-            state.outcome == ThresholdOutcome.pending ||
-            state.outcome == ThresholdOutcome.ringing)
+        .where(
+          (state) =>
+              state.outcome == ThresholdOutcome.pending ||
+              state.outcome == ThresholdOutcome.ringing,
+        )
         .firstOrNull;
     final fetchedArrivalEstimate = await _getMinutesUntilArrival(alarm);
-    final fetchedEstimateUntilThreshold = fetchedArrivalEstimate == null || activeThreshold == null
+    final fetchedEstimateUntilThreshold =
+        fetchedArrivalEstimate == null || activeThreshold == null
         ? null
         : fetchedArrivalEstimate - activeThreshold.minutesBeforeArrival;
     final alarmWithLatestEstimate = fetchedEstimateUntilThreshold == null
         ? alarm
-        : alarm.copyWith(lastEstimatedMinutesUntilThreshold: fetchedEstimateUntilThreshold);
+        : alarm.copyWith(
+            lastEstimatedMinutesUntilThreshold: fetchedEstimateUntilThreshold,
+          );
     // Keep using the last successful estimate when a live lookup fails.
-    final minutesUntilThreshold = fetchedEstimateUntilThreshold ??
+    final minutesUntilThreshold =
+        fetchedEstimateUntilThreshold ??
         alarm.lastEstimatedMinutesUntilThreshold;
     final decision = evaluateAlarm(
       alarm: alarmWithLatestEstimate,
@@ -82,7 +93,12 @@ class AlarmPingHandler {
           await _triggerRing(decision.updatedAlarm);
         }
         if (decision.nextPingTime != null) {
-          await _server.reschedule(pingId: pingId, scheduledTime: decision.nextPingTime!, requireAck: decision.nextPingRequiresAck, expireOn: decision.expireOn);
+          await _server.reschedule(
+            pingId: pingId,
+            scheduledTime: decision.nextPingTime!,
+            requireAck: decision.nextPingRequiresAck,
+            expireOn: decision.expireOn,
+          );
         }
         return const AlarmPingPresentation(
           action: 'ring',
@@ -116,11 +132,15 @@ class AlarmPingHandler {
     final alarm = alarms.where((a) => a.id == alarmId).firstOrNull;
     if (alarm == null) return;
 
-    final activeIndex = alarm.thresholdStates.indexWhere((t) => t.outcome == ThresholdOutcome.ringing);
+    final activeIndex = alarm.thresholdStates.indexWhere(
+      (t) => t.outcome == ThresholdOutcome.ringing,
+    );
     if (activeIndex == -1) return;
 
     final updatedStates = List<ThresholdState>.from(alarm.thresholdStates);
-    updatedStates[activeIndex] = updatedStates[activeIndex].copyWith(outcome: ThresholdOutcome.acknowledged);
+    updatedStates[activeIndex] = updatedStates[activeIndex].copyWith(
+      outcome: ThresholdOutcome.acknowledged,
+    );
     final updatedAlarm = alarm.copyWith(thresholdStates: updatedStates);
 
     await _storage.updateAlarm(updatedAlarm);
@@ -143,10 +163,10 @@ class AlarmPingHandler {
     final minutesUntilNextThreshold = fetchedArrivalEstimate != null
         ? fetchedArrivalEstimate - nextThreshold.minutesBeforeArrival
         : updatedAlarm.lastEstimatedMinutesUntilThreshold == null
-            ? null
-            : updatedAlarm.lastEstimatedMinutesUntilThreshold! +
-                currentThreshold.minutesBeforeArrival -
-                nextThreshold.minutesBeforeArrival;
+        ? null
+        : updatedAlarm.lastEstimatedMinutesUntilThreshold! +
+              currentThreshold.minutesBeforeArrival -
+              nextThreshold.minutesBeforeArrival;
     final alarmWithLatestEstimate = minutesUntilNextThreshold == null
         ? updatedAlarm
         : updatedAlarm.copyWith(
@@ -175,7 +195,9 @@ class AlarmPingHandler {
       );
       requireAck = false;
     } else if (minutesUntilNextThreshold > 0) {
-      nextPingTime = DateTime.now().add(Duration(minutes: minutesUntilNextThreshold));
+      nextPingTime = DateTime.now().add(
+        Duration(minutes: minutesUntilNextThreshold),
+      );
       requireAck = true;
     } else {
       // The next threshold is already due or less than a minute away; check it
@@ -193,11 +215,33 @@ class AlarmPingHandler {
   }
 
   Future<int?> _getMinutesUntilArrival(BusAlarm alarm) async {
+    final isFreshOccurrence =
+        alarm.lastEstimatedMinutesUntilThreshold == null &&
+        alarm.thresholdStates.isNotEmpty &&
+        alarm.thresholdStates.every(
+          (state) => state.outcome == ThresholdOutcome.pending,
+        );
+    final minimumArrivalMinutes = isFreshOccurrence
+        ? alarm.thresholdStates
+              .map((state) => state.minutesBeforeArrival)
+              .reduce((a, b) => a > b ? a : b)
+        : null;
+
     if (alarm.routeApiConfigs.isNotEmpty) {
       final liveDates = await Future.wait(
         alarm.routeApiConfigs.map(_fetchArrivalFromRouteConfig),
       );
-      final arrivals = liveDates.whereType<DateTime>().toList()..sort();
+      final arrivals =
+          liveDates
+              .expand((dates) => dates)
+              .where(
+                (date) =>
+                    minimumArrivalMinutes == null ||
+                    date.difference(DateTime.now().toUtc()).inMinutes >=
+                        minimumArrivalMinutes,
+              )
+              .toList()
+            ..sort();
       if (arrivals.isNotEmpty) {
         return arrivals.first.difference(DateTime.now().toUtc()).inMinutes;
       }
@@ -206,66 +250,96 @@ class AlarmPingHandler {
       // Keep the existing scheduled timetable fallback when live APIs have no ETA.
       final scheduled = await GtfsDatabase.forLocale(alarm.localeCode)
           .getUpcomingDepartures(alarm.gtfsStopId, limit: 50);
-      final matching = scheduled
-          .where((departure) => alarm.routeNumbers.contains(departure.routeShortName))
-          .toList()
-        ..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
+      final matching =
+          scheduled
+              .where(
+                (departure) =>
+                    alarm.routeNumbers.contains(departure.routeShortName) &&
+                    (minimumArrivalMinutes == null ||
+                        departure.minutesFromNow >= minimumArrivalMinutes),
+              )
+              .toList()
+            ..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
       return matching.isEmpty ? null : matching.first.minutesFromNow;
     }
 
     // Older saved alarms do not yet have route-specific API URLs.
-    final arrivals = await resolveArrivals(gtfsStopId: alarm.gtfsStopId, routeNumberFilter: alarm.routeNumbers);
-    final eligible = alarm.liveOnly ? arrivals.where((a) => a.isLive) : arrivals;
+    final arrivals = await resolveArrivals(
+      gtfsStopId: alarm.gtfsStopId,
+      routeNumberFilter: alarm.routeNumbers,
+      minimumMinutesFromNow: minimumArrivalMinutes,
+    );
+    final eligible = alarm.liveOnly
+        ? arrivals.where((a) => a.isLive)
+        : arrivals;
     if (eligible.isEmpty) return null;
-    return eligible.reduce((a, b) => a.minutesFromNow < b.minutesFromNow ? a : b).minutesFromNow;
+    return eligible
+        .reduce((a, b) => a.minutesFromNow < b.minutesFromNow ? a : b)
+        .minutesFromNow;
   }
 
-  Future<DateTime?> _fetchArrivalFromRouteConfig(AlarmRouteConfig config) async {
-    if (config.mode != 'bus') return null;
+  Future<List<DateTime>> _fetchArrivalFromRouteConfig(
+    AlarmRouteConfig config,
+  ) async {
+    if (config.mode != 'bus') return const [];
     try {
-      final response = await http.get(Uri.parse(config.apiUrl)).timeout(const Duration(seconds: 3));
-      if (response.statusCode != 200) return null;
+      final response = await http
+          .get(Uri.parse(config.apiUrl))
+          .timeout(const Duration(seconds: 3));
+      if (response.statusCode != 200) return const [];
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
       final data = payload['data'] as List<dynamic>? ?? const [];
-      final dates = data.whereType<Map<String, dynamic>>().where((entry) {
-        return entry['route'] == config.routeNumber && entry['eta'] is String;
-      }).map((entry) => DateTime.tryParse(entry['eta'] as String)?.toUtc())
-          .whereType<DateTime>()
-          .toList()
-        ..sort();
-      return dates.isEmpty ? null : dates.first;
+      final dates =
+          data
+              .whereType<Map<String, dynamic>>()
+              .where((entry) {
+                return entry['route'] == config.routeNumber &&
+                    entry['eta'] is String;
+              })
+              .map(
+                (entry) => DateTime.tryParse(entry['eta'] as String)?.toUtc(),
+              )
+              .whereType<DateTime>()
+              .toList()
+            ..sort();
+      return dates;
     } catch (_) {
-      return null;
+      return const [];
     }
   }
 
   Future<void> _triggerRing(BusAlarm alarm) async {
     const androidDetails = AndroidNotificationDetails(
-        "transport_alarm_channel",
-        "Transport Alarm",
-        importance: Importance.max,
-        priority: Priority.high,
-        playSound: true,
-        fullScreenIntent: true,
-        actions: const [AndroidNotificationAction("acknowledge", "I\'m up / Got it")]
+      "transport_alarm_channel",
+      "Transport Alarm",
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      fullScreenIntent: true,
+      actions: const [
+        AndroidNotificationAction("acknowledge", "I\'m up / Got it"),
+      ],
     );
     const darwinDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
     );
     const notificationDetails = NotificationDetails(
-        android: androidDetails,
-        iOS: darwinDetails,
+      android: androidDetails,
+      iOS: darwinDetails,
     );
 
-    final stop = await GtfsDatabase.forLocale("hk").getGtfsStopById(alarm.gtfsStopId); // todo fix locale hardcode
+    final stop = await GtfsDatabase.forLocale("hk")
+        .getGtfsStopById(alarm.gtfsStopId); // todo fix locale hardcode
     await NotificationService.plugin.show(
-        id: alarm.id.hashCode,
-        title: "Bus arriving soon",
-        body: stop != null ? "Your bus is approaching ${stop.name}" : "Your bus is arriving",
-        notificationDetails: notificationDetails,
-        payload: alarm.id
+      id: alarm.id.hashCode,
+      title: "Bus arriving soon",
+      body: stop != null
+          ? "Your bus is approaching ${stop.name}"
+          : "Your bus is arriving",
+      notificationDetails: notificationDetails,
+      payload: alarm.id,
     );
   }
 }

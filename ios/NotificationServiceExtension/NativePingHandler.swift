@@ -111,6 +111,8 @@ final class NativePingHandler {
             guard let thresholdMinutes = Self.intValue(thresholdStates[activeIndex]["minutesBeforeArrival"]) else {
                 throw PingHandlerError.invalidAlarmData
             }
+            let cachedEstimateUntilThreshold = Self.intValue(alarm["lastEstimatedMinutesUntilThreshold"])
+                ?? Self.intValue(alarm["lastEstimatedMinutesUntilArrival"]).map { $0 - thresholdMinutes }
             if (alarm["routeApiConfigs"] as? [[String: Any]] ?? []).isEmpty {
                 let alarmLocale = NativeTransitLocales.locale(for: alarm["localeCode"] as? String)
                 let configs = routeAPIConfigsForLegacyAlarm(alarm, locale: alarmLocale)
@@ -120,10 +122,17 @@ final class NativePingHandler {
                     try saveAlarms(alarms)
                 }
             }
-            let freshArrivalEstimate = await estimateMinutesUntilArrival(for: alarm)
+            let isFreshOccurrence = cachedEstimateUntilThreshold == nil &&
+                !thresholdStates.isEmpty &&
+                thresholdStates.allSatisfy { ($0["outcome"] as? String ?? "pending") == "pending" }
+            let minimumArrivalMinutes = isFreshOccurrence
+                ? thresholdStates.compactMap { Self.intValue($0["minutesBeforeArrival"]) }.max()
+                : nil
+            let freshArrivalEstimate = await estimateMinutesUntilArrival(
+                for: alarm,
+                minimumArrivalMinutes: minimumArrivalMinutes
+            )
             let freshEstimateUntilThreshold = freshArrivalEstimate.map { $0 - thresholdMinutes }
-            let cachedEstimateUntilThreshold = Self.intValue(alarm["lastEstimatedMinutesUntilThreshold"])
-                ?? Self.intValue(alarm["lastEstimatedMinutesUntilArrival"]).map { $0 - thresholdMinutes }
             let estimateUntilThreshold = freshEstimateUntilThreshold ?? cachedEstimateUntilThreshold
             if let freshEstimateUntilThreshold {
                 alarm["lastEstimatedMinutesUntilThreshold"] = freshEstimateUntilThreshold
@@ -246,7 +255,10 @@ final class NativePingHandler {
 
     /// Finds the earliest matching live ETA through registered operators. If no
     /// live result exists, uses the GTFS schedule unless the alarm is live-only.
-    private func estimateMinutesUntilArrival(for alarm: [String: Any]) async -> Int? {
+    private func estimateMinutesUntilArrival(
+        for alarm: [String: Any],
+        minimumArrivalMinutes: Int?
+    ) async -> Int? {
         guard let stopID = alarm["gtfsStopId"] as? String,
               let routeNumbers = alarm["routeNumbers"] as? [String],
               !routeNumbers.isEmpty else {
@@ -269,13 +281,22 @@ final class NativePingHandler {
         }
 
         let liveDates = requests.isEmpty ? [] : await fetchLiveETAs(from: requests, allowedRoutes: Set(routeNumbers))
-        if let earliest = liveDates.min() {
+        let eligibleLiveDates = liveDates.filter { date in
+            guard let minimumArrivalMinutes else { return true }
+            return Int(date.timeIntervalSinceNow / 60) >= minimumArrivalMinutes
+        }
+        if let earliest = eligibleLiveDates.min() {
             return Int(earliest.timeIntervalSinceNow / 60)
         }
         if alarm["liveOnly"] as? Bool == true {
             return nil
         }
-        return scheduledMinutesUntilArrival(stopID: stopID, routeNumbers: routeNumbers, locale: locale)
+        return scheduledMinutesUntilArrival(
+            stopID: stopID,
+            routeNumbers: routeNumbers,
+            locale: locale,
+            minimumArrivalMinutes: minimumArrivalMinutes
+        )
     }
 
     /// Migrates older alarm records once by saving the provider URL for each
@@ -355,7 +376,8 @@ final class NativePingHandler {
     private func scheduledMinutesUntilArrival(
         stopID: String,
         routeNumbers: [String],
-        locale: NativeTransitLocale
+        locale: NativeTransitLocale,
+        minimumArrivalMinutes: Int?
     ) -> Int? {
         guard !routeNumbers.isEmpty else { return nil }
         let databaseURL = appGroupDirectory.appendingPathComponent(locale.databaseRelativePath)
@@ -413,7 +435,8 @@ final class NativePingHandler {
             guard pieces.count == 3 else { continue }
             let departure = startOfDay.addingTimeInterval(TimeInterval(pieces[0] * 3600 + pieces[1] * 60 + pieces[2]))
             let minutes = Int(departure.timeIntervalSince(now) / 60)
-            if minutes >= 0, soonest == nil || minutes < soonest! {
+            let meetsThreshold = minimumArrivalMinutes.map { minutes >= $0 } ?? true
+            if minutes >= 0, meetsThreshold, soonest == nil || minutes < soonest! {
                 soonest = minutes
             }
         }
