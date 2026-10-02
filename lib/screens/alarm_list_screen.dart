@@ -71,7 +71,11 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator(),),);
+      return AppShell(
+        title: AppStrings.text('alarm_list.title'),
+        selectedTab: 0,
+        body: const Center(child: CircularProgressIndicator()),
+      );
     }
     return AppShell(
         title: AppStrings.text('alarm_list.title'),

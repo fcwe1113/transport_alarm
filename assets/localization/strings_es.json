@@ -196,5 +196,8 @@
   "notification.default_transport_body": "Se espera su {transportMode} en breve.",
   "notification.transport_expected_at": "Se espera su {transportMode} en {stop}.",
   "notification.transport_approaching": "Su {transportMode} se aproxima a {stop}.",
-  "live_activity.transport_mode": "{transportModeTitle}"
+  "live_activity.transport_mode": "{transportModeTitle}",
+  "settings.enabled_locales": "Regiones de transporte habilitadas",
+  "settings.enabled_locales.subtitle": "Elija qué regiones de transporte desea usar",
+  "settings.enabled_locales.required": "Mantenga habilitada al menos una región."
 }
