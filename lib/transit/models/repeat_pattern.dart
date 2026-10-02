@@ -1,3 +1,5 @@
+import 'package:transport_alarm/l10n/app_strings.dart';
+
 enum RepeatFrequency { none, daily, weekly, monthly }
 
 class RepeatPattern {
@@ -40,39 +42,49 @@ class RepeatPattern {
   );
 
   String formatWeekdays(Set<int> days) {
-    if (days.isEmpty) return "Never"; // should never happen
-    if (days.length == 7) return "Everyday"; // should never happen
-    if (days.length == 5 && days.containsAll({1, 2, 3, 4, 5})) return "Weekdays";
-    if (days.length == 2 && days.containsAll({6, 7})) return "Weekends";
+    if (days.isEmpty) return AppStrings.text('repeat.never'); // should never happen
+    if (days.length == 7) return AppStrings.text('repeat.everyday'); // should never happen
+    if (days.length == 5 && days.containsAll({1, 2, 3, 4, 5})) return AppStrings.text('repeat.weekdays');
+    if (days.length == 2 && days.containsAll({6, 7})) return AppStrings.text('repeat.weekends');
 
-    const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    final dayNames = [
+      AppStrings.text('repeat.day.mon'),
+      AppStrings.text('repeat.day.tue'),
+      AppStrings.text('repeat.day.wed'),
+      AppStrings.text('repeat.day.thu'),
+      AppStrings.text('repeat.day.fri'),
+      AppStrings.text('repeat.day.sat'),
+      AppStrings.text('repeat.day.sun'),
+    ];
     final sortedDays = days.toList()..sort();
     return sortedDays.map((day) => dayNames[day - 1]).join(", ");
   }
 
   String getOrdinalDay(int day) {
     if (day >= 11 && day <= 13) {
-      return "${day}th";
+      return AppStrings.text('repeat.ordinal.th', {'day': day});
     }
     switch (day) {
       case 1:
-        return "${day}st";
+        return AppStrings.text('repeat.ordinal.st', {'day': day});
       case 2:
-        return "${day}nd";
+        return AppStrings.text('repeat.ordinal.nd', {'day': day});
       case 3:
-        return "${day}rd";
+        return AppStrings.text('repeat.ordinal.rd', {'day': day});
       default:
-        return "${day}th";
+        return AppStrings.text('repeat.ordinal.th', {'day': day});
     }
   }
 
   String formatMonthlyDays(Set<int> days) {
-    if (days.isEmpty) return "Never"; //should never happen
+    if (days.isEmpty) return AppStrings.text('repeat.never'); //should never happen
     final sortedDays = days.toList()..sort();
     final formattedDays = sortedDays.map((d) => getOrdinalDay(d)).join(", ");
 
-    if (sortedDays.length == 1) return "Monthly on the ${formattedDays}";
-    return "Monthly on ${formattedDays}";
+    if (sortedDays.length == 1) {
+      return AppStrings.text('repeat.monthly_on_day', {'days': formattedDays});
+    }
+    return AppStrings.text('repeat.monthly_on_days', {'days': formattedDays});
   }
 
   String? toInfoString() {
@@ -80,7 +92,7 @@ class RepeatPattern {
       case RepeatFrequency.none:
         return null;
       case RepeatFrequency.daily:
-        return "Daily";
+        return AppStrings.text('repeat.daily');
       case RepeatFrequency.weekly:
         return formatWeekdays({...?weekdays});
       case RepeatFrequency.monthly:

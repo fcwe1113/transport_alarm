@@ -1,6 +1,7 @@
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:flutter/material.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 
 class LoadingScreen extends StatefulWidget {
   final bool forceRefresh;
@@ -12,7 +13,7 @@ class LoadingScreen extends StatefulWidget {
 }
 
 class _LoadingScreenState extends State<LoadingScreen> {
-  String _message = "Starting...";
+  String _message = AppStrings.text('loading.starting');
   double? _progress;
   String? _error;
   bool _finished = false;
@@ -41,15 +42,18 @@ class _LoadingScreenState extends State<LoadingScreen> {
       
       if (mounted && failures.isNotEmpty) {
         await showDialog(context: context, builder: (context) => AlertDialog(
-          title: const Text("Some data failed to update"),
-          content: Text("${failures.length} item(s) failed:\n${failures.join(", ")}\n\n"),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK"))],
+          title: Text(AppStrings.text('loading.failures.title')),
+          content: Text(AppStrings.text('loading.failures.body', {
+            'count': failures.length,
+            'failures': failures.join(", "),
+          })),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok')))],
         ));
       }
       
       if (mounted) {
         setState(() {
-          _message = "Operation completed";
+          _message = AppStrings.text('loading.completed');
           _progress = 1.0;
           _finished = true;
         });
@@ -57,7 +61,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = "Setup failed: $e";
+          _error = AppStrings.text('loading.failed', {'error': e});
         });
       }
     }
@@ -80,7 +84,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _runOperation,
-              child: const Text("Retry")
+              child: Text(AppStrings.text('common.retry'))
             ),
           ] : [
             _progress != null ? LinearProgressIndicator(value: _progress,) : LinearProgressIndicator(),
@@ -88,7 +92,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
             Text(_message),
             if (_finished) ...[
               const SizedBox(height: 24,),
-              ElevatedButton(onPressed: _onOkPressed, child: const Text("OK"))
+              ElevatedButton(onPressed: _onOkPressed, child: Text(AppStrings.text('common.ok')))
             ]
           ],
         ),

@@ -4,6 +4,7 @@ import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../widgets/app_shell.dart';
@@ -165,7 +166,7 @@ class _MapScreenState extends State<MapScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator(),),);
     }
     return AppShell(
-      title: widget.pickerMode ? "Choose a stop" : "Map",
+      title: AppStrings.text(widget.pickerMode ? 'map.choose_stop' : 'map.title'),
       actions: widget.pickerMode ? [
         IconButton(icon: _selectedPickerStop == null ? const Icon(Icons.arrow_back) : const Icon(Icons.check), onPressed: () {
           final mapRoute = ModalRoute.of(context);

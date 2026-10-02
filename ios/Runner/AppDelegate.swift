@@ -22,7 +22,7 @@ let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
         UNUserNotificationCenter.current().delegate = self
         let acknowledgeAction = UNNotificationAction(
             identifier: "transport_alarm_acknowledge",
-            title: "Acknowledge",
+            title: NativeLocalization.text("native.acknowledge"),
             options: [.foreground]
         )
         let ringCategory = UNNotificationCategory(
@@ -68,6 +68,11 @@ let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
         appGroupChannel.setMethodCallHandler { call, result in
             if call.method == "containerPath" {
                 result(AppGroup.containerURL?.path)
+            } else if call.method == "setAppLanguageCode",
+                      let args = call.arguments as? [String: Any],
+                      let languageCode = args["languageCode"] as? String {
+                self.sharedDefaults?.set(languageCode, forKey: "app_language_code")
+                result(true)
             } else {
                 result(FlutterMethodNotImplemented)
             }

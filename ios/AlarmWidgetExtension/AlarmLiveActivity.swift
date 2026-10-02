@@ -16,7 +16,7 @@ struct TransportAlarmLiveActivity: Widget {
             } compactLeading: {
                 Image(systemName: "bus.fill")
             } compactTrailing: {
-                Text("Bus")
+                Text(NativeLocalization.text("live_activity.bus"))
             } minimal: {
                 Image(systemName: "bus.fill")
             }
@@ -32,18 +32,18 @@ private func activityContent(
     switch context.state.mode {
     case .countdown(let countdown):
         VStack(spacing: 4) {
-            Text("Transport alarm")
+            Text(NativeLocalization.text("live_activity.title"))
                 .font(.headline)
             Text(timerInterval: countdown.startDate...countdown.fireDate, countsDown: true)
                 .monospacedDigit()
         }
         .padding()
     case .paused:
-        Text("Transport alarm paused")
+        Text(NativeLocalization.text("live_activity.paused"))
             .font(.headline)
             .padding()
     case .alert:
-        Text("Transport alarm")
+        Text(NativeLocalization.text("live_activity.title"))
             .font(.headline)
             .padding()
     }

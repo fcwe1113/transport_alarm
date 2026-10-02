@@ -4,6 +4,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/alarm_engine.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
@@ -334,10 +335,10 @@ class AlarmPingHandler {
         .getGtfsStopById(alarm.gtfsStopId); // todo fix locale hardcode
     await NotificationService.plugin.show(
       id: alarm.id.hashCode,
-      title: "Bus arriving soon",
+      title: AppStrings.text('notification.bus_arriving_soon'),
       body: stop != null
-          ? "Your bus is approaching ${stop.name}"
-          : "Your bus is arriving",
+          ? AppStrings.text('notification.bus_approaching', {'stop': stop.name})
+          : AppStrings.text('notification.default_bus_body'),
       notificationDetails: notificationDetails,
       payload: alarm.id,
     );

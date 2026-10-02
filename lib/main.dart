@@ -6,11 +6,15 @@ import 'package:transport_alarm/screens/alarm_list_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/screens/setup_screen.dart';
+import 'package:transport_alarm/screens/settings_screen.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
+import 'package:transport_alarm/l10n/app_language_state.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -18,6 +22,13 @@ Future<void> main() async { // dart entry point
 
   WidgetsFlutterBinding.ensureInitialized();
   await AppGroupStorage.migrateLegacyDocuments();
+  final selectionService = LocaleSelectionService();
+  final appLanguageCode = await selectionService.getAppLanguageCode();
+  await AppStrings.load(appLanguageCode);
+  appLanguageCodeNotifier.value = appLanguageCode;
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    await AppGroupStorage.setAppLanguageCode(appLanguageCode);
+  }
   if (defaultTargetPlatform == TargetPlatform.iOS) {
     final String jsonString = await rootBundle.loadString("config/secrets.json");
     final Map<String, dynamic> secrets = jsonDecode(jsonString);
@@ -44,21 +55,36 @@ Future<void> main() async { // dart entry point
     await NotificationService.init();
   }
 
-  final selectionService = LocaleSelectionService();
   final setupDone = await selectionService.hasCompletedSetup(); // check if user did setup before
 
-  runApp(MyApp(initialRoute: setupDone ? "/" : "/setup",)); // app entry point, working with flutter from this point on
+  runApp(MyApp(
+    initialRoute: setupDone ? "/" : "/setup",
+  )); // app entry point, working with flutter from this point on
 }
 
 class MyApp extends StatelessWidget { // statelesswidget only has constant internal data
   final String initialRoute;
-  const MyApp({super.key, required this.initialRoute});
+  final String? appLanguageCode;
+  const MyApp({super.key, required this.initialRoute, this.appLanguageCode});
 
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
+    return ValueListenableBuilder<String>(
+      valueListenable: appLanguageCodeNotifier,
+      builder: (context, languageCode, _) => MaterialApp(
+      title: AppStrings.text('app.title'),
+      locale: localeForAppLanguage(languageCode),
+      supportedLocales: const [
+        Locale('en'),
+        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeData(
         // This is the theme of your application.
         //
@@ -84,8 +110,10 @@ class MyApp extends StatelessWidget { // statelesswidget only has constant inter
         "/setup": (context) => const SetupScreen(),
         "/loading": (context) => const LoadingScreen(),
         "/add-alarm": (context) => const AddAlarmScreen(),
+        "/settings": (context) => const SettingsScreen(),
         // add more routes here as we add more screens
       },
+      ),
     );
   }
 }

@@ -18,7 +18,7 @@ void main() {
     // final setupDone = await selectionService.hasCompletedSetup();
 
     // Build our app and trigger a frame.
-    await tester.pumpWidget(MyApp(initialRoute: "/",));
+    await tester.pumpWidget(MyApp(initialRoute: "/", appLanguageCode: 'en',));
 
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);

@@ -1,4 +1,5 @@
 import 'package:transport_alarm/provider_registry.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/locale_gtfs_registry.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
@@ -22,11 +23,11 @@ Future<List<String>> initializeTransitData({ProgressCallback? onProgress, bool f
   }
 
   for (final locale in enabledLocales) {
-    onProgress?.call("Matching stops for $locale...", null);
+    onProgress?.call(AppStrings.text('transit.matching_stops', {'locale': locale}), null);
     await GtfsDatabase.forLocale(locale).matchOperatorStopsToGtfs();
   }
 
-  onProgress?.call("Setup complete", 1.0);
+  onProgress?.call(AppStrings.text('transit.setup_complete'), 1.0);
   return allFailures;
 }
 
@@ -47,7 +48,7 @@ Future<List<String>> refreshStaleProviders({ProgressCallback? onProgress, bool f
   for (final provider in enabledProviders) {
     final stale = forceRefresh || await provider.isStale();
     if (!stale) {
-      onProgress?.call("${provider.providerName} is up to date", null);
+      onProgress?.call(AppStrings.text('transit.provider_up_to_date', {'providerName': provider.providerName}), null);
       continue;
     }
 
@@ -56,10 +57,10 @@ Future<List<String>> refreshStaleProviders({ProgressCallback? onProgress, bool f
   }
 
   for (final locale in enabledLocales) {
-    onProgress?.call("Matching stops for $locale...", null);
+    onProgress?.call(AppStrings.text('transit.matching_stops', {'locale': locale}), null);
     await GtfsDatabase.forLocale(locale).matchOperatorStopsToGtfs();
   }
 
-  onProgress?.call("refresh check complete", 1.0);
+  onProgress?.call(AppStrings.text('transit.refresh_complete'), 1.0);
   return allFailures;
 }

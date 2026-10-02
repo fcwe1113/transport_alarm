@@ -26,6 +26,15 @@ class AppGroupStorage {
     return result;
   }
 
+  /// Mirrors the selected app language into the iOS App Group for extensions.
+  static Future<void> setAppLanguageCode(String languageCode) async {
+    if (!Platform.isIOS) return;
+    await _channel.invokeMethod<void>(
+      'setAppLanguageCode',
+      {'languageCode': languageCode},
+    );
+  }
+
   /// Copies existing app documents into the shared location during app launch.
   /// Existing shared files win so an extension update is never overwritten.
   static Future<void> migrateLegacyDocuments() async {

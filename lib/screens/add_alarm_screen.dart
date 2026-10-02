@@ -18,6 +18,7 @@ import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 
 import '../services/alarm_lifecycle_service.dart';
 
@@ -65,7 +66,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     super.initState();
     _monthlyDayController = TextEditingController(text: DateTime.now().day.toString());
     _thresholdController = TextEditingController();
-    _messageController = TextEditingController(text: "Wake Up!");
+    _messageController = TextEditingController(text: AppStrings.text('alarm.wake_up_default'));
     _attemptsController = TextEditingController(text: "10");
     if (widget.alarmToEdit != null) {
       _prefillExistingAlarmData(widget.alarmToEdit!);
@@ -168,10 +169,10 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     }
     if (_selectedStop == null) {
       error = true;
-      errorMsg += "No stop selected\n";
+      errorMsg += "${AppStrings.text('alarm.validation.no_stop')}\n";
     } else if (_selectedRoutes.isEmpty) {
       error = true;
-      errorMsg += "No routes selected\n";
+      errorMsg += "${AppStrings.text('alarm.validation.no_routes')}\n";
     }
 
     final days = _monthlyDayController.text;
@@ -179,12 +180,12 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (_repeatPattern.frequency == RepeatFrequency.weekly) {
       if (_selectedWeekdays.isEmpty) {
         error = true;
-        errorMsg += "No weekdays selected\n";
+        errorMsg += "${AppStrings.text('alarm.validation.no_weekdays')}\n";
       }
     } else if (_repeatPattern.frequency == RepeatFrequency.monthly) {
       if (days.trim().isEmpty) {
         error = true;
-        errorMsg += "No days in month selected\n";
+        errorMsg += "${AppStrings.text('alarm.validation.no_month_days')}\n";
       } else {
         final invalidDays = days.split(",").any((d) {
           final parsed = int.tryParse(d.trim());
@@ -192,7 +193,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         });
         if (invalidDays) {
           error = true;
-          errorMsg += "Some days in month are invalid\n";
+          errorMsg += "${AppStrings.text('alarm.validation.invalid_month_days')}\n";
         }
       }
     }
@@ -200,9 +201,9 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (error) {
       if (errorMsg != "") {
         showDialog(context: context, builder: (context) => AlertDialog(
-          title: const Text("Error"),
+          title: Text(AppStrings.text('alarm.error.title')),
           content: Text(errorMsg),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK"))],
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok')))],
         ));
       }
       return;
@@ -229,12 +230,12 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     // warnings, allow user to return but can proceed if desired
 
     if (_calculateDurationInMinutes(_leftTime, _rightTime) > 60) {
-      final proceed = await _showWarning("Setting an alarm window of over 1 hour is not recommended, make sure you know what you are doing before continuing.");
+      final proceed = await _showWarning(AppStrings.text('alarm.warning.long_window'));
       if (proceed != true) return;
     }
 
     if (_repeatPattern.frequency == RepeatFrequency.monthly && (splitDays.contains(29) || splitDays.contains(30) || splitDays.contains(31))) {
-      final proceed = await _showWarning("You entered days not present in every month, the alarm will not trigger on months without those days.");
+      final proceed = await _showWarning(AppStrings.text('alarm.warning.month_days'));
       if (proceed != true) return;
     }
 
@@ -260,9 +261,9 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       if (!mounted) return;
       await showDialog<void>(
         context: context,
-        builder: (context) => const AlertDialog(
-          title: Text("Route API unavailable"),
-          content: Text("One or more selected routes could not be linked to an ETA API. Refresh transit data or choose another route."),
+        builder: (context) => AlertDialog(
+          title: Text(AppStrings.text('alarm.route_api.title')),
+          content: Text(AppStrings.text('alarm.route_api.body')),
         ),
       );
       return;
@@ -296,7 +297,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (!result.succeeded) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save alarm: ${result.errorMessage}')),
+          SnackBar(content: Text(AppStrings.text('alarm.save_failed', {'error': result.errorMessage}))),
         );
       }
       return;
@@ -312,8 +313,8 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (!notifications.isGranted) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Allow notifications before saving this alarm.'),
+          SnackBar(
+            content: Text(AppStrings.text('alarm.permission.notifications')),
           ),
         );
       }
@@ -330,9 +331,9 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (!exactAlarms.isGranted) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Allow alarms and reminders before saving this alarm.',
+              AppStrings.text('alarm.permission.exact'),
             ),
           ),
         );
@@ -348,9 +349,9 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (fullScreenAccess != true) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Allow full-screen alarms so threshold alerts can appear over the lock screen.',
+              AppStrings.text('alarm.permission.full_screen'),
             ),
           ),
         );
@@ -378,18 +379,18 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
 
   Future<bool?> _showWarning(String text) async {
     return showDialog(context: context, builder: (context) => AlertDialog(
-      title: const Text("Warning"),
+      title: Text(AppStrings.text('alarm.warning.title')),
       content: Text(text),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Go back"),),
-        TextButton(onPressed: () => Navigator.pop(context, true), child: Text("Continue"))
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('common.go_back'))),
+        TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('common.continue')))
       ],
     ));
   }
 
   @override
   Widget build(BuildContext context) {
-    return AppShell(title: widget.alarmToEdit != null ? "Edit Alarm" : "Add a new alarm",
+    return AppShell(title: AppStrings.text(widget.alarmToEdit != null ? 'alarm.edit.title' : 'alarm.add.title'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -408,14 +409,14 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.check),
-            tooltip: "Save alarm",
+            tooltip: AppStrings.text('alarm.save.tooltip'),
           ),
         ],
         body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
           // time range selector slider
           Card(child: Padding(padding: const EdgeInsetsGeometry.all(16), child:
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text("Alarm Time Window", style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(AppStrings.text('alarm.time_window'), style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 12,),
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
 
@@ -429,7 +430,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                 Column(mainAxisSize: MainAxisSize.min, children: [Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, borderRadius: BorderRadius.circular(10)),
-                  child: Text("${_calculateDurationInMinutes(_leftTime, _rightTime)} min", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),),
+                  child: Text(AppStrings.text('alarm.duration', {'minutes': _calculateDurationInMinutes(_leftTime, _rightTime)}), style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),),
                 ), const SizedBox(height: 2,), const Icon(Icons.arrow_forward, size: 20,)
                 ],),
 
@@ -440,14 +441,14 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                 }, label: Text("${_rightTime.hour.toString().padLeft(2, "0")}:${_rightTime.minute.toString().padLeft(2, "0")}"), icon: const Icon(Icons.access_time))
               ],),
               const SizedBox(height: 12,),
-              Row(children: [const Text("0m"), Expanded(child: Slider(
+              Row(children: [Text(AppStrings.text('alarm.slider.zero')), Expanded(child: Slider(
                 value: _sliderMinutes + 0.0,
                 onChanged: _onSliderChanged,
                 min: 0,
                 max: 60,
                 divisions: 60,
-                label: "+${_sliderMinutes}m",
-              )), const Text("+60m")],)
+                label: AppStrings.text('alarm.slider.minutes', {'minutes': _sliderMinutes}),
+              )), Text(AppStrings.text('alarm.slider.maximum'))],)
             ],)
           ,),),
 
@@ -456,7 +457,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
           // bus stop search bar
           Row(children: [Expanded(child: _isLoadingStops ? TextFormField(
             enabled: false,
-            decoration: InputDecoration(hintText: "Loading...", prefixIcon: const SizedBox(
+            decoration: InputDecoration(hintText: AppStrings.text('common.loading'), prefixIcon: const SizedBox(
               width: 20,
               height: 20,
               child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2,),),
@@ -485,7 +486,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                 controller: controller,
                 focusNode: focusNode,
                 decoration: InputDecoration(
-                    hintText: "Search Bus Stop...",
+                    hintText: AppStrings.text('alarm.stop_search'),
                     prefixIcon: const Icon(Icons.search),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
                 ),
@@ -496,7 +497,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             IconButton.filledTonal(
               onPressed: _openMapPicker,
               icon: const Icon(Icons.location_searching),
-              tooltip: "Choose on map",
+              tooltip: AppStrings.text('alarm.choose_map'),
             )],),
           const SizedBox(height: 16,),
 
@@ -505,12 +506,17 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             Card(clipBehavior: Clip.antiAlias, child: ExpansionTile(
               initiallyExpanded: false,
               title: Text(
-                "Routes serving ${GtfsStop.cleanStopName(_selectedStop!.name)}",
+                AppStrings.text('alarm.routes_serving', {'stop': GtfsStop.cleanStopName(_selectedStop!.name)}),
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
               subtitle: Text(_selectedRoutes.isEmpty
-                  ? "No routes selected"
-                  : "${_selectedRoutes.length} route${_selectedRoutes.length > 1 ? "s" : ""} selected",
+                  ? AppStrings.text('alarm.validation.no_routes')
+                  : AppStrings.text(
+                      _selectedRoutes.length == 1
+                          ? 'alarm.routes_selected.one'
+                          : 'alarm.routes_selected.other',
+                      {'count': _selectedRoutes.length},
+                    ),
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),),
               children: _availableRoutes.map((r) {
                 return CheckboxListTile(
@@ -545,16 +551,16 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
 
           // how early to ring
           Row(children: [
-            const Text("Minutes away to ring: ", style: TextStyle(fontWeight: FontWeight.bold),),
-            Expanded(child: TextFormField(controller: _thresholdController, decoration: const InputDecoration(
+            Text(AppStrings.text('alarm.threshold_minutes_label'), style: const TextStyle(fontWeight: FontWeight.bold),),
+            Expanded(child: TextFormField(controller: _thresholdController, decoration: InputDecoration(
                 isDense: true, border: UnderlineInputBorder(),
-                hintText: "e.g. \"8\" or \"15,12\""
+                hintText: AppStrings.text('alarm.threshold_hint')
             ),
               keyboardType: TextInputType.text,
               inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[0-9,]"))],
               validator: (val) {
                 if (val == null || val == "") {
-                  return "Required";
+                  return AppStrings.text('alarm.validation.required');
                 }
 
                 final currentWindow = _calculateDurationInMinutes(_leftTime, _rightTime);
@@ -563,10 +569,10 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                 for (final item in items) {
                   final minutes = int.tryParse(item);
                   if (minutes == null) {
-                    return "Do not chain commas";
+                    return AppStrings.text('alarm.validation.comma');
                   }
                   if (minutes >= currentWindow) {
-                    return "number(s) exceed alarm active window";
+                    return AppStrings.text('alarm.validation.window_exceeded');
                   }
                 }
 
@@ -578,25 +584,25 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
 
           // max ring attempts
           Row(children: [
-            const Text("Max ring attempts: ", style: TextStyle(fontWeight: FontWeight.bold),),
+            Text(AppStrings.text('alarm.ring_attempts_label'), style: const TextStyle(fontWeight: FontWeight.bold),),
             Expanded(child: TextFormField(controller: _attemptsController, decoration: const InputDecoration(
                 isDense: true,
                 border: UnderlineInputBorder()
             ), keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              validator: (val) => val == null || val == "" ? "Required" : int.parse(val) > 15 ? "Cannot exceed 15 times" : null,
+              validator: (val) => val == null || val == "" ? AppStrings.text('alarm.validation.required') : int.parse(val) > 15 ? AppStrings.text('alarm.validation.max_rings') : null,
             ))
           ],),
           const SizedBox(height: 24,),
 
           // horizontal 4 way repeat selector
-          const Text("Repeat Pattern", style: TextStyle(fontWeight: FontWeight.bold),),
+          Text(AppStrings.text('alarm.repeat_pattern'), style: const TextStyle(fontWeight: FontWeight.bold),),
           const SizedBox(height: 8,),
-          SegmentedButton(segments: const[
-            ButtonSegment(value: RepeatPattern.none, label: Text("None")),
-            ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.daily), label: Text("Daily")),
-            ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.weekly), label: Text("Weekly")),
-            ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.monthly), label: Text("Monthly")),
+          SegmentedButton(segments: [
+            ButtonSegment(value: RepeatPattern.none, label: Text(AppStrings.text('repeat.none'))),
+            ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.daily), label: Text(AppStrings.text('repeat.daily'))),
+            ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.weekly), label: Text(AppStrings.text('repeat.weekly'))),
+            ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.monthly), label: Text(AppStrings.text('repeat.monthly'))),
           ], selected: {_repeatPattern}, onSelectionChanged: (Set<RepeatPattern> selected) {
             setState(() {
               _repeatPattern = selected.first;
@@ -610,7 +616,15 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
               spacing: 4,
               children: List.generate(7, (i) {
                 final day = i + 1;
-                final labels = ["M", "T", "W", "T", "F", "S", "S"];
+                final labels = [
+                  AppStrings.text('repeat.day.short.mon'),
+                  AppStrings.text('repeat.day.short.tue'),
+                  AppStrings.text('repeat.day.short.wed'),
+                  AppStrings.text('repeat.day.short.thu'),
+                  AppStrings.text('repeat.day.short.fri'),
+                  AppStrings.text('repeat.day.short.sat'),
+                  AppStrings.text('repeat.day.short.sun'),
+                ];
                 final isSelected = _selectedWeekdays.contains(day);
                 return FilterChip(label: Text(labels[i]), selected: isSelected, onSelected: (bool selected) {
                   setState(() {
@@ -631,12 +645,12 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
           if (_repeatPattern.frequency == RepeatFrequency.monthly) ...[
             const SizedBox(height: 12,),
             Row(children: [
-              const Text("Day of month: "),
+              Text(AppStrings.text('alarm.day_of_month'),),
               Expanded(child: SizedBox(child: TextField(
                 controller: _monthlyDayController,
                 keyboardType: TextInputType.text,
                 inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[0-9,]"))],
-                decoration: const InputDecoration(isDense: true, border: OutlineInputBorder(), hintText: "e.g. \"11,25\""),
+                decoration: InputDecoration(isDense: true, border: const OutlineInputBorder(), hintText: AppStrings.text('alarm.day_of_month_hint')),
               ),))
             ],)
           ],
@@ -645,8 +659,8 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
 
           // ignore schedule checkbox
           SwitchListTile(
-            title: const Text("Ignore scheduled times"),
-            subtitle: const Text("Only rely on real-time live GPS arrival data"),
+            title: Text(AppStrings.text('alarm.ignore_scheduled')),
+            subtitle: Text(AppStrings.text('alarm.live_only')),
             value: _liveOnly,
             onChanged: (bool val) {
               setState(() {
@@ -658,11 +672,11 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
 
           // max ring attempts
           Row(children: [
-            const Text("Custom Message: ", style: TextStyle(fontWeight: FontWeight.bold),),
+            Text(AppStrings.text('alarm.custom_message'), style: const TextStyle(fontWeight: FontWeight.bold),),
             Expanded(child: TextFormField(controller: _messageController, decoration: const InputDecoration(
                 isDense: true,
                 border: UnderlineInputBorder()
-            ), validator: (val) => val == null || val == "" ? "Required" : null,
+            ), validator: (val) => val == null || val == "" ? AppStrings.text('alarm.validation.required') : null,
             ))
           ],),
         ],))

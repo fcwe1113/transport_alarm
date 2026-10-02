@@ -7,6 +7,7 @@ import 'package:transport_alarm/transit/models/route_colour_scheme.dart';
 import 'package:transport_alarm/transit/refresh_result.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -67,7 +68,7 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
   @override
   Future<RefreshResult> refresh({bool forceRefresh = false, ProgressCallback? onProgress}) async {
     final db = GtfsDatabase.forLocale("hk");
-    onProgress?.call("Fetching KMB stops...", null);
+    onProgress?.call(AppStrings.text('transit.provider_fetch_stops', {'providerName': providerName}), null);
     final freshStops = await _apiCaller.call<List<TransportStop>>(
         providerCode: providerCode,
         endpointName: _stopsEndpointName,
@@ -79,7 +80,7 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
       await db.upsertOperatorStops(freshStops);
     }
 
-    onProgress?.call("Fetching KMB routes...", null);
+    onProgress?.call(AppStrings.text('transit.provider_fetch_routes', {'providerName': providerName}), null);
     final freshRoutes = await _apiCaller.call<List<TransportRoute>>(
         providerCode: providerCode,
         endpointName: _routesEndpointName,
@@ -92,7 +93,7 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
     }
     
     if (freshRoutes == null && !forceRefresh) {
-      onProgress?.call("KMB up to date", 1.0);
+      onProgress?.call(AppStrings.text('transit.provider_up_to_date', {'providerName': providerName}), 1.0);
       return const RefreshResult();
     }
     
@@ -113,7 +114,7 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
         items: items,
         forceRefresh: forceRefresh,
         maxAge: const Duration(days: 7),
-        onProgress: (done, total) => onProgress?.call("Fetching KMB stops ($done/$total)", total > 0 ? done / total : null)
+        onProgress: (done, total) => onProgress?.call(AppStrings.text('transit.provider_fetch_route_stops', {'providerName': providerName, 'done': done, 'total': total}), total > 0 ? done / total : null)
     );
 
     for (final entry in batchResult.results.entries) {
@@ -123,7 +124,7 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
       await db.upsertRouteStops(route.id, operatorStopIds);
     }
 
-    onProgress?.call("KMB setup complete", 1.0);
+    onProgress?.call(AppStrings.text('transit.provider_setup_complete', {'providerName': providerName}), 1.0);
 
     return RefreshResult(failedItems: batchResult.failedKeys.map((r) => r.routeNumber).toList());
   }
