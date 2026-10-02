@@ -7,6 +7,7 @@ import 'package:transport_alarm/services/geo_utils.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/transport_route.dart';
@@ -432,14 +433,43 @@ class GtfsDatabase {
     )).toList();
   }
 
-  Future<List<GtfsStop>> getAllGtfsStops() async {
+  Future<List<GtfsStop>> getAllGtfsStops({String? languageCode}) async {
     // query to only include stops with mapped routes
     final rows = await (await database).rawQuery('''
     SELECT DISTINCT s.*
     FROM gtfs_stops s
     INNER JOIN stop_mapping sm on sm.gtfs_stop_id = s.stop_id
     ''');
-    return rows.map((row) => GtfsStop(id: row["stop_id"] as String, name: row["stop_name"] as String, lat: row["stop_lat"] as double, lng: row["stop_lon"] as double)).toList();
+    final operatorNameRows = await (await database).rawQuery('''
+    SELECT sm.gtfs_stop_id, os.names
+    FROM stop_mapping sm
+    INNER JOIN operator_stops os ON os.operator_stop_id = sm.operator_stop_id
+    ''');
+    final namesByGtfsStop = <String, List<Map<String, String>>>{};
+    for (final operatorRow in operatorNameRows) {
+      final stopId = operatorRow['gtfs_stop_id'] as String;
+      final rawNames = jsonDecode(operatorRow['names'] as String) as Map<String, dynamic>;
+      namesByGtfsStop.putIfAbsent(stopId, () => []).add(
+        rawNames.map((key, value) => MapEntry(key, value as String)),
+      );
+    }
+    final selectedLanguage = languageCode ?? AppStrings.languageCode;
+    return rows.map((row) {
+      final stopId = row['stop_id'] as String;
+      final fallbackName = GtfsStop.cleanStopName(row['stop_name'] as String);
+      final operatorNames = namesByGtfsStop[stopId] ?? const <Map<String, String>>[];
+      return GtfsStop(
+        id: stopId,
+        name: GtfsStop.localizedNameFromOperators(
+          operatorNames,
+          selectedLanguage,
+          fallbackName: fallbackName,
+        ),
+        lat: row['stop_lat'] as double,
+        lng: row['stop_lon'] as double,
+        operatorNames: operatorNames,
+      );
+    }).toList();
   }
 
   Future<List<TransportRoute>> getRoutesForGtfsStop(String gtfsStopId) async { // todo check query on circular routes
@@ -498,15 +528,31 @@ class GtfsDatabase {
     return rows.isEmpty ? null : rows.first["operator_stop_id"] as String?;
   }
 
-  Future<GtfsStop?> getGtfsStopById(String stopId) async {
+  Future<GtfsStop?> getGtfsStopById(String stopId, {String? languageCode}) async {
     final rows = await (await database).query("gtfs_stops", where: "stop_id = ?", whereArgs: [stopId]);
     if (rows.isEmpty) return null;
     final row = rows.first;
+    final operatorNameRows = await (await database).rawQuery('''
+    SELECT os.names
+    FROM stop_mapping sm
+    INNER JOIN operator_stops os ON os.operator_stop_id = sm.operator_stop_id
+    WHERE sm.gtfs_stop_id = ?
+    ''', [stopId]);
+    final operatorNames = operatorNameRows.map((operatorRow) {
+      final rawNames = jsonDecode(operatorRow['names'] as String) as Map<String, dynamic>;
+      return rawNames.map((key, value) => MapEntry(key, value as String));
+    }).toList();
+    final fallbackName = GtfsStop.cleanStopName(row['stop_name'] as String);
     return GtfsStop(
       id: row["stop_id"] as String,
-      name: GtfsStop.cleanStopName(row["stop_name"] as String),
+      name: GtfsStop.localizedNameFromOperators(
+        operatorNames,
+        languageCode ?? AppStrings.languageCode,
+        fallbackName: fallbackName,
+      ),
       lat: row["stop_lat"] as double,
       lng: row["stop_lon"] as double,
+      operatorNames: operatorNames,
     );
   }
 

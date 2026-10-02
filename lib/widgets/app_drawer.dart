@@ -1,6 +1,7 @@
 import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:flutter/material.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 
 /// this is the actual menu object, with each menu entry
 class AppDrawer extends StatelessWidget { // stateless bc the menu entrys are set
@@ -12,27 +13,30 @@ class AppDrawer extends StatelessWidget { // stateless bc the menu entrys are se
         child: ListView( // make the menu scrollabel if needed
           padding: EdgeInsets.zero,
           children: [
-            const DrawerHeader(
+            DrawerHeader(
                 padding: EdgeInsets.all(30),
                 decoration: BoxDecoration(color: Colors.blue),
-                child: Text("Bus Alarm", style: TextStyle(color: Colors.white, fontSize: 24),)),
-            ListTile(leading: const Icon(Icons.alarm), title: const Text("Alarm List"), onTap: () { // List stile describes the actual buttons on the menu
+                child: Text(AppStrings.text('drawer.title'), style: TextStyle(color: Colors.white, fontSize: 24),)),
+            ListTile(leading: const Icon(Icons.alarm), title: Text(AppStrings.text('drawer.alarms')), onTap: () { // List stile describes the actual buttons on the menu
               Navigator.pop(context); // dismiss the drawer (sidebar)
               Navigator.pushReplacementNamed(context, "/"); // jump to the screen linked to the path, pushNamed() would allow flutter to stack screen on top of each other which is wasteful
             },),
-            ListTile(leading: const Icon(Icons.map), title: const Text("Map"), onTap: () {
+            ListTile(leading: const Icon(Icons.map), title: Text(AppStrings.text('drawer.map')), onTap: () {
               Navigator.pop(context);
               Navigator.pushReplacementNamed(context, "/map");
             },),
-            ListTile(leading: const Icon(Icons.download), title: const Text("Reload Data"), onTap: () {
+            ListTile(leading: const Icon(Icons.download), title: Text(AppStrings.text('drawer.reload_data')), onTap: () {
               Navigator.pop(context);
               Navigator.push(context, MaterialPageRoute(builder: (context) => const LoadingScreen(operation: initializeTransitData,forceRefresh: true)));
             },),
-            ListTile(leading: const Icon(Icons.refresh), title: const Text("Refresh Data"), onTap: () {
+            ListTile(leading: const Icon(Icons.refresh), title: Text(AppStrings.text('drawer.refresh_data')), onTap: () {
               Navigator.pop(context);
               Navigator.push(context, MaterialPageRoute(builder: (context) => const LoadingScreen(operation: refreshStaleProviders,)));
             },),
-            ListTile(leading: const Icon(Icons.settings), title: const Text("Settings"), onTap: () => Navigator.pop(context),),
+            ListTile(leading: const Icon(Icons.settings), title: Text(AppStrings.text('drawer.settings')), onTap: () {
+              Navigator.pop(context);
+              Navigator.pushReplacementNamed(context, "/settings");
+            },),
           ],
         )
     );

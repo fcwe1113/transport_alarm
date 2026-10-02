@@ -17,6 +17,7 @@ if (localPropertiesFile.exists()) {
 }
 
 android {
+    sourceSets.getByName("main").assets.srcDir("../../assets/localization")
     namespace = "com.fcwe1113.bus_arrival_notification_app"
     compileSdk = 37 // flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion

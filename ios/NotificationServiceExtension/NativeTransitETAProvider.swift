@@ -73,7 +73,7 @@ enum NativeTransitETAProviders {
     /// Validates a saved route endpoint and ensures this handler has a decoder
     /// for its mode and provider.
     static func request(mode: String, providerCode: String, apiURL: String) -> NativeTransitETARequest? {
-        guard mode == "bus",
+        guard mode == NativeLocalization.busMode,
               registered[providerCode] != nil,
               let url = URL(string: apiURL),
               ["https", "http"].contains(url.scheme?.lowercased() ?? ""),
@@ -89,7 +89,7 @@ enum NativeTransitETAProviders {
               let url = provider.legacyETAURL(stopID: stopID, routeNumber: routeNumber) else {
             return nil
         }
-        return NativeTransitETARequest(url: url, mode: "bus", providerCode: providerCode)
+        return NativeTransitETARequest(url: url, mode: NativeLocalization.busMode, providerCode: providerCode)
     }
 
     /// Routes response decoding through the operator implementation, returning

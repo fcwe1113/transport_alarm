@@ -4,6 +4,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/alarm_engine.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
@@ -13,6 +14,7 @@ import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/transit/transport_mode.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 
 class AlarmPingHandler {
@@ -281,7 +283,7 @@ class AlarmPingHandler {
   Future<List<DateTime>> _fetchArrivalFromRouteConfig(
     AlarmRouteConfig config,
   ) async {
-    if (config.mode != 'bus') return const [];
+    if (config.mode != TransportMode.bus) return const [];
     try {
       final response = await http
           .get(Uri.parse(config.apiUrl))
@@ -334,10 +336,19 @@ class AlarmPingHandler {
         .getGtfsStopById(alarm.gtfsStopId); // todo fix locale hardcode
     await NotificationService.plugin.show(
       id: alarm.id.hashCode,
-      title: "Bus arriving soon",
+      title: AppStrings.text(
+        'notification.transport_arriving_soon',
+        AppStrings.transportModeValues(alarm.transportMode),
+      ),
       body: stop != null
-          ? "Your bus is approaching ${stop.name}"
-          : "Your bus is arriving",
+          ? AppStrings.text('notification.transport_approaching', {
+              ...AppStrings.transportModeValues(alarm.transportMode),
+              'stop': stop.displayNameFor(AppStrings.languageCode),
+            })
+          : AppStrings.text(
+              'notification.default_transport_body',
+              AppStrings.transportModeValues(alarm.transportMode),
+            ),
       notificationDetails: notificationDetails,
       payload: alarm.id,
     );

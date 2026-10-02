@@ -16,6 +16,7 @@ import androidx.core.graphics.drawable.IconCompat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,7 +32,6 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
     private static final String CHANNEL_NAME = "dev.fcwe1113.live_update_countdown";
     private static final String NOTIFICATION_CHANNEL_ID =
             "transport_alarm_status_channel";
-    private static final String NOTIFICATION_CHANNEL_NAME = "Alarm updates";
 
     private Context context;
     private MethodChannel channel;
@@ -127,12 +127,16 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
                                 context, R.drawable.live_update_now))
                         .setProgressEndIcon(null);
 
+        Map<String, String> contentValues = new HashMap<>();
+        contentValues.put("body", body);
+        contentValues.put("time", etaText);
+
         NotificationCompat.Builder notification =
                 new NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
                         .setSmallIcon(icon)
                         .setContentTitle(title)
-                        .setContentText(body + " • ETA " + etaText)
-                        .setSubText("Now → bus arrival")
+                        .setContentText(NativeLocalization.text(context, "live_update.content", contentValues))
+                        .setSubText(NativeLocalization.text(context, "live_update.subtext"))
                         .setWhen(countdownTargetMillis)
                         .setShowWhen(true)
                         .setUsesChronometer(true)
@@ -169,9 +173,10 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
 
         NotificationChannel channel = new NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
-                NOTIFICATION_CHANNEL_NAME,
+                NativeLocalization.text(context, "notification.channel.updates"),
                 NotificationManager.IMPORTANCE_DEFAULT);
-        channel.setDescription("Silent alarm countdowns and status updates.");
+        channel.setDescription(NativeLocalization.text(
+                context, "notification.channel.updates.description"));
         channel.setSound(null, null);
         channel.enableVibration(false);
         manager.createNotificationChannel(channel);

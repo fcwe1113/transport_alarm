@@ -1,4 +1,5 @@
 import 'package:transport_alarm/provider_registry.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/material.dart';
 
@@ -16,14 +17,14 @@ class _SetupScreenState extends State<SetupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("First time setup"),
+        title: Text(AppStrings.text('setup.title')),
         automaticallyImplyLeading: false,
       ),
       body: Column(
         children: [
-          const Padding(padding: EdgeInsets.all(16),
-            child: Text("Choose your country/region",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Padding(padding: const EdgeInsets.all(16),
+            child: Text(AppStrings.text('setup.choose_region'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
           Expanded(
@@ -54,11 +55,11 @@ class _SetupScreenState extends State<SetupScreen> {
 
   Future<bool?> _showWifiReminder() {
     return showDialog(context: context, barrierDismissible: false, builder: (context) => AlertDialog(
-      title: const Text("Heads up!"),
-      content: const Text("Downloading the required data can take a while and use a fair amount of data. You may want to connect to Wi-Fi before proceeding."),
+      title: Text(AppStrings.text('setup.heads_up')),
+      content: Text(AppStrings.text('setup.download_warning')),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Go back")),
-        TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Continue")),
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('common.go_back'))),
+        TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('common.continue'))),
       ],
     ));
   }

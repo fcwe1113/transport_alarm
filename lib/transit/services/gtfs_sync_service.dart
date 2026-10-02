@@ -5,6 +5,7 @@ import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/csv_stream_parser.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:path/path.dart' as p;
 
 abstract class GtfsSyncProvider {
@@ -23,7 +24,7 @@ class GtfsSyncService {
   }
 
   Future<void> parseAndStoreGtfsArchive(File zipFile, ProgressCallback? onProgress) async {
-    onProgress?.call("Updating gtfs data", null);
+    onProgress?.call(AppStrings.text('transit.gtfs_updating'), null);
     final requiredFiles = ["routes.txt", "trips.txt", "calendar.txt", "stop_times.txt", "stops.txt"]; // only read required files
     final inputStream = InputFileStream(zipFile.path);
     final archive = ZipDecoder().decodeStream(inputStream);
@@ -37,14 +38,14 @@ class GtfsSyncService {
     for (final file in validFiles) {
       final fileName = p.basename(file.name);
       final stepProgress = processedCount / totalFiles;
-      onProgress?.call("Extracting $fileName... $processedCount/$totalFiles", stepProgress);
+      onProgress?.call(AppStrings.text('transit.gtfs_extracting', {'file': fileName, 'done': processedCount, 'total': totalFiles}), stepProgress);
 
       final extractedPath = "${tempDir.path}/$fileName";
       final outputStream = OutputFileStream(extractedPath);
       file.writeContent(outputStream);
       await outputStream.close();
 
-      onProgress?.call("Parsing $fileName... $processedCount/$totalFiles", stepProgress);
+      onProgress?.call(AppStrings.text('transit.gtfs_parsing', {'file': fileName, 'done': processedCount, 'total': totalFiles}), stepProgress);
 
       final extractedFile = File(extractedPath);
       switch (fileName) {
@@ -67,7 +68,7 @@ class GtfsSyncService {
       processedCount++;
     }
 
-    onProgress?.call("interpolating schedule...", null);
+    onProgress?.call(AppStrings.text('transit.gtfs_interpolating'), null);
     await _db.interpolateMissingArrivalTimes(); // ran here because gtfs_stop_times and gtfs_trips needs to be populated before running
   }
 }

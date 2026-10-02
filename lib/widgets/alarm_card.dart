@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:transport_alarm/models/transport_alarm.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
@@ -10,7 +11,6 @@ import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 
-import '../transit/models/gtfs_stop.dart';
 
 /// the per alarm display on the alarm list screen
 /// basically the gui template for each given alarm
@@ -172,10 +172,8 @@ class _AlarmCardState extends State<AlarmCard> {
                           FutureBuilder(
                             future: db.getGtfsStopById(widget.alarm.gtfsStopId),
                             builder: (context, snapshot) {
-                              final rawName = snapshot.data?.name;
-                              final name = rawName != null
-                                  ? GtfsStop.cleanStopName(rawName)
-                                  : "Loading...";
+                              final name = snapshot.data?.displayNameFor(AppStrings.languageCode)
+                                  ?? AppStrings.text('alarm.loading_stops');
                               return Text(
                                 name,
                                 style: TextStyle(
@@ -270,8 +268,10 @@ class _AlarmCardState extends State<AlarmCard> {
                             const SizedBox(height: 4),
                             Text(
                               previousEstimate == null
-                                  ? "Loading arrivals..."
-                                  : "$previousEstimate (updating...)",
+                                  ? AppStrings.text('alarm_card.loading_arrivals')
+                                  : AppStrings.text('alarm_card.estimate_updating', {
+                                      'estimate': previousEstimate,
+                                    }),
                               style: TextStyle(
                                 color: Colors.grey.shade600,
                                 fontSize: 13,
@@ -287,9 +287,9 @@ class _AlarmCardState extends State<AlarmCard> {
 
                       if (snapshot.hasError) {
                         // todo implement seamless background load
-                        contents = "Unable to fetch arrivals";
+                        contents = AppStrings.text('alarm_card.arrivals_failed');
                       } else if (arrivals == null || arrivals.isEmpty) {
-                        contents = "No upcoming arrivals found";
+                        contents = AppStrings.text('alarm_card.no_arrivals');
                       } else {
                         contents = _formatNextArrival(arrivals);
                       }
@@ -328,6 +328,9 @@ class _AlarmCardState extends State<AlarmCard> {
 
   String _formatNextArrival(List<RouteArrival> arrivals) {
     final minutes = arrivals.first.minutesFromNow;
-    return "Next arrival in $minutes minute${minutes == 1 ? "" : "s"}";
+    return AppStrings.text(
+      minutes == 1 ? 'alarm_card.next_arrival.one' : 'alarm_card.next_arrival.other',
+      {'minutes': minutes},
+    );
   }
 }

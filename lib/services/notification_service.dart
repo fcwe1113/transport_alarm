@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:live_update_countdown/live_update_countdown.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_ping_handler.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
@@ -14,9 +15,9 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   static const String ringChannelId = 'transport_alarm_ring_channel';
-  static const String ringChannelName = 'Alarm rings';
+  static String get ringChannelName => AppStrings.text('notification.channel.rings');
   static const String statusChannelId = 'transport_alarm_status_channel';
-  static const String statusChannelName = 'Alarm updates';
+  static String get statusChannelName => AppStrings.text('notification.channel.updates');
 
   static Future<void> init() async {
     const androidSettings = AndroidInitializationSettings(
@@ -35,7 +36,7 @@ class NotificationService {
           actions: [
             DarwinNotificationAction.plain(
               'acknowledge',
-              'Acknowledge',
+              AppStrings.text('native.acknowledge'),
               options: {DarwinNotificationActionOption.foreground},
             ),
           ],
@@ -80,20 +81,20 @@ class NotificationService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     await android?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        ringChannelId,
-        ringChannelName,
-        description: 'Audible notifications for acknowledged alarm thresholds.',
+        AndroidNotificationChannel(
+          ringChannelId,
+          ringChannelName,
+          description: AppStrings.text('notification.channel.rings.description'),
         importance: Importance.max,
         playSound: true,
         enableVibration: true,
       ),
     );
     await android?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        statusChannelId,
-        statusChannelName,
-        description: 'Silent arrival tracking and service status updates.',
+        AndroidNotificationChannel(
+          statusChannelId,
+          statusChannelName,
+          description: AppStrings.text('notification.channel.updates.description'),
         importance: Importance.defaultImportance,
         playSound: false,
         enableVibration: false,
@@ -111,7 +112,7 @@ class NotificationService {
       id: notificationId,
       title: title,
       body: body,
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           ringChannelId,
           ringChannelName,
@@ -127,7 +128,7 @@ class NotificationService {
           actions: [
             AndroidNotificationAction(
               'acknowledge',
-              "I'm up / Got it",
+              AppStrings.text('notification.acknowledge_action'),
               showsUserInterface: true,
             ),
           ],
@@ -211,7 +212,7 @@ class NotificationService {
       id: notificationId,
       title: title,
       body: body,
-      notificationDetails: const NotificationDetails(
+      notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           statusChannelId,
           statusChannelName,

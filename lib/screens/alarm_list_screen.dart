@@ -5,6 +5,7 @@ import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/widgets/alarm_card.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 
 import '../models/transport_alarm.dart';
 import '../services/alarm_server_service.dart';
@@ -46,7 +47,7 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
     final alarm = _alarms[index];
     final result = await _lifecycle.setEnabled(alarm.id, !alarm.enabled);
     if (!result.succeeded && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Could not update alarm: ${result.errorMessage}")));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.text('alarm_list.update_failed', {'error': result.errorMessage}))));
     }
     await _loadAlarms();
   }
@@ -73,7 +74,7 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator(),),);
     }
     return AppShell(
-        title: "Alarm List",
+        title: AppStrings.text('alarm_list.title'),
         actions: [ if (_isEditing) IconButton(
           onPressed: _navigateToAddAlarm,
           icon: const Icon(Icons.add)), TextButton(onPressed: () {
@@ -81,13 +82,13 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
               _isEditing = !_isEditing;
             });
           }, child: Text(
-            _isEditing ? "Done" : "Edit",
+            AppStrings.text(_isEditing ? 'common.done' : 'common.edit'),
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ))],
           body: _alarms.isEmpty ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text("Alarm List empty", style: TextStyle(color: Colors.grey.shade600, fontSize: 32),),
+            Text(AppStrings.text('alarm_list.empty'), style: TextStyle(color: Colors.grey.shade600, fontSize: 32),),
             const SizedBox(height: 12,),
-            ElevatedButton.icon(onPressed: _navigateToAddAlarm, icon: Icon(Icons.add), label: const Text("Add Alarm"),)
+            ElevatedButton.icon(onPressed: _navigateToAddAlarm, icon: Icon(Icons.add), label: Text(AppStrings.text('alarm_list.add')))
           ],),) : ListView.builder(itemCount: _alarms.length, itemBuilder: (context, index) {
             final alarm = _alarms[index];
             return AlarmCard(

@@ -45,13 +45,13 @@ final class NativePingHandler {
                 Self.stringValue($0["pingId"]) == pingID
             }) else {
                 try? await acknowledge(pingID: pingID)
-                return PingResult(title: "Alarm no longer active", body: "This alarm is no longer enabled.")
+                return PingResult(title: NativeLocalization.text("native.alarm_no_longer_active.title"), body: NativeLocalization.text("native.alarm_no_longer_active.body"))
             }
 
             var alarm = alarms[alarmIndex]
             guard (alarm["enabled"] as? Bool) != false else {
                 try? await acknowledge(pingID: pingID)
-                return PingResult(title: "Alarm is disabled", body: "No alarm action is needed. \(Self.alarmDebugJSON(alarm))")
+                return PingResult(title: NativeLocalization.text("native.alarm_disabled.title"), body: "\(NativeLocalization.text("native.alarm_disabled.body")) \(Self.alarmDebugJSON(alarm))")
             }
 
             var thresholdStates = (alarm["thresholdStates"] as? [[String: Any]] ?? []).sorted {
@@ -67,7 +67,7 @@ final class NativePingHandler {
                     alarms[alarmIndex] = alarm
                     try saveAlarms(alarms)
                     try? await acknowledge(pingID: pingID)
-                    return PingResult(title: "Alarm complete", body: "This alarm has already finished.")
+                    return PingResult(title: NativeLocalization.text("native.alarm_complete.title"), body: NativeLocalization.text("native.alarm_complete.already_finished"))
                 }
                 for index in thresholdStates.indices {
                     thresholdStates[index]["outcome"] = "pending"
@@ -95,7 +95,7 @@ final class NativePingHandler {
                     alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
                     alarms[alarmIndex] = alarm
                     try saveAlarms(alarms)
-                    return PingResult(title: "Next alarm occurrence scheduled", body: "The next repeat is scheduled.")
+                    return PingResult(title: NativeLocalization.text("native.next_repeat.title"), body: NativeLocalization.text("native.next_repeat.body"))
                 }
                 alarm["enabled"] = false
                 alarm["spent"] = true
@@ -103,7 +103,7 @@ final class NativePingHandler {
                 alarms[alarmIndex] = alarm
                 try saveAlarms(alarms)
                 try? await acknowledge(pingID: pingID)
-                return PingResult(title: "Alarm complete", body: "All alarm thresholds are complete.")
+                return PingResult(title: NativeLocalization.text("native.alarm_complete.title"), body: NativeLocalization.text("native.alarm_complete.thresholds_done"))
             }
 
             // Use a fresh arrival estimate when available, otherwise retain the
@@ -162,7 +162,7 @@ final class NativePingHandler {
                 try await reschedule(pingID: pingID, at: retryAt, requireAck: false)
                 alarms[alarmIndex] = alarm
                 try saveAlarms(alarms)
-                return PingResult(title: "Arrival estimate unavailable", body: "Another update is scheduled in 5 minutes.")
+                return PingResult(title: NativeLocalization.text("native.estimate_unavailable.title"), body: NativeLocalization.text("native.estimate_unavailable.body"))
             }
 
             if estimateUntilThreshold > 5 {
@@ -177,8 +177,8 @@ final class NativePingHandler {
                 alarms[alarmIndex] = alarm
                 try saveAlarms(alarms)
                 return PingResult(
-                    title: "Alarm update scheduled",
-                    body: "The threshold is about \(estimateUntilThreshold) minutes away. Another check is scheduled in \(delayMinutes) minutes."
+                    title: NativeLocalization.text("native.update_scheduled.title"),
+                    body: NativeLocalization.text("native.update_scheduled.body", values: ["minutes": estimateUntilThreshold, "delay": delayMinutes])
                 )
             }
 
@@ -191,7 +191,7 @@ final class NativePingHandler {
                 alarm["thresholdStates"] = thresholdStates
                 alarms[alarmIndex] = alarm
                 try saveAlarms(alarms)
-                return PingResult(title: "Alarm approaching", body: "The alarm will ring in \(estimateUntilThreshold) minutes.")
+                return PingResult(title: NativeLocalization.text("native.alarm_approaching.title"), body: NativeLocalization.text("native.alarm_approaching.body", values: ["minutes": estimateUntilThreshold]))
             }
 
             thresholdStates[activeIndex]["outcome"] = "ringing"
@@ -207,15 +207,23 @@ final class NativePingHandler {
                 return ringResult(alarm: alarm, thresholdMinutes: thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
             }
         } catch {
-            return PingResult(title: "Alarm update failed", body: "The existing notification schedule could not be updated.")
+            return PingResult(title: NativeLocalization.text("native.update_failed.title"), body: NativeLocalization.text("native.update_failed.body"))
         }
     }
 
     private func ringResult(alarm: [String: Any], thresholdMinutes: Int, debugMessage: String? = nil) -> PingResult {
-        let title = (alarm["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Bus arriving soon"
+        let routeConfigs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
+        let transportMode = routeConfigs.first?["mode"] as? String ?? NativeLocalization.busMode
+        let modeValues: [String: Any] = [
+            "transportMode": NativeLocalization.transportMode(transportMode),
+            "transportModeTitle": NativeLocalization.transportMode(transportMode, titleCase: true)
+        ]
+        let title = (alarm["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? NativeLocalization.text("native.ring.title", values: modeValues)
+        var bodyValues = modeValues
+        bodyValues["minutes"] = thresholdMinutes
         return PingResult(
             title: title,
-            body: "Your bus alarm has reached its \(thresholdMinutes)-minute threshold. Acknowledge to continue.",
+            body: NativeLocalization.text("native.ring.body", values: bodyValues),
             debugMessage: debugMessage,
             categoryIdentifier: "transport_alarm_ring"
         )

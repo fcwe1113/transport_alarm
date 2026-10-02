@@ -5,6 +5,7 @@ import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/transit/transit_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -74,7 +75,7 @@ class CtbProvider extends TransitProvider{
   @override
   Future<RefreshResult> refresh({bool forceRefresh = false, ProgressCallback? onProgress}) async {
     final db = GtfsDatabase.forLocale("hk");
-    onProgress?.call("Fetching Citybus routes...", null);
+    onProgress?.call(AppStrings.text('transit.provider_fetch_routes', {'providerName': providerName}), null);
     final routes = await _fetchRoutes(forceRefresh: forceRefresh);
     await db.upsertOperatorRoutes(routes);
     
@@ -94,7 +95,7 @@ class CtbProvider extends TransitProvider{
         providerCode: providerCode,
         items: routeStopItems,
         forceRefresh: forceRefresh,
-        onProgress: (done, total) => onProgress?.call("Fetching Citybus route-stop sequences ($done/$total)...", total > 0 ? done / total : null)
+        onProgress: (done, total) => onProgress?.call(AppStrings.text('transit.provider_fetch_route_stops', {'providerName': providerName, 'done': done, 'total': total}), total > 0 ? done / total : null)
     );
 
     for (final entry in routeStopResult.results.entries) {
@@ -122,12 +123,12 @@ class CtbProvider extends TransitProvider{
         providerCode: providerCode,
         items: stopDetailItems,
         forceRefresh: forceRefresh,
-        onProgress: (done, total) => onProgress?.call("Fetching Citybus stop details ($done/$total)", total > 0 ? done / total : null)
+        onProgress: (done, total) => onProgress?.call(AppStrings.text('transit.provider_fetch_stop_details', {'providerName': providerName, 'done': done, 'total': total}), total > 0 ? done / total : null)
     );
 
     await db.upsertOperatorStops(stopDetailResult.results.values.toList());
 
-    onProgress?.call("Citybus setup complete", 1.0);
+    onProgress?.call(AppStrings.text('transit.provider_setup_complete', {'providerName': providerName}), 1.0);
 
     final failed = <String>[
       ...routeStopResult.failedKeys.map((r) => "route-stop ${r.routeNumber}"),

@@ -21,23 +21,23 @@ final class NotificationService: UNNotificationServiceExtension {
         }
 
         guard let pingID = Self.pingID(from: request.content.userInfo) else {
-            content.title = "Alarm update unavailable"
-            content.body = "The notification did not include an alarm ping identifier."
+            content.title = NativeLocalization.text("native.update_unavailable.title")
+            content.body = NativeLocalization.text("native.update_unavailable.ping")
             finish(content)
             return
         }
 
         guard let container = AppGroup.containerURL else {
-            content.title = "Alarm update unavailable"
-            content.body = "The shared alarm data folder could not be opened."
+            content.title = NativeLocalization.text("native.update_unavailable.title")
+            content.body = NativeLocalization.text("native.update_unavailable.storage")
             finish(content)
             return
         }
 
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, let content = self.bestAttemptContent else { return }
-            content.title = "Alarm update timed out"
-            content.body = "The alarm update took too long."
+            content.title = NativeLocalization.text("native.update_timeout.title")
+            content.body = NativeLocalization.text("native.update_timeout.body")
             self.finish(content)
         }
         timeoutWorkItem = timeout
@@ -82,8 +82,8 @@ final class NotificationService: UNNotificationServiceExtension {
 
     override func serviceExtensionTimeWillExpire() {
         guard let content = bestAttemptContent else { return }
-        content.title = "Alarm update timed out"
-        content.body = "The alarm update took too long."
+        content.title = NativeLocalization.text("native.update_timeout.title")
+        content.body = NativeLocalization.text("native.update_timeout.body")
         finish(content)
     }
 }

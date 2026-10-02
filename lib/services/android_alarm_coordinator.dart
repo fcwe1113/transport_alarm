@@ -9,12 +9,15 @@ import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
+import 'package:transport_alarm/transit/services/locale_selection_service.dart';
+import 'package:transport_alarm/transit/transport_mode.dart';
 
 /// Coordinates Android's local wall-clock alarms and the Dart decision flow.
 class AndroidAlarmCoordinator {
@@ -221,7 +224,10 @@ class AndroidAlarmCoordinator {
         await NotificationService.showThresholdRing(
           notificationId: _ringNotificationId(ringing.id),
           alarmId: ringing.id,
-          title: 'Bus arriving soon',
+          title: AppStrings.text(
+            'notification.transport_arriving_soon',
+            AppStrings.transportModeValues(alarm.transportMode),
+          ),
           body: _ringBody(ringing, stopName),
         );
         await _scheduleRetry(ringing, now);
@@ -233,7 +239,9 @@ class AndroidAlarmCoordinator {
         await NotificationService.showCountdown(
           notificationId: _countdownNotificationId(alarm.id),
           alarmId: alarm.id,
-          title: 'Next bus alarm',
+          title: AppStrings.text('notification.next_transport_alarm', {
+            ...AppStrings.transportModeValues(alarm.transportMode),
+          }),
           body: _ringBody(alarm, await _stopName(alarm)),
           progressStartTime: _androidProgressStartTime(alarm, now),
           countdownTargetTime: thresholdAt,
@@ -253,7 +261,7 @@ class AndroidAlarmCoordinator {
       return;
     }
 
-    // Once thresholds are acknowledged, the final bus alert is visible but silent.
+    // Once thresholds are acknowledged, the final transport alert is visible but silent.
     final finalArrivalAt = lookup.arrivalAt;
     if (finalArrivalAt == null) {
       await _cancel(_fireAlarmId(alarm.id));
@@ -272,10 +280,16 @@ class AndroidAlarmCoordinator {
       await NotificationService.showCountdown(
         notificationId: _countdownNotificationId(alarm.id),
         alarmId: alarm.id,
-        title: 'Bus arriving soon',
+        title: AppStrings.text(
+          'notification.transport_arriving_soon',
+          AppStrings.transportModeValues(alarm.transportMode),
+        ),
         body: alarm.message.isNotEmpty
             ? alarm.message
-            : 'Your bus is expected shortly.',
+            : AppStrings.text(
+                'notification.default_transport_body',
+                AppStrings.transportModeValues(alarm.transportMode),
+              ),
         progressStartTime: _androidProgressStartTime(alarm, now),
         countdownTargetTime: finalArrivalAt,
         estimatedArrivalTime: finalArrivalAt,
@@ -413,7 +427,9 @@ class AndroidAlarmCoordinator {
   }
 
   Future<RouteEtaResult> _fetchRouteEta(AlarmRouteConfig config) async {
-    if (config.mode != 'bus') return const RouteEtaResult(healthy: false);
+    if (config.mode != TransportMode.bus) {
+      return const RouteEtaResult(healthy: false);
+    }
     try {
       final response = await http
           .get(Uri.parse(config.apiUrl))
@@ -460,10 +476,10 @@ class AndroidAlarmCoordinator {
       await NotificationService.showSilentStatus(
         notificationId: _statusNotificationId(alarm.id),
         alarmId: alarm.id,
-        title: 'Live arrival updates unavailable',
+        title: AppStrings.text('notification.live_unavailable'),
         body: alarm.liveOnly
-            ? 'Problems reaching the live arrival API. We will keep retrying during this alarm window.'
-            : 'Problems reaching the live arrival API. The timetable is being used while we retry.',
+            ? AppStrings.text('notification.live_failed.body')
+            : AppStrings.text('notification.live_failed_schedule.body'),
       );
     } else {
       await NotificationService.cancel(_statusNotificationId(alarm.id));
@@ -615,12 +631,21 @@ class AndroidAlarmCoordinator {
     await NotificationService.showSilentStatus(
       notificationId: _statusNotificationId(alarm.id),
       alarmId: alarm.id,
-      title: 'Bus arriving now',
+      title: AppStrings.text(
+        'notification.transport_arriving_now',
+        AppStrings.transportModeValues(alarm.transportMode),
+      ),
       body: alarm.message.isNotEmpty
           ? alarm.message
           : stopName == null
-          ? 'Your bus is expected to arrive.'
-          : 'Your bus is expected at $stopName.',
+          ? AppStrings.text(
+              'notification.default_transport_body',
+              AppStrings.transportModeValues(alarm.transportMode),
+            )
+          : AppStrings.text('notification.transport_expected_at', {
+              ...AppStrings.transportModeValues(alarm.transportMode),
+              'stop': stopName,
+            }),
     );
   }
 
@@ -631,10 +656,10 @@ class AndroidAlarmCoordinator {
     await NotificationService.showSilentStatus(
       notificationId: _statusNotificationId(alarm.id),
       alarmId: alarm.id,
-      title: 'Alarm window ended',
+      title: AppStrings.text('notification.window_ended'),
       body: hasNextRepeat
-          ? 'Live arrival updates were unavailable. This alarm is set for its next repeat.'
-          : 'Live arrival updates were unavailable before this alarm window ended.',
+          ? AppStrings.text('notification.window_ended.next_repeat')
+          : AppStrings.text('notification.window_ended.no_repeat'),
     );
   }
 
@@ -672,8 +697,13 @@ class AndroidAlarmCoordinator {
   String _ringBody(TransportAlarm alarm, String? stopName) {
     if (alarm.message.isNotEmpty) return alarm.message;
     final routes = alarm.routeNumbers.join(', ');
-    if (stopName == null) return 'Route $routes is approaching.';
-    return 'Route $routes is approaching $stopName.';
+    if (stopName == null) {
+      return AppStrings.text('notification.routes_approaching', {'routes': routes});
+    }
+    return AppStrings.text('notification.routes_stop_approaching', {
+      'routes': routes,
+      'stop': stopName,
+    });
   }
 
   Future<void> _requireExactAlarmPermission() async {
@@ -772,6 +802,8 @@ Future<void> androidAlarmManagerCallback(
 ) async {
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
+  final languageCode = await LocaleSelectionService().getAppLanguageCode();
+  await AppStrings.load(languageCode);
   await NotificationService.initBackground();
   try {
     final alarmId = params['alarmId'] as String?;

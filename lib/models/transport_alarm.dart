@@ -2,6 +2,7 @@ import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:flutter/material.dart';
 
 import 'alarm_route_config.dart';
+import '../transit/transport_mode.dart';
 import '../transit/models/repeat_pattern.dart';
 
 /// Transport Alarm object definition
@@ -35,6 +36,10 @@ class TransportAlarm {
   // Preserve a single GTFS fallback bus while live ETA calls are failing.
   final int? androidFallbackArrivalEpochSeconds;
   final bool androidApiWarningActive;
+
+  /// Mode used for user-facing arrival text, taken from the first selected route.
+  String get transportMode =>
+      routeApiConfigs.isEmpty ? TransportMode.bus : routeApiConfigs.first.mode;
 
   const TransportAlarm({ //  constructor
     required this.id,
