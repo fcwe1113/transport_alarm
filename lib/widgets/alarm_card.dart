@@ -38,6 +38,7 @@ class AlarmCard extends StatefulWidget {
 class _AlarmCardState extends State<AlarmCard> {
   Timer? _refreshTimer;
   int _refreshTick = 0;
+  List<RouteArrival>? _lastArrivals;
 
   @override
   void initState() {
@@ -68,6 +69,7 @@ class _AlarmCardState extends State<AlarmCard> {
                 .reduce((a, b) => a > b ? a : b)
           : null,
     );
+    _lastArrivals = arrivals;
     if (Platform.isIOS) {
       final eligible = alarm.liveOnly
           ? arrivals.where((arrival) => arrival.isLive)
@@ -249,6 +251,12 @@ class _AlarmCardState extends State<AlarmCard> {
                     future: _loadArrivalsAndPersistEstimate(),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
+                        final previousArrivals = _lastArrivals;
+                        final previousEstimate =
+                            previousArrivals != null &&
+                                previousArrivals.isNotEmpty
+                            ? _formatNextArrival(previousArrivals)
+                            : null;
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -261,7 +269,9 @@ class _AlarmCardState extends State<AlarmCard> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              "Loading arrivals...",
+                              previousEstimate == null
+                                  ? "Loading arrivals..."
+                                  : "$previousEstimate (updating...)",
                               style: TextStyle(
                                 color: Colors.grey.shade600,
                                 fontSize: 13,
@@ -281,8 +291,7 @@ class _AlarmCardState extends State<AlarmCard> {
                       } else if (arrivals == null || arrivals.isEmpty) {
                         contents = "No upcoming arrivals found";
                       } else {
-                        contents =
-                            "Next arrival in ${arrivals.first.minutesFromNow} minute${arrivals.first.minutesFromNow == 1 ? "" : "s"}";
+                        contents = _formatNextArrival(arrivals);
                       }
 
                       return Column(
@@ -315,5 +324,10 @@ class _AlarmCardState extends State<AlarmCard> {
         ],
       ),
     );
+  }
+
+  String _formatNextArrival(List<RouteArrival> arrivals) {
+    final minutes = arrivals.first.minutesFromNow;
+    return "Next arrival in $minutes minute${minutes == 1 ? "" : "s"}";
   }
 }
