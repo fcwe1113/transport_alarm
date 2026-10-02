@@ -191,7 +191,7 @@ final class NativePingHandler {
                 alarm["thresholdStates"] = thresholdStates
                 alarms[alarmIndex] = alarm
                 try saveAlarms(alarms)
-                return PingResult(title: "Alarm approaching", body: "The alarm will check again at the threshold time.")
+                return PingResult(title: "Alarm approaching", body: "The alarm will ring in \(estimateUntilThreshold) minutes.")
             }
 
             thresholdStates[activeIndex]["outcome"] = "ringing"
