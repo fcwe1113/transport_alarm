@@ -1,11 +1,11 @@
-import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 
 enum AlarmAction { ring, scheduleNextPing, doNothing }
 
 class AlarmDecision {
   final AlarmAction action;
-  final BusAlarm updatedAlarm; // to update pingid/thresholdStates
+  final TransportAlarm updatedAlarm; // to update pingid/thresholdStates
   final DateTime? nextPingTime; // set when action == scheduleNextPing
   final bool nextPingRequiresAck;
   final DateTime? expireOn;
@@ -13,7 +13,7 @@ class AlarmDecision {
   const AlarmDecision({required this.action, required this.updatedAlarm, this.nextPingTime, this.nextPingRequiresAck = false, this.expireOn});
 }
 
-AlarmDecision evaluateAlarm({required BusAlarm alarm, required int? minutesUntilThreshold}) {
+AlarmDecision evaluateAlarm({required TransportAlarm alarm, required int? minutesUntilThreshold}) {
   if (alarm.spent) {
     return AlarmDecision(action: AlarmAction.doNothing, updatedAlarm: alarm);
   }
@@ -70,7 +70,7 @@ AlarmDecision evaluateAlarm({required BusAlarm alarm, required int? minutesUntil
   }
 }
 
-DateTime? _nextThresholdExpiry(BusAlarm alarm, int activeIndex, int minutesUntilThreshold) {
+DateTime? _nextThresholdExpiry(TransportAlarm alarm, int activeIndex, int minutesUntilThreshold) {
   if (activeIndex + 1 >= alarm.thresholdStates.length) return DateTime.now().add(Duration(minutes: alarm.maxRingsPerThreshold)); // activeIndex is the last threshold
 
   final activeThreshold = alarm.thresholdStates[activeIndex];

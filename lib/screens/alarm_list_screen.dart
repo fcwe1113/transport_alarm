@@ -6,7 +6,7 @@ import 'package:transport_alarm/widgets/alarm_card.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
 
-import '../models/bus_alarm.dart';
+import '../models/transport_alarm.dart';
 import '../services/alarm_server_service.dart';
 
 // this will be the main screen the app first goes to on first boot
@@ -23,7 +23,7 @@ class AlarmListScreen extends StatefulWidget {
 /// State object within the alarm list screen
 class _AlarmListScreenState extends State<AlarmListScreen> {
   final _lifecycle = AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService());
-  List<BusAlarm> _alarms = [];
+  List<TransportAlarm> _alarms = [];
   bool _isEditing = false;
   bool _isLoading = true;
 
@@ -56,7 +56,7 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
     await _loadAlarms();
   }
 
-  Future<void> _editAlarm(BusAlarm alarm, int index) async {
+  Future<void> _editAlarm(TransportAlarm alarm, int index) async {
     await Navigator.push(context, MaterialPageRoute(builder: (context) => AddAlarmScreen(alarmToEdit: alarm,)));
     await _loadAlarms();
   }

@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:ui';
 
-import 'package:transport_alarm/transit/models/bus_route.dart';
-import 'package:transport_alarm/transit/models/bus_stop.dart';
+import 'package:transport_alarm/transit/models/transport_route.dart';
+import 'package:transport_alarm/transit/models/transport_stop.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/transit_provider.dart';
@@ -39,13 +39,13 @@ class CtbProvider extends TransitProvider{
   Color get defaultTextColor => const Color(0xFF002FFF);
 
   @override
-  RouteColourScheme coloursForRoute(BusRoute route) {
+  RouteColourScheme coloursForRoute(TransportRoute route) {
 
-    bool isAirportRoute(BusRoute route) {
+    bool isAirportRoute(TransportRoute route) {
       return route.routeNumber.startsWith("A") || route.routeNumber.startsWith("NA");
     }
 
-    bool isNightRoute(BusRoute route) {
+    bool isNightRoute(TransportRoute route) {
       return route.routeNumber.startsWith("N");
     }
 
@@ -60,7 +60,7 @@ class CtbProvider extends TransitProvider{
     return super.coloursForRoute(route);
   }
   
-  Future<List<BusRoute>> _fetchRoutes({bool forceRefresh = false}) async {
+  Future<List<TransportRoute>> _fetchRoutes({bool forceRefresh = false}) async {
     final routes = await _apiCaller.call(
         providerCode: providerCode, 
         endpointName: _routesEndpointName, 
@@ -82,7 +82,7 @@ class CtbProvider extends TransitProvider{
     // the stops list from the route-stop api
     final routeStopItems = routes.map((route) {
       final direction = route.bound == "O" ? "outbound" : "inbound";
-      return BatchCallItem<BusRoute, List<String>>(
+      return BatchCallItem<TransportRoute, List<String>>(
           key: route,
           endpointName: "route_stop_${route.routeNumber}_${route.bound}",
           url: 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route-stop/CTB/${route.routeNumber}/$direction',
@@ -90,7 +90,7 @@ class CtbProvider extends TransitProvider{
       );
     }).toList();
 
-    final routeStopResult = await _apiCaller.callBatch<BusRoute, List<String>>(
+    final routeStopResult = await _apiCaller.callBatch<TransportRoute, List<String>>(
         providerCode: providerCode,
         items: routeStopItems,
         forceRefresh: forceRefresh,
@@ -110,7 +110,7 @@ class CtbProvider extends TransitProvider{
     }
 
     final stopDetailItems = uniqueRawStopIds.map((rawStopId) {
-      return BatchCallItem<String, BusStop>(
+      return BatchCallItem<String, TransportStop>(
           key: rawStopId,
           endpointName: "stop_$rawStopId",
           url: 'https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/$rawStopId',
@@ -118,7 +118,7 @@ class CtbProvider extends TransitProvider{
       );
     }).toList();
 
-    final stopDetailResult = await _apiCaller.callBatch<String, BusStop>(
+    final stopDetailResult = await _apiCaller.callBatch<String, TransportStop>(
         providerCode: providerCode,
         items: stopDetailItems,
         forceRefresh: forceRefresh,
@@ -178,7 +178,7 @@ class CtbProvider extends TransitProvider{
   }
 
   @override
-  String? alarmEtaUrl({required String operatorStopId, required BusRoute route}) {
+  String? alarmEtaUrl({required String operatorStopId, required TransportRoute route}) {
     final separator = operatorStopId.indexOf(":");
     if (separator < 0 || separator == operatorStopId.length - 1) return null;
     final rawStopId = operatorStopId.substring(separator + 1);
@@ -188,12 +188,12 @@ class CtbProvider extends TransitProvider{
     ).toString();
   }
 
-  List<BusRoute> _parseRoutesRaw(String rawJson) {
+  List<TransportRoute> _parseRoutesRaw(String rawJson) {
     final decoded = jsonDecode(rawJson);
     final List<dynamic> data = decoded["data"];
     return data.map((r) {
       final routeNumber = r["route"] as String? ?? "";
-      return BusRoute(
+      return TransportRoute(
           id: "$providerCode:$routeNumber", 
           names: {"en": routeNumber, "zh-Hant": routeNumber}, 
           routeNumber: routeNumber, 
@@ -211,10 +211,10 @@ class CtbProvider extends TransitProvider{
     return data.map((s) => s["stop"] as String).toList();
   }
   
-  BusStop _parseStopDetailRaw(String rawJson, String rawStopId) {
+  TransportStop _parseStopDetailRaw(String rawJson, String rawStopId) {
     final decoded = jsonDecode(rawJson);
     final s = decoded["data"];
-    return BusStop(
+    return TransportStop(
         id: "$providerCode:$rawStopId",
         names: {"en": s["name_en"] as String? ?? "", "zh-Hant": s["name_tc"] as String? ?? "", "zh-Hans": s["name_sc"] as String? ?? ""},
         lat: double.tryParse(s["lat"].toString()),

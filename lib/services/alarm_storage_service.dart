@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:transport_alarm/services/app_group_storage.dart';
-import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 
 class AlarmStorageService {
@@ -10,15 +10,15 @@ class AlarmStorageService {
     return File("${(await AppGroupStorage.directory).path}/alarms.json");
   }
 
-  Future<List<BusAlarm>> loadAlarms() async {
+  Future<List<TransportAlarm>> loadAlarms() async {
     final file = await _file();
     if (!await file.exists()) return [];
     final rawJson = await file.readAsString();
     final List<dynamic> data = jsonDecode(rawJson);
-    return data.map((a) => BusAlarm.fromJson(a as Map<String, dynamic>)).toList();
+    return data.map((a) => TransportAlarm.fromJson(a as Map<String, dynamic>)).toList();
   }
 
-  Future<void> saveAlarms(List<BusAlarm> alarms) async {
+  Future<void> saveAlarms(List<TransportAlarm> alarms) async {
     final file = await _file();
     await file.create(recursive: true);
     final jsonList = alarms.map((a) => a.toJson()).toList();
@@ -27,13 +27,13 @@ class AlarmStorageService {
     await temporaryFile.rename(file.path);
   }
 
-  Future<void> addAlarm(BusAlarm alarm) async {
+  Future<void> addAlarm(TransportAlarm alarm) async {
     final alarms = await loadAlarms();
     alarms.add(alarm);
     await saveAlarms(alarms);
   }
 
-  Future<void> updateAlarm(BusAlarm updated) async {
+  Future<void> updateAlarm(TransportAlarm updated) async {
     final alarms = await loadAlarms();
     final index = alarms.indexWhere((a) => a.id == updated.id);
     if (index == -1) return; // todo check functionality

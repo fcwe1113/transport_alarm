@@ -1,5 +1,5 @@
 import 'package:transport_alarm/models/scheduled_departure.dart';
-import 'package:transport_alarm/transit/models/bus_route.dart';
+import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 
@@ -28,7 +28,7 @@ Future<List<RouteArrival>> resolveArrivals({
       : await _fetchLiveEtaForFilteredRoutes(gtfsStopId, routeNumberFilter);
   final scheduled = await db.getUpcomingDepartures(gtfsStopId, limit: 50);
 
-  final routeGroups = <String, List<BusRoute>>{};
+  final routeGroups = <String, List<TransportRoute>>{};
   for (final route in routes) {
     routeGroups.putIfAbsent(route.routeNumber, () => []).add(route);
   }

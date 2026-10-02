@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:transport_alarm/models/alarm_route_config.dart';
-import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/alarm_engine.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
@@ -214,7 +214,7 @@ class AlarmPingHandler {
     }
   }
 
-  Future<int?> _getMinutesUntilArrival(BusAlarm alarm) async {
+  Future<int?> _getMinutesUntilArrival(TransportAlarm alarm) async {
     final isFreshOccurrence =
         alarm.lastEstimatedMinutesUntilThreshold == null &&
         alarm.thresholdStates.isNotEmpty &&
@@ -308,7 +308,7 @@ class AlarmPingHandler {
     }
   }
 
-  Future<void> _triggerRing(BusAlarm alarm) async {
+  Future<void> _triggerRing(TransportAlarm alarm) async {
     const androidDetails = AndroidNotificationDetails(
       "transport_alarm_channel",
       "Transport Alarm",

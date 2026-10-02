@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/device_token_service.dart';
@@ -13,7 +13,7 @@ class AlarmLifecycleService {
 
   const AlarmLifecycleService({required this._storage, required this._server});
 
-  Future<AlarmActionResult> createAlarm(BusAlarm alarm) async {
+  Future<AlarmActionResult> createAlarm(TransportAlarm alarm) async {
     try {
       final scheduled = await _schedulePing(alarm);
       await _storage.addAlarm(scheduled);
@@ -61,7 +61,7 @@ class AlarmLifecycleService {
     await _storage.deleteAlarm(alarmId);
   }
 
-  Future<void> handleOccurenceConcluded(BusAlarm alarm) async {
+  Future<void> handleOccurenceConcluded(TransportAlarm alarm) async {
     if (!_allThresholdsConcluded(alarm)) return;
 
     if (alarm.repeat.frequency == RepeatFrequency.none){
@@ -80,7 +80,7 @@ class AlarmLifecycleService {
     return _storage.updateAlarm(scheduled);
   }
 
-  Future<BusAlarm> _schedulePing(BusAlarm alarm) async {
+  Future<TransportAlarm> _schedulePing(TransportAlarm alarm) async {
     final deviceToken = await DeviceTokenService.getToken();
     if (deviceToken == null) return alarm; // no token yet
     final now = TimeOfDay.now();
@@ -99,11 +99,11 @@ class AlarmLifecycleService {
     return result;
   }
 
-  bool _allThresholdsConcluded(BusAlarm alarm) {
+  bool _allThresholdsConcluded(TransportAlarm alarm) {
     return alarm.thresholdStates.every((t) => t.outcome == ThresholdOutcome.acknowledged || t.outcome == ThresholdOutcome.superseded || t.outcome == ThresholdOutcome.missed);
   }
 
-  Future<BusAlarm> _schedulePingForNextOccurrence(BusAlarm alarm) async {
+  Future<TransportAlarm> _schedulePingForNextOccurrence(TransportAlarm alarm) async {
     final deviceToken = await DeviceTokenService.getToken();
     if (deviceToken == null) return alarm;
 

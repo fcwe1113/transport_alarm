@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
@@ -15,7 +15,7 @@ import '../transit/models/gtfs_stop.dart';
 /// basically the gui template for each given alarm
 class AlarmCard extends StatefulWidget {
   // note it takes the alarm object as required input
-  final BusAlarm alarm;
+  final TransportAlarm alarm;
   final ValueChanged<bool> onToggle; // callback for a value changing
   final bool _isEditing;
   final VoidCallback? onDelete;

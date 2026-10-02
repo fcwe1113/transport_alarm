@@ -1,10 +1,10 @@
-import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
-import 'package:transport_alarm/transit/models/bus_route.dart';
+import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
@@ -17,7 +17,7 @@ import 'package:flutter/services.dart';
 import '../services/alarm_lifecycle_service.dart';
 
 class AddAlarmScreen extends StatefulWidget {
-  final BusAlarm? alarmToEdit;
+  final TransportAlarm? alarmToEdit;
 
   const AddAlarmScreen({super.key, this.alarmToEdit});
 
@@ -40,8 +40,8 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   GtfsStop? _selectedStop;
   TextEditingController? _searchController;
 
-  Set<BusRoute> _selectedRoutes = {};
-  Set<BusRoute> _availableRoutes = {};
+  Set<TransportRoute> _selectedRoutes = {};
+  Set<TransportRoute> _availableRoutes = {};
 
   RepeatPattern _repeatPattern = RepeatPattern.none;
   final Set<int> _selectedWeekdays = {1, 2, 3, 4, 5}; // 1 = mon ... 7 = sun
@@ -68,7 +68,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     }
   }
 
-  Future<void> _prefillExistingAlarmData(BusAlarm alarm) async {
+  Future<void> _prefillExistingAlarmData(TransportAlarm alarm) async {
     _thresholdController.text = alarm.thresholdStates.map((t) => t.minutesBeforeArrival.toString()).join(",");
     _attemptsController.text = alarm.thresholdStates.first.ringCount.toString();
     _messageController.text = alarm.message;
@@ -83,7 +83,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     final db = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
     final stop = await db.getGtfsStopById(alarm.gtfsStopId);
     if (stop != null) {
-      final routes = BusRoute.dedupeByRouteAndDestination(
+      final routes = TransportRoute.dedupeByRouteAndDestination(
         await db.getRoutesForGtfsStop(alarm.gtfsStopId),
       );
       final selectedRoutes = routes.where((r) => alarm.routeNumbers.contains(r.routeNumber)).toSet();
@@ -142,7 +142,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   void _openMapPicker() async {
     final picked = await Navigator.push<GtfsStop>(context, MaterialPageRoute(builder: (context) => const MapScreen(pickerMode: true,)));
     if (picked == null) return; // user did not select stop
-    final routeList = Set<BusRoute>.from(await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(picked.id)); // todo remove locale hardcode
+    final routeList = Set<TransportRoute>.from(await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(picked.id)); // todo remove locale hardcode
     setState(() {
       _selectedStop = picked;
       _availableRoutes = routeList;
@@ -251,7 +251,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       return;
     }
 
-    final newAlarm = BusAlarm(
+    final newAlarm = TransportAlarm(
         id: widget.alarmToEdit?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         gtfsStopId: _selectedStop!.id,
         routeApiConfigs: routeApiConfigs,
@@ -275,7 +275,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     Navigator.pop(context);
   }
 
-  AlarmRouteConfig? _buildAlarmRouteConfig(BusRoute route, String operatorStopId) {
+  AlarmRouteConfig? _buildAlarmRouteConfig(TransportRoute route, String operatorStopId) {
     final provider = availableProviders
         .where((candidate) => candidate.providerCode == route.providerCode)
         .firstOrNull;
@@ -365,7 +365,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             },
             onSelected: (GtfsStop selection) async {
               FocusScope.of(context).unfocus();
-              final routeList = BusRoute.dedupeByRouteAndDestination(
+              final routeList = TransportRoute.dedupeByRouteAndDestination(
                 await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(selection.id),
               ).toSet();
               setState(() {

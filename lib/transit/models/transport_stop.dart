@@ -1,5 +1,5 @@
-/// bus stop data struct definition file
-class BusStop {
+/// transport stop data struct definition file
+class TransportStop {
   final String id; // composited into providerCode:id
   final Map<String, String> names; // {"lang1": "name1", "lang2": "name2", ...}, defaults to "en"
   final double? lat;
@@ -7,7 +7,7 @@ class BusStop {
   final String providerCode;
   final List<String> servingRouteIds;
 
-  const BusStop({
+  const TransportStop({
     required this.id,
     required this.names,
     this.lat,
@@ -19,7 +19,7 @@ class BusStop {
   String nameFor(String locale) => names[locale] ?? names["en"] ?? id;
 
   // special constructor for a placeholder stop object where only the name is known
-  BusStop.placeholder({
+  TransportStop.placeholder({
     required String id,
     required String name,
     required String providerCode,
@@ -31,8 +31,8 @@ class BusStop {
 
   bool get isResolved => lat != null && lng != null;
 
-  BusStop copyWith({List<String>? servingRouteIds}) {
-    return BusStop(id: id, names: names, providerCode: providerCode, lat: lat, lng: lng, servingRouteIds: servingRouteIds ?? this.servingRouteIds);
+  TransportStop copyWith({List<String>? servingRouteIds}) {
+    return TransportStop(id: id, names: names, providerCode: providerCode, lat: lat, lng: lng, servingRouteIds: servingRouteIds ?? this.servingRouteIds);
   }
 
   Map<String, dynamic> toJson() => {
@@ -44,7 +44,7 @@ class BusStop {
     "servingRouteIds": servingRouteIds
   };
 
-  static BusStop fromJson(Map<String, dynamic> json) => BusStop(
+  static TransportStop fromJson(Map<String, dynamic> json) => TransportStop(
       id: json["id"],
       names: Map<String, String>.from(json["names"]),
       lat: json["lat"],

@@ -4,12 +4,12 @@ import 'dart:io';
 import 'package:transport_alarm/models/scheduled_departure.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/geo_utils.dart';
-import 'package:transport_alarm/transit/models/bus_stop.dart';
+import 'package:transport_alarm/transit/models/transport_stop.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:sqflite/sqflite.dart';
 
-import '../models/bus_route.dart';
+import '../models/transport_route.dart';
 
 class GtfsDatabase {
   static final Map<String, GtfsDatabase> _instances = {};
@@ -203,7 +203,7 @@ class GtfsDatabase {
     });
   }
 
-  Future<void> upsertOperatorStops(List<BusStop> stops) async {
+  Future<void> upsertOperatorStops(List<TransportStop> stops) async {
     final batch = (await database).batch();
     for (final stop in stops) {
       batch.insert("operator_stops", {
@@ -217,7 +217,7 @@ class GtfsDatabase {
     await batch.commit(noResult: true);
   }
 
-  Future<void> upsertOperatorRoutes(List<BusRoute> routes) async {
+  Future<void> upsertOperatorRoutes(List<TransportRoute> routes) async {
     final batch = (await database).batch();
     for (final route in routes) {
       batch.insert("operator_routes", {
@@ -379,10 +379,10 @@ class GtfsDatabase {
     }
   }
 
-  Future<List<BusRoute>> getOperatorRoutes(String providerCode) async {
+  Future<List<TransportRoute>> getOperatorRoutes(String providerCode) async {
     final rows = await (await database).query("operator_routes", where: "provider_code = ?", whereArgs: [providerCode]);
     
-    return rows.map((row) => BusRoute(
+    return rows.map((row) => TransportRoute(
         id: row["operator_route_id"] as String,
         names: Map<String, String>.from(jsonDecode(row["names"] as String)),
         routeNumber: row["route_number"] as String,
@@ -436,7 +436,7 @@ class GtfsDatabase {
     return rows.map((row) => GtfsStop(id: row["stop_id"] as String, name: row["stop_name"] as String, lat: row["stop_lat"] as double, lng: row["stop_lon"] as double)).toList();
   }
 
-  Future<List<BusRoute>> getRoutesForGtfsStop(String gtfsStopId) async { // todo check query on circular routes
+  Future<List<TransportRoute>> getRoutesForGtfsStop(String gtfsStopId) async { // todo check query on circular routes
     final rows = await (await database).rawQuery('''
     SELECT DISTINCT r.*
     FROM operator_routes r
@@ -449,7 +449,7 @@ class GtfsDatabase {
     )
     ''', [gtfsStopId]);
     
-    return rows.map((row) => BusRoute(
+    return rows.map((row) => TransportRoute(
         id: row["operator_route_id"] as String,
         names: Map<String, String>.from(jsonDecode(row["names"] as String)),
         routeNumber: row["route_number"] as String,

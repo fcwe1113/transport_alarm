@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'alarm_route_config.dart';
 import '../transit/models/repeat_pattern.dart';
 
-/// Bus Alarm object definition
-class BusAlarm {
+/// Transport Alarm object definition
+class TransportAlarm {
   final String id; // maybe gen a uuid for it or something, this is local anyways so whatever
   final List<String> routeNumbers; // stores raw route numbers for deduping
   final String gtfsStopId;
@@ -28,7 +28,7 @@ class BusAlarm {
   // Cached distance from the active threshold, rather than distance to arrival.
   final int? lastEstimatedMinutesUntilThreshold;
 
-  const BusAlarm({ //  constructor
+  const TransportAlarm({ //  constructor
     required this.id,
     required this.gtfsStopId,
     this.routeApiConfigs = const [],
@@ -47,7 +47,7 @@ class BusAlarm {
     this.lastEstimatedMinutesUntilThreshold,
   });
 
-  BusAlarm copyWith({
+  TransportAlarm copyWith({
     String? gtfsStopId,
     List<AlarmRouteConfig>? routeApiConfigs,
     String? localeCode,
@@ -65,7 +65,7 @@ class BusAlarm {
     int? lastEstimatedMinutesUntilThreshold,
     bool clearLastEstimatedMinutesUntilThreshold = false,
   }) {
-    return BusAlarm(
+    return TransportAlarm(
         id: id,
         gtfsStopId: gtfsStopId ?? this.gtfsStopId,
         routeApiConfigs: routeApiConfigs ?? this.routeApiConfigs,
@@ -105,7 +105,7 @@ class BusAlarm {
     'lastEstimatedMinutesUntilThreshold': lastEstimatedMinutesUntilThreshold,
   };
 
-  static BusAlarm fromJson(Map<String, dynamic> json) => BusAlarm(
+  static TransportAlarm fromJson(Map<String, dynamic> json) => TransportAlarm(
     id: json['id'] as String,
     gtfsStopId: json['gtfsStopId'] as String,
     routeApiConfigs: (json['routeApiConfigs'] as List<dynamic>?)
