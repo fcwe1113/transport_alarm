@@ -42,4 +42,35 @@ enum NativeTransitLocales {
         }
         return locale
     }
+
+    /// Uses the timezone saved on the alarm, falling back to its locale for
+    /// alarms created before the timezone field was added.
+    static func timeZone(for alarm: [String: Any]) -> TimeZone {
+        if let identifier = alarm["timeZoneIdentifier"] as? String,
+           let timeZone = TimeZone(identifier: identifier) {
+            return timeZone
+        }
+        return locale(for: alarm["localeCode"] as? String).timeZone
+    }
+
+    /// Creates a Gregorian calendar in the alarm's saved timezone.
+    static func gregorianCalendar(for alarm: [String: Any]) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone(for: alarm)
+        return calendar
+    }
+
+    /// Combines a calendar day with a local wall-clock minute, allowing
+    /// Calendar to account for timezone offset and daylight-saving changes.
+    static func date(windowStartMinutes: Int, on day: Date, calendar: Calendar) -> Date? {
+        calendar.date(
+            bySettingHour: windowStartMinutes / 60,
+            minute: windowStartMinutes % 60,
+            second: 0,
+            of: day,
+            matchingPolicy: .nextTime,
+            repeatedTimePolicy: .first,
+            direction: .forward
+        )
+    }
 }

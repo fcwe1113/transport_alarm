@@ -170,6 +170,19 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
     }).toList();
   }
 
+  @override
+  String? alarmEtaUrl({required String operatorStopId, required BusRoute route}) {
+    final separator = operatorStopId.indexOf(":");
+    if (separator < 0 || separator == operatorStopId.length - 1) return null;
+    final rawStopId = operatorStopId.substring(separator + 1);
+    final routeIdParts = route.id.split("_");
+    final serviceType = routeIdParts.length > 1 ? routeIdParts.last : "1";
+    return Uri.https(
+      "data.etabus.gov.hk",
+      "/v1/transport/kmb/eta/$rawStopId/${route.routeNumber}/$serviceType",
+    ).toString();
+  }
+
   /// transforms stops data into forms the app requires
   /// in this case just slotting the different fields the api
   /// responded into the correct slot

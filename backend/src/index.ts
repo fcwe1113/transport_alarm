@@ -316,7 +316,7 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 			ping_id: job.id,
 		};
 
-	console.log(`sending ping with id: ${job.id}`);
+// 	console.log(`sending ping with id: ${job.id}`);
 
 		const apnHost = "https://api.push.apple.com";
 		const response = await fetch(`${apnHost}/3/device/${job.device_token}`, {
@@ -337,7 +337,7 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 			return false;
 		}
 
-		console.log("sent ping");
+// 		console.log("sent ping");
 
 		return true;
 	} catch (error) {

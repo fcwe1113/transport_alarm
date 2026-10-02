@@ -12,7 +12,12 @@ final Map<String, List<TransitProvider>> providersByLocale = {
 };
 
 const Map<String, LocaleConfig> localeConfigs = {
-  "hk": LocaleConfig(code: "hk", displayName: "Hong Kong", utcOffset: Duration(hours: 8)),
+  "hk": LocaleConfig(
+    code: "hk",
+    displayName: "Hong Kong",
+    utcOffset: Duration(hours: 8),
+    timeZoneIdentifier: "Asia/Hong_Kong",
+  ),
 };
 
 List<TransitProvider> get availableProviders => providersByLocale.values.expand((providers) => providers).toList();

@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:http/http.dart' as http;
+import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/models/bus_alarm.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/alarm_engine.dart';
@@ -24,7 +28,7 @@ class AlarmPingHandler {
     bool showLocalNotification = true,
   }) async {
     final alarms = await _storage.loadAlarms();
-    final alarm = alarms.where((a) => a.pingId == pingId).firstOrNull;
+    var alarm = alarms.where((a) => a.pingId == pingId).firstOrNull;
     print("handler received ping id: ${pingId}");
 
     if (alarm == null) { // ping came for a nonexistent/disabled alarm
@@ -34,6 +38,18 @@ class AlarmPingHandler {
         title: 'Alarm not active',
         body: 'No active alarm matches this notification.',
       );
+    }
+
+    // The next scheduled repeat starts a fresh occurrence and may ring again.
+    if (alarm.spent && alarm.repeat.frequency != RepeatFrequency.none) {
+      alarm = alarm.copyWith(
+        spent: false,
+        thresholdStates: alarm.thresholdStates
+            .map((state) => ThresholdState(minutesBeforeArrival: state.minutesBeforeArrival))
+            .toList(),
+        clearLastEstimatedMinutesUntilThreshold: true,
+      );
+      await _storage.updateAlarm(alarm);
     }
 
     final activeThreshold = alarm.thresholdStates
@@ -177,10 +193,50 @@ class AlarmPingHandler {
   }
 
   Future<int?> _getMinutesUntilArrival(BusAlarm alarm) async {
+    if (alarm.routeApiConfigs.isNotEmpty) {
+      final liveDates = await Future.wait(
+        alarm.routeApiConfigs.map(_fetchArrivalFromRouteConfig),
+      );
+      final arrivals = liveDates.whereType<DateTime>().toList()..sort();
+      if (arrivals.isNotEmpty) {
+        return arrivals.first.difference(DateTime.now().toUtc()).inMinutes;
+      }
+      if (alarm.liveOnly) return null;
+
+      // Keep the existing scheduled timetable fallback when live APIs have no ETA.
+      final scheduled = await GtfsDatabase.forLocale(alarm.localeCode)
+          .getUpcomingDepartures(alarm.gtfsStopId, limit: 50);
+      final matching = scheduled
+          .where((departure) => alarm.routeNumbers.contains(departure.routeShortName))
+          .toList()
+        ..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
+      return matching.isEmpty ? null : matching.first.minutesFromNow;
+    }
+
+    // Older saved alarms do not yet have route-specific API URLs.
     final arrivals = await resolveArrivals(gtfsStopId: alarm.gtfsStopId, routeNumberFilter: alarm.routeNumbers);
     final eligible = alarm.liveOnly ? arrivals.where((a) => a.isLive) : arrivals;
     if (eligible.isEmpty) return null;
     return eligible.reduce((a, b) => a.minutesFromNow < b.minutesFromNow ? a : b).minutesFromNow;
+  }
+
+  Future<DateTime?> _fetchArrivalFromRouteConfig(AlarmRouteConfig config) async {
+    if (config.mode != 'bus') return null;
+    try {
+      final response = await http.get(Uri.parse(config.apiUrl)).timeout(const Duration(seconds: 3));
+      if (response.statusCode != 200) return null;
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = payload['data'] as List<dynamic>? ?? const [];
+      final dates = data.whereType<Map<String, dynamic>>().where((entry) {
+        return entry['route'] == config.routeNumber && entry['eta'] is String;
+      }).map((entry) => DateTime.tryParse(entry['eta'] as String)?.toUtc())
+          .whereType<DateTime>()
+          .toList()
+        ..sort();
+      return dates.isEmpty ? null : dates.first;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _triggerRing(BusAlarm alarm) async {

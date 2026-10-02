@@ -13,6 +13,7 @@ import 'models/bus_route.dart';
 abstract class TransitProvider {
   String get providerCode;
   String get providerName;
+  String get transportMode => 'bus';
   // String get IconAsset; // contains the link to the icon
   Color get defaultIconColor;
   Color get defaultTextColor;
@@ -25,5 +26,9 @@ abstract class TransitProvider {
 
   Future<List<LiveEta>> fetchLiveEta(String rawStopId);
   Future<List<LiveEta>> fetchLiveEtaForRoute(String rawStopId, String routeNumber);
+
+  /// Returns a route-specific endpoint to persist on an alarm for push-time
+  /// ETA requests. Providers can override this as their API shape requires.
+  String? alarmEtaUrl({required String operatorStopId, required BusRoute route}) => null;
 
 }

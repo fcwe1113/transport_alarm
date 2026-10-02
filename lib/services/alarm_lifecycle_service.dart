@@ -32,6 +32,10 @@ class AlarmLifecycleService {
       if (enabled) {
         final reenabled = alarm.copyWith(
           enabled: true,
+          spent: false,
+          thresholdStates: alarm.thresholdStates
+              .map((t) => ThresholdState(minutesBeforeArrival: t.minutesBeforeArrival))
+              .toList(),
           clearLastEstimatedMinutesUntilThreshold: true,
         );
         final scheduled = await _schedulePing(reenabled);
@@ -64,13 +68,12 @@ class AlarmLifecycleService {
       if (alarm.pingId != null) {
         await _server.cancelPing(alarm.pingId!); // todo check if can null ping id on last ping given server will delete ping entry on expiry
       }
-      await _storage.updateAlarm(alarm.copyWith(enabled: false, pingId: null));
+      await _storage.updateAlarm(alarm.copyWith(enabled: false, pingId: null, spent: true));
       return;
     }
 
-    final resetStates = alarm.thresholdStates.map((t) => ThresholdState(minutesBeforeArrival: t.minutesBeforeArrival)).toList();
     final resetAlarm = alarm.copyWith(
-      thresholdStates: resetStates,
+      spent: true,
       clearLastEstimatedMinutesUntilThreshold: true,
     );
     final scheduled = await _schedulePingForNextOccurrence(resetAlarm);

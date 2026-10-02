@@ -58,6 +58,29 @@ final class NativePingHandler {
                 (Self.intValue($0["minutesBeforeArrival"]) ?? 0) >
                     (Self.intValue($1["minutesBeforeArrival"]) ?? 0)
             }
+
+            // A scheduled ping at the next repeat start begins a fresh occurrence.
+            if alarm["spent"] as? Bool == true {
+                if repeatFrequency(of: alarm) == "none" {
+                    alarm["enabled"] = false
+                    alarm["pingId"] = NSNull()
+                    alarms[alarmIndex] = alarm
+                    try saveAlarms(alarms)
+                    try? await acknowledge(pingID: pingID)
+                    return PingResult(title: "Alarm complete", body: "This alarm has already finished.")
+                }
+                for index in thresholdStates.indices {
+                    thresholdStates[index]["outcome"] = "pending"
+                    thresholdStates[index]["ringCount"] = 0
+                }
+                alarm["thresholdStates"] = thresholdStates
+                alarm["spent"] = false
+                alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
+                alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
+                alarms[alarmIndex] = alarm
+                try saveAlarms(alarms)
+            }
+
             alarm["thresholdStates"] = thresholdStates
             guard let activeIndex = thresholdStates.firstIndex(where: {
                 let outcome = $0["outcome"] as? String
@@ -66,11 +89,8 @@ final class NativePingHandler {
                 if repeatFrequency(of: alarm) != "none" {
                     let nextRepeat = try nextRepeatDate(for: alarm)
                     try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)
-                    for index in thresholdStates.indices {
-                        thresholdStates[index]["outcome"] = "pending"
-                        thresholdStates[index]["ringCount"] = 0
-                    }
                     alarm["thresholdStates"] = thresholdStates
+                    alarm["spent"] = true
                     alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
                     alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
                     alarms[alarmIndex] = alarm
@@ -78,6 +98,7 @@ final class NativePingHandler {
                     return PingResult(title: "Next alarm occurrence scheduled", body: "The next repeat is scheduled.")
                 }
                 alarm["enabled"] = false
+                alarm["spent"] = true
                 alarm["pingId"] = NSNull()
                 alarms[alarmIndex] = alarm
                 try saveAlarms(alarms)
@@ -89,6 +110,14 @@ final class NativePingHandler {
             // last good value so a transient API failure does not stop the alarm.
             guard let thresholdMinutes = Self.intValue(thresholdStates[activeIndex]["minutesBeforeArrival"]) else {
                 throw PingHandlerError.invalidAlarmData
+            }
+            if (alarm["routeApiConfigs"] as? [[String: Any]] ?? []).isEmpty {
+                let configs = routeAPIConfigsForLegacyAlarm(alarm, locale: locale)
+                if !configs.isEmpty {
+                    alarm["routeApiConfigs"] = configs
+                    alarms[alarmIndex] = alarm
+                    try saveAlarms(alarms)
+                }
             }
             let freshArrivalEstimate = await estimateMinutesUntilArrival(for: alarm)
             let freshEstimateUntilThreshold = freshArrivalEstimate.map { $0 - thresholdMinutes }
@@ -224,15 +253,18 @@ final class NativePingHandler {
         }
 
         let locale = NativeTransitLocales.locale(for: alarm["localeCode"] as? String)
-        let operatorStops = operatorStops(for: stopID, locale: locale) ?? []
-        let requests = operatorStops.flatMap { stop -> [NativeTransitETARequest] in
-            routeNumbers.compactMap { route in
-                NativeTransitETAProviders.request(
-                    providerCode: stop.provider,
-                    stopID: stop.stopID,
-                    routeNumber: route
-                )
+        let savedRouteConfigs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
+        let requests = savedRouteConfigs.compactMap { config in
+            guard let mode = config["mode"] as? String,
+                  let providerCode = config["providerCode"] as? String,
+                  let apiURL = config["apiUrl"] as? String else {
+                return nil
             }
+            return NativeTransitETAProviders.request(
+                mode: mode,
+                providerCode: providerCode,
+                apiURL: apiURL
+            )
         }
 
         let liveDates = requests.isEmpty ? [] : await fetchLiveETAs(from: requests, allowedRoutes: Set(routeNumbers))
@@ -243,6 +275,36 @@ final class NativePingHandler {
             return nil
         }
         return scheduledMinutesUntilArrival(stopID: stopID, routeNumbers: routeNumbers, locale: locale)
+    }
+
+    /// Migrates older alarm records once by saving the provider URL for each
+    /// selected route. New alarms already contain these values at creation.
+    private func routeAPIConfigsForLegacyAlarm(
+        _ alarm: [String: Any],
+        locale: NativeTransitLocale
+    ) -> [[String: Any]] {
+        guard let stopID = alarm["gtfsStopId"] as? String,
+              let routeNumbers = alarm["routeNumbers"] as? [String] else {
+            return []
+        }
+        let stops = operatorStops(for: stopID, locale: locale) ?? []
+        var configs: [[String: Any]] = []
+        for stop in stops {
+            for routeNumber in routeNumbers {
+                guard let request = NativeTransitETAProviders.legacyRequest(
+                    providerCode: stop.provider,
+                    stopID: stop.stopID,
+                    routeNumber: routeNumber
+                ) else { continue }
+                configs.append([
+                    "routeNumber": routeNumber,
+                    "mode": request.mode,
+                    "providerCode": request.providerCode,
+                    "apiUrl": request.url.absoluteString,
+                ])
+            }
+        }
+        return configs
     }
 
     /// Looks up the operator-specific stop IDs mapped to a GTFS stop in the
@@ -408,8 +470,7 @@ final class NativePingHandler {
         guard let windowStart = Self.intValue(alarm["windowStart"]) else {
             throw PingHandlerError.invalidAlarmData
         }
-        let locale = NativeTransitLocales.locale(for: alarm["localeCode"] as? String)
-        var calendar = locale.gregorianCalendar
+        let calendar = NativeTransitLocales.gregorianCalendar(for: alarm)
         let now = Date()
         let today = calendar.startOfDay(for: now)
 
@@ -418,7 +479,14 @@ final class NativePingHandler {
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: today) else {
                 throw PingHandlerError.invalidAlarmData
             }
-            return nextDay.addingTimeInterval(TimeInterval(windowStart * 60))
+            guard let nextDate = NativeTransitLocales.date(
+                windowStartMinutes: windowStart,
+                on: nextDay,
+                calendar: calendar
+            ) else {
+                throw PingHandlerError.invalidAlarmData
+            }
+            return nextDate
         case "weekly":
             let selectedDays = Set(repeatInfo["weekdays"] as? [Int] ?? [])
             for offset in 1...7 {
@@ -426,7 +494,13 @@ final class NativePingHandler {
                 let weekday = calendar.component(.weekday, from: day)
                 let dartWeekday = weekday == 1 ? 7 : weekday - 1
                 if selectedDays.contains(dartWeekday) {
-                    return day.addingTimeInterval(TimeInterval(windowStart * 60))
+                    if let nextDate = NativeTransitLocales.date(
+                        windowStartMinutes: windowStart,
+                        on: day,
+                        calendar: calendar
+                    ) {
+                        return nextDate
+                    }
                 }
             }
             throw PingHandlerError.invalidAlarmData
@@ -435,7 +509,13 @@ final class NativePingHandler {
             for offset in 1...370 {
                 guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
                 if selectedDays.contains(calendar.component(.day, from: day)) {
-                    return day.addingTimeInterval(TimeInterval(windowStart * 60))
+                    if let nextDate = NativeTransitLocales.date(
+                        windowStartMinutes: windowStart,
+                        on: day,
+                        calendar: calendar
+                    ) {
+                        return nextDate
+                    }
                 }
             }
             throw PingHandlerError.invalidAlarmData
@@ -448,7 +528,7 @@ final class NativePingHandler {
     private func occurrenceKey(for date: Date, alarm: [String: Any]) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = NativeTransitLocales.locale(for: alarm["localeCode"] as? String).timeZone
+        formatter.timeZone = NativeTransitLocales.timeZone(for: alarm)
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
     }

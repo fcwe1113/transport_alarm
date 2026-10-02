@@ -14,6 +14,10 @@ class AlarmDecision {
 }
 
 AlarmDecision evaluateAlarm({required BusAlarm alarm, required int? minutesUntilThreshold}) {
+  if (alarm.spent) {
+    return AlarmDecision(action: AlarmAction.doNothing, updatedAlarm: alarm);
+  }
+
   final activeIndex = alarm.thresholdStates.indexWhere((t) => t.outcome == ThresholdOutcome.pending || t.outcome == ThresholdOutcome.ringing);
 
   // all thresholds came and went

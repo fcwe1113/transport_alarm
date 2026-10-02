@@ -177,6 +177,17 @@ class CtbProvider extends TransitProvider{
     }).toList();
   }
 
+  @override
+  String? alarmEtaUrl({required String operatorStopId, required BusRoute route}) {
+    final separator = operatorStopId.indexOf(":");
+    if (separator < 0 || separator == operatorStopId.length - 1) return null;
+    final rawStopId = operatorStopId.substring(separator + 1);
+    return Uri.https(
+      "rt.data.gov.hk",
+      "/v1/transport/citybus-nwfb/eta/CTB/$rawStopId/${route.routeNumber}",
+    ).toString();
+  }
+
   List<BusRoute> _parseRoutesRaw(String rawJson) {
     final decoded = jsonDecode(rawJson);
     final List<dynamic> data = decoded["data"];

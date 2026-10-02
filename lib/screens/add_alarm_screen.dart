@@ -1,4 +1,6 @@
 import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/models/alarm_route_config.dart';
+import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
@@ -221,9 +223,36 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     ).toList()
       ..sort((a, b) => b.minutesBeforeArrival.compareTo(a.minutesBeforeArrival));
 
+    // Resolve each selected route's operator stop now and persist its exact ETA
+    // URL with the alarm, avoiding this GTFS mapping query during every push.
+    final gtfsDatabase = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
+    final routeApiConfigs = <AlarmRouteConfig>[];
+    for (final route in _selectedRoutes) {
+      final operatorStopId = await gtfsDatabase.getOperatorStopIdForRouteAtGtfsStop(
+        operatorRouteId: route.id,
+        gtfsStopId: _selectedStop!.id,
+      );
+      if (operatorStopId == null) continue;
+      final config = _buildAlarmRouteConfig(route, operatorStopId);
+      if (config != null) routeApiConfigs.add(config);
+    }
+    if (routeApiConfigs.length != _selectedRoutes.length) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => const AlertDialog(
+          title: Text("Route API unavailable"),
+          content: Text("One or more selected routes could not be linked to an ETA API. Refresh transit data or choose another route."),
+        ),
+      );
+      return;
+    }
+
     final newAlarm = BusAlarm(
         id: widget.alarmToEdit?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         gtfsStopId: _selectedStop!.id,
+        routeApiConfigs: routeApiConfigs,
+        timeZoneIdentifier: localeConfigs['hk']!.timeZoneIdentifier,
         routeNumbers: _selectedRoutes.map((r) => r.routeNumber).toList(),
         windowStart: _leftTime,
         windowEnd: _rightTime,
@@ -242,6 +271,22 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (widget.alarmToEdit != null) await lifecycle.deleteAlarm(newAlarm.id); // todo write lifecycle edit alarm method
     await lifecycle.createAlarm(newAlarm);
     Navigator.pop(context);
+  }
+
+  AlarmRouteConfig? _buildAlarmRouteConfig(BusRoute route, String operatorStopId) {
+    final provider = availableProviders
+        .where((candidate) => candidate.providerCode == route.providerCode)
+        .firstOrNull;
+    if (provider == null) return null;
+    final apiUrl = provider.alarmEtaUrl(operatorStopId: operatorStopId, route: route);
+    if (apiUrl == null) return null;
+
+    return AlarmRouteConfig(
+      routeNumber: route.routeNumber,
+      mode: provider.transportMode,
+      providerCode: route.providerCode,
+      apiUrl: apiUrl,
+    );
   }
 
   Future<bool?> _showWarning(String text) async {

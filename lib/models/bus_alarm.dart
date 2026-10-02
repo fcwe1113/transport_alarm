@@ -1,6 +1,7 @@
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:flutter/material.dart';
 
+import 'alarm_route_config.dart';
 import '../transit/models/repeat_pattern.dart';
 
 /// Bus Alarm object definition
@@ -8,14 +9,21 @@ class BusAlarm {
   final String id; // maybe gen a uuid for it or something, this is local anyways so whatever
   final List<String> routeNumbers; // stores raw route numbers for deduping
   final String gtfsStopId;
+  // API URLs are resolved when the alarm is created, so notification
+  // processing does not need GTFS to map this stop to an operator stop.
+  final List<AlarmRouteConfig> routeApiConfigs;
   // Locale key used for operator API, timezone, and GTFS arrival lookups.
   final String localeCode;
+  // IANA timezone used when computing local repeat window start times.
+  final String timeZoneIdentifier;
   final TimeOfDay windowStart;
   final TimeOfDay windowEnd;
   final List<ThresholdState> thresholdStates; // ordered
   final int maxRingsPerThreshold;
   final RepeatPattern repeat;
   final bool liveOnly; // ignore schedule times if true
+  // True after this occurrence completes; cleared when its next repeat begins.
+  final bool spent;
   final String message;
   final bool enabled; // indicates alarm enabled (similar to ios alarm ui alarm toggle)
   final String? pingId;
@@ -25,7 +33,9 @@ class BusAlarm {
   const BusAlarm({ //  constructor
     required this.id,
     required this.gtfsStopId,
+    this.routeApiConfigs = const [],
     this.localeCode = 'hk',
+    this.timeZoneIdentifier = 'Asia/Hong_Kong',
     required this.routeNumbers,
     required this.windowStart,
     required this.windowEnd,
@@ -33,6 +43,7 @@ class BusAlarm {
     this.maxRingsPerThreshold = 10,
     this.repeat = RepeatPattern.none,
     this.liveOnly = false,
+    this.spent = false,
     required this.message,
     this.enabled = true,
     this.pingId,
@@ -41,7 +52,9 @@ class BusAlarm {
 
   BusAlarm copyWith({
     String? gtfsStopId,
+    List<AlarmRouteConfig>? routeApiConfigs,
     String? localeCode,
+    String? timeZoneIdentifier,
     List<String>? routeNumbers,
     TimeOfDay? windowStart,
     TimeOfDay? windowEnd,
@@ -49,6 +62,7 @@ class BusAlarm {
     List<ThresholdState>? thresholdStates,
     RepeatPattern? repeat,
     bool? liveOnly,
+    bool? spent,
     String? message,
     bool? enabled,
     String? pingId,
@@ -58,13 +72,16 @@ class BusAlarm {
     return BusAlarm(
         id: id,
         gtfsStopId: gtfsStopId ?? this.gtfsStopId,
+        routeApiConfigs: routeApiConfigs ?? this.routeApiConfigs,
         localeCode: localeCode ?? this.localeCode,
+        timeZoneIdentifier: timeZoneIdentifier ?? this.timeZoneIdentifier,
         routeNumbers: routeNumbers ?? this.routeNumbers,
         windowStart: windowStart ?? this.windowStart,
         windowEnd: windowEnd ?? this.windowEnd,
         thresholdStates: thresholdStates ?? this.thresholdStates,
         repeat: repeat ?? this.repeat,
         liveOnly: liveOnly ?? this.liveOnly,
+        spent: spent ?? this.spent,
         message: message ?? this.message,
         enabled: enabled ?? this.enabled,
         pingId: pingId ?? this.pingId,
@@ -77,7 +94,9 @@ class BusAlarm {
   Map<String, dynamic> toJson() => {
     'id': id,
     'gtfsStopId': gtfsStopId,
+    'routeApiConfigs': routeApiConfigs.map((route) => route.toJson()).toList(),
     'localeCode': localeCode,
+    'timeZoneIdentifier': timeZoneIdentifier,
     'routeNumbers': routeNumbers,
     'windowStart': windowStart.hour * 60 + windowStart.minute,
     'windowEnd': windowEnd.hour * 60 + windowEnd.minute,
@@ -85,6 +104,7 @@ class BusAlarm {
     'thresholdStates': thresholdStates.map((t) => t.toJson()).toList(),
     'repeat': repeat.toJson(),
     'liveOnly': liveOnly,
+    'spent': spent,
     'message': message,
     'enabled': enabled,
     'pingId': pingId,
@@ -94,7 +114,12 @@ class BusAlarm {
   static BusAlarm fromJson(Map<String, dynamic> json) => BusAlarm(
     id: json['id'] as String,
     gtfsStopId: json['gtfsStopId'] as String,
+    routeApiConfigs: (json['routeApiConfigs'] as List<dynamic>?)
+            ?.map((route) => AlarmRouteConfig.fromJson(Map<String, dynamic>.from(route as Map)))
+            .toList() ??
+        const [],
     localeCode: json['localeCode'] as String? ?? 'hk',
+    timeZoneIdentifier: json['timeZoneIdentifier'] as String? ?? 'Asia/Hong_Kong',
     routeNumbers: List<String>.from(json['routeNumbers']),
     windowStart: _minutesToTimeOfDay(json['windowStart'] as int),
     windowEnd: _minutesToTimeOfDay(json['windowEnd'] as int),
@@ -102,6 +127,7 @@ class BusAlarm {
     thresholdStates: (json['thresholdStates'] as List).map((t) => ThresholdState.fromJson(t as Map<String, dynamic>)).toList(),
     repeat: RepeatPattern.fromJson(json['repeat'] as Map<String, dynamic>),
     liveOnly: json['liveOnly'] as bool,
+    spent: json['spent'] as bool? ?? false,
     message: json['message'] as String,
     enabled: json['enabled'] as bool,
     pingId: json['pingId'] as String?,

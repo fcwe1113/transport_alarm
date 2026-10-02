@@ -56,12 +56,8 @@ enum PingAcknowledgementHandler {
         if let nextRepeat = nextRepeatDate(for: alarm) {
             do {
                 try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)
-                alarm["thresholdStates"] = thresholds.map { state in
-                    var reset = state
-                    reset["outcome"] = "pending"
-                    reset["ringCount"] = 0
-                    return reset
-                }
+                alarm["thresholdStates"] = thresholds
+                alarm["spent"] = true
                 alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
                 alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
                 alarms[alarmIndex] = alarm
@@ -76,6 +72,7 @@ enum PingAcknowledgementHandler {
             try await acknowledgeOnServer(pingID: pingID)
             alarm["thresholdStates"] = thresholds
             alarm["enabled"] = false
+            alarm["spent"] = true
             alarm["pingId"] = NSNull()
             alarms[alarmIndex] = alarm
             try save(alarms, to: alarmsURL)
@@ -117,26 +114,31 @@ enum PingAcknowledgementHandler {
         let repeatInfo = alarm["repeat"] as? [String: Any] ?? [:]
         let frequency = repeatInfo["frequency"] as? String ?? "none"
         let windowStart = integer(alarm["windowStart"]) ?? 0
-        var calendar = NativeTransitLocales.locale(for: alarm["localeCode"] as? String).gregorianCalendar
+        var calendar = NativeTransitLocales.gregorianCalendar(for: alarm)
         let now = Date()
         let today = calendar.startOfDay(for: now)
 
         switch frequency {
         case "daily":
-            return calendar.date(byAdding: .day, value: 1, to: today)?.addingTimeInterval(TimeInterval(windowStart * 60))
+            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: today) else { return nil }
+            return NativeTransitLocales.date(windowStartMinutes: windowStart, on: nextDay, calendar: calendar)
         case "weekly":
             let weekdays = Set(repeatInfo["weekdays"] as? [Int] ?? [])
             for offset in 1...7 {
                 guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
                 let weekday = calendar.component(.weekday, from: day)
                 let dartWeekday = weekday == 1 ? 7 : weekday - 1
-                if weekdays.contains(dartWeekday) { return day.addingTimeInterval(TimeInterval(windowStart * 60)) }
+                if weekdays.contains(dartWeekday) {
+                    return NativeTransitLocales.date(windowStartMinutes: windowStart, on: day, calendar: calendar)
+                }
             }
         case "monthly":
             let days = Set(repeatInfo["dayOfMonth"] as? [Int] ?? [])
             for offset in 1...370 {
                 guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
-                if days.contains(calendar.component(.day, from: day)) { return day.addingTimeInterval(TimeInterval(windowStart * 60)) }
+                if days.contains(calendar.component(.day, from: day)) {
+                    return NativeTransitLocales.date(windowStartMinutes: windowStart, on: day, calendar: calendar)
+                }
             }
         default:
             return nil

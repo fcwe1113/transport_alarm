@@ -474,6 +474,24 @@ class GtfsDatabase {
     return rows.map((r) => r["operator_stop_id"] as String).toList();
   }
 
+  /// Resolves a selected route's operator stop once while creating the alarm.
+  /// The resulting API URL is stored on the alarm for later push handling.
+  Future<String?> getOperatorStopIdForRouteAtGtfsStop({
+    required String operatorRouteId,
+    required String gtfsStopId,
+  }) async {
+    final rows = await (await database).rawQuery('''
+    SELECT rs.operator_stop_id
+    FROM route_stops rs
+    INNER JOIN stop_mapping sm ON sm.operator_stop_id = rs.operator_stop_id
+    WHERE rs.operator_route_id = ? AND sm.gtfs_stop_id = ?
+    ORDER BY rs.stop_sequence
+    LIMIT 1
+    ''', [operatorRouteId, gtfsStopId]);
+
+    return rows.isEmpty ? null : rows.first["operator_stop_id"] as String?;
+  }
+
   Future<GtfsStop?> getGtfsStopById(String stopId) async {
     final rows = await (await database).query("gtfs_stops", where: "stop_id = ?", whereArgs: [stopId]);
     if (rows.isEmpty) return null;
