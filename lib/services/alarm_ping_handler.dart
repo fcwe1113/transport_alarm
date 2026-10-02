@@ -337,7 +337,9 @@ class AlarmPingHandler {
       id: alarm.id.hashCode,
       title: AppStrings.text('notification.bus_arriving_soon'),
       body: stop != null
-          ? AppStrings.text('notification.bus_approaching', {'stop': stop.name})
+          ? AppStrings.text('notification.bus_approaching', {
+              'stop': stop.displayNameFor(AppStrings.languageCode),
+            })
           : AppStrings.text('notification.default_bus_body'),
       notificationDetails: notificationDetails,
       payload: alarm.id,

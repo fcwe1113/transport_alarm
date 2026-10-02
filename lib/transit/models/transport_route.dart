@@ -1,6 +1,7 @@
 // bus route data struct definition file
 
 import 'package:transport_alarm/transit/models/transport_stop.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 
 class TransportRoute {
   final String id;
@@ -23,8 +24,20 @@ class TransportRoute {
     this.stops = const [],
   });
 
-  TransportStop get origin => stops.isNotEmpty ? stops.first : TransportStop.placeholder(id: "$providerCode:origin_$routeNumber$bound", name: originText["en"] ?? "", providerCode: providerCode);
-  TransportStop get destination => stops.isNotEmpty ? stops.last : TransportStop.placeholder(id: "$providerCode:destination_$routeNumber$bound", name: destinationText["en"] ?? "", providerCode: providerCode);
+  TransportStop get origin => stops.isNotEmpty ? stops.first : TransportStop.placeholder(id: "$providerCode:origin_$routeNumber$bound", name: originNameFor(AppStrings.languageCode), providerCode: providerCode);
+  TransportStop get destination => stops.isNotEmpty ? stops.last : TransportStop.placeholder(id: "$providerCode:destination_$routeNumber$bound", name: destinationNameFor(AppStrings.languageCode), providerCode: providerCode);
+
+  String nameFor(String languageCode) => _localizedValue(names, languageCode) ?? routeNumber;
+  String originNameFor(String languageCode) => _localizedValue(originText, languageCode) ?? '';
+  String destinationNameFor(String languageCode) => _localizedValue(destinationText, languageCode) ?? '';
+
+  static String? _localizedValue(Map<String, String> values, String languageCode) {
+    final localized = values[languageCode]?.trim();
+    if (localized != null && localized.isNotEmpty) return localized;
+    final english = values['en']?.trim();
+    if (english != null && english.isNotEmpty) return english;
+    return null;
+  }
 
   TransportRoute copyWith({List<TransportStop>? stops}) {
     return TransportRoute(id: id, names: names, routeNumber: routeNumber, bound: bound, originText: originText, destinationText: destinationText, providerCode: providerCode, stops: stops ?? this.stops);
@@ -58,10 +71,13 @@ class TransportRoute {
     return byRouteNumber.values.toList();
   }
 
-  static List<TransportRoute> dedupeByRouteAndDestination(List<TransportRoute> routes) {
+  static List<TransportRoute> dedupeByRouteAndDestination(
+    List<TransportRoute> routes, {
+    String languageCode = 'en',
+  }) {
     final uniqueRoutes = <String, TransportRoute>{};
     for (final route in routes) {
-      final destination = route.destinationText['en'] ?? '';
+      final destination = route.destinationNameFor(languageCode);
       uniqueRoutes.putIfAbsent(
         '${route.routeNumber}\u0000$destination',
         () => route,

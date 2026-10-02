@@ -11,7 +11,6 @@ import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 
-import '../transit/models/gtfs_stop.dart';
 
 /// the per alarm display on the alarm list screen
 /// basically the gui template for each given alarm
@@ -173,10 +172,8 @@ class _AlarmCardState extends State<AlarmCard> {
                           FutureBuilder(
                             future: db.getGtfsStopById(widget.alarm.gtfsStopId),
                             builder: (context, snapshot) {
-                              final rawName = snapshot.data?.name;
-                              final name = rawName != null
-                                  ? GtfsStop.cleanStopName(rawName)
-                                  : AppStrings.text('alarm.loading_stops');
+                              final name = snapshot.data?.displayNameFor(AppStrings.languageCode)
+                                  ?? AppStrings.text('alarm.loading_stops');
                               return Text(
                                 name,
                                 style: TextStyle(

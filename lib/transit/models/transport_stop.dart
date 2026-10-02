@@ -16,7 +16,13 @@ class TransportStop {
     this.servingRouteIds = const [] // defaults into empty list
   });
 
-  String nameFor(String locale) => names[locale] ?? names["en"] ?? id;
+  String nameFor(String locale) {
+    final localizedName = names[locale]?.trim();
+    if (localizedName != null && localizedName.isNotEmpty) return localizedName;
+    final englishName = names['en']?.trim();
+    if (englishName != null && englishName.isNotEmpty) return englishName;
+    return id;
+  }
 
   // special constructor for a placeholder stop object where only the name is known
   TransportStop.placeholder({

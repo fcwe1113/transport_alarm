@@ -5,6 +5,7 @@ import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 
 class RoutePillStrip extends StatefulWidget{
   final String gtfsStopId;
@@ -74,7 +75,7 @@ class RoutePill extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(color: colours.iconColour, borderRadius: BorderRadius.circular(12)),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text(route.routeNumber, style: TextStyle(color: colours.textColour, fontSize: 11, fontWeight: FontWeight.bold,),)
+          Text(route.nameFor(AppStrings.languageCode), style: TextStyle(color: colours.textColour, fontSize: 11, fontWeight: FontWeight.bold,),)
         ],)
     );
   }

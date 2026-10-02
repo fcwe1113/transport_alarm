@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 class AppStrings {
   static const _fallbackLocale = 'en';
   static Map<String, String> _catalog = const {};
+  static String _languageCode = _fallbackLocale;
+
+  static String get languageCode => _languageCode;
 
   static Future<void> load(String languageCode) async {
     Future<Map<String, String>> loadCatalog(String code) async {
@@ -20,8 +23,10 @@ class AppStrings {
 
     try {
       _catalog = await loadCatalog(languageCode);
+      _languageCode = languageCode;
     } on FlutterError {
       _catalog = await loadCatalog(_fallbackLocale);
+      _languageCode = _fallbackLocale;
     }
   }
 

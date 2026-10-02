@@ -48,6 +48,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
 
   Set<TransportRoute> _selectedRoutes = {};
   Set<TransportRoute> _availableRoutes = {};
+  String? _lastDisplayedLanguageCode;
 
   RepeatPattern _repeatPattern = RepeatPattern.none;
   final Set<int> _selectedWeekdays = {1, 2, 3, 4, 5}; // 1 = mon ... 7 = sun
@@ -92,6 +93,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (stop != null) {
       final routes = TransportRoute.dedupeByRouteAndDestination(
         await db.getRoutesForGtfsStop(alarm.gtfsStopId),
+        languageCode: AppStrings.languageCode,
       );
       final selectedRoutes = routes.where((r) => alarm.routeNumbers.contains(r.routeNumber)).toSet();
 
@@ -99,7 +101,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         _selectedStop = stop;
         _availableRoutes = routes.toSet();
         _selectedRoutes = selectedRoutes;
-        _searchController?.text = GtfsStop.cleanStopName(stop.name);
+        _searchController?.text = stop.displayNameFor(AppStrings.languageCode);
       });
     }
   }
@@ -111,6 +113,22 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     _attemptsController.dispose();
     _thresholdController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final languageCode = AppStrings.languageCode;
+    if (_lastDisplayedLanguageCode == languageCode) return;
+    _lastDisplayedLanguageCode = languageCode;
+    final stop = _selectedStop;
+    if (stop != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _searchController != null) {
+          _searchController!.text = stop.displayNameFor(languageCode);
+        }
+      });
+    }
   }
 
   Future<void> _loadBusStops() async {
@@ -154,7 +172,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       _selectedStop = picked;
       _availableRoutes = routeList;
       _selectedRoutes = {};
-      _searchController?.text = GtfsStop.cleanStopName(_selectedStop!.name);
+      _searchController?.text = _selectedStop!.displayNameFor(AppStrings.languageCode);
     });
   }
 
@@ -463,16 +481,17 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
               child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2,),),
             ), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))
           ) : Autocomplete<GtfsStop>(
-            displayStringForOption: (GtfsStop option) => GtfsStop.cleanStopName(option.name),
+            displayStringForOption: (GtfsStop option) => option.displayNameFor(AppStrings.languageCode),
             optionsBuilder: (TextEditingValue value) {
               if (value.text.isEmpty) return _loadedStops;
               final query = value.text.toLowerCase().trim();
-              return _loadedStops.where((s) => GtfsStop.cleanStopName(s.name).toLowerCase().contains(query));
+              return _loadedStops.where((s) => s.displayNameFor(AppStrings.languageCode).toLowerCase().contains(query));
             },
             onSelected: (GtfsStop selection) async {
               FocusScope.of(context).unfocus();
               final routeList = TransportRoute.dedupeByRouteAndDestination(
                 await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(selection.id),
+                languageCode: AppStrings.languageCode,
               ).toSet();
               setState(() {
                 _selectedStop = selection;
@@ -506,7 +525,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             Card(clipBehavior: Clip.antiAlias, child: ExpansionTile(
               initiallyExpanded: false,
               title: Text(
-                AppStrings.text('alarm.routes_serving', {'stop': GtfsStop.cleanStopName(_selectedStop!.name)}),
+                AppStrings.text('alarm.routes_serving', {'stop': _selectedStop!.displayNameFor(AppStrings.languageCode)}),
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
               subtitle: Text(_selectedRoutes.isEmpty
@@ -526,7 +545,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          r.destinationText["en"] ?? "",
+                          r.destinationNameFor(AppStrings.languageCode),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
