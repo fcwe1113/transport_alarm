@@ -112,7 +112,8 @@ final class NativePingHandler {
                 throw PingHandlerError.invalidAlarmData
             }
             if (alarm["routeApiConfigs"] as? [[String: Any]] ?? []).isEmpty {
-                let configs = routeAPIConfigsForLegacyAlarm(alarm, locale: locale)
+                let alarmLocale = NativeTransitLocales.locale(for: alarm["localeCode"] as? String)
+                let configs = routeAPIConfigsForLegacyAlarm(alarm, locale: alarmLocale)
                 if !configs.isEmpty {
                     alarm["routeApiConfigs"] = configs
                     alarms[alarmIndex] = alarm
@@ -254,7 +255,7 @@ final class NativePingHandler {
 
         let locale = NativeTransitLocales.locale(for: alarm["localeCode"] as? String)
         let savedRouteConfigs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
-        let requests = savedRouteConfigs.compactMap { config in
+        let requests: [NativeTransitETARequest] = savedRouteConfigs.compactMap { config -> NativeTransitETARequest? in
             guard let mode = config["mode"] as? String,
                   let providerCode = config["providerCode"] as? String,
                   let apiURL = config["apiUrl"] as? String else {
