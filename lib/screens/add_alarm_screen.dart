@@ -12,6 +12,7 @@ import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
+import 'package:transport_alarm/transit/transport_mode.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:transport_alarm/widgets/route_pill_strip.dart';
@@ -137,6 +138,17 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       _loadedStops = stopsList;
       _isLoadingStops = false;
     });
+  }
+
+  String get _currentTransportMode {
+    final selectedRoute = _selectedRoutes.firstOrNull;
+    final providerCode = selectedRoute?.providerCode;
+    return availableProviders
+            .where((provider) => provider.providerCode == providerCode)
+            .firstOrNull
+            ?.transportMode ??
+        availableProviders.firstOrNull?.transportMode ??
+        TransportMode.bus;
   }
 
   void _onLeftTimeChanged(TimeOfDay newLeft) {
@@ -505,7 +517,11 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                 controller: controller,
                 focusNode: focusNode,
                 decoration: InputDecoration(
-                    hintText: AppStrings.text('alarm.stop_search'),
+                    hintText: AppStrings.text('alarm.stop_search', {
+                      'transportMode': AppStrings.transportMode(
+                        _currentTransportMode,
+                      ),
+                    }),
                     prefixIcon: const Icon(Icons.search),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
                 ),

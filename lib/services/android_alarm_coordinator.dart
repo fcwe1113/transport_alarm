@@ -17,6 +17,7 @@ import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
+import 'package:transport_alarm/transit/transport_mode.dart';
 
 /// Coordinates Android's local wall-clock alarms and the Dart decision flow.
 class AndroidAlarmCoordinator {
@@ -223,7 +224,10 @@ class AndroidAlarmCoordinator {
         await NotificationService.showThresholdRing(
           notificationId: _ringNotificationId(ringing.id),
           alarmId: ringing.id,
-          title: AppStrings.text('notification.bus_arriving_soon'),
+          title: AppStrings.text(
+            'notification.transport_arriving_soon',
+            AppStrings.transportModeValues(alarm.transportMode),
+          ),
           body: _ringBody(ringing, stopName),
         );
         await _scheduleRetry(ringing, now);
@@ -235,7 +239,9 @@ class AndroidAlarmCoordinator {
         await NotificationService.showCountdown(
           notificationId: _countdownNotificationId(alarm.id),
           alarmId: alarm.id,
-          title: AppStrings.text('notification.next_bus_alarm'),
+          title: AppStrings.text('notification.next_transport_alarm', {
+            ...AppStrings.transportModeValues(alarm.transportMode),
+          }),
           body: _ringBody(alarm, await _stopName(alarm)),
           progressStartTime: _androidProgressStartTime(alarm, now),
           countdownTargetTime: thresholdAt,
@@ -255,7 +261,7 @@ class AndroidAlarmCoordinator {
       return;
     }
 
-    // Once thresholds are acknowledged, the final bus alert is visible but silent.
+    // Once thresholds are acknowledged, the final transport alert is visible but silent.
     final finalArrivalAt = lookup.arrivalAt;
     if (finalArrivalAt == null) {
       await _cancel(_fireAlarmId(alarm.id));
@@ -274,10 +280,16 @@ class AndroidAlarmCoordinator {
       await NotificationService.showCountdown(
         notificationId: _countdownNotificationId(alarm.id),
         alarmId: alarm.id,
-        title: AppStrings.text('notification.bus_arriving_soon'),
+        title: AppStrings.text(
+          'notification.transport_arriving_soon',
+          AppStrings.transportModeValues(alarm.transportMode),
+        ),
         body: alarm.message.isNotEmpty
             ? alarm.message
-            : AppStrings.text('notification.default_bus_body'),
+            : AppStrings.text(
+                'notification.default_transport_body',
+                AppStrings.transportModeValues(alarm.transportMode),
+              ),
         progressStartTime: _androidProgressStartTime(alarm, now),
         countdownTargetTime: finalArrivalAt,
         estimatedArrivalTime: finalArrivalAt,
@@ -415,7 +427,9 @@ class AndroidAlarmCoordinator {
   }
 
   Future<RouteEtaResult> _fetchRouteEta(AlarmRouteConfig config) async {
-    if (config.mode != 'bus') return const RouteEtaResult(healthy: false);
+    if (config.mode != TransportMode.bus) {
+      return const RouteEtaResult(healthy: false);
+    }
     try {
       final response = await http
           .get(Uri.parse(config.apiUrl))
@@ -617,12 +631,21 @@ class AndroidAlarmCoordinator {
     await NotificationService.showSilentStatus(
       notificationId: _statusNotificationId(alarm.id),
       alarmId: alarm.id,
-      title: AppStrings.text('notification.bus_arriving_now'),
+      title: AppStrings.text(
+        'notification.transport_arriving_now',
+        AppStrings.transportModeValues(alarm.transportMode),
+      ),
       body: alarm.message.isNotEmpty
           ? alarm.message
           : stopName == null
-          ? AppStrings.text('notification.default_bus_body')
-          : AppStrings.text('notification.bus_expected_at', {'stop': stopName}),
+          ? AppStrings.text(
+              'notification.default_transport_body',
+              AppStrings.transportModeValues(alarm.transportMode),
+            )
+          : AppStrings.text('notification.transport_expected_at', {
+              ...AppStrings.transportModeValues(alarm.transportMode),
+              'stop': stopName,
+            }),
     );
   }
 

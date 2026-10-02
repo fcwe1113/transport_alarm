@@ -1,3 +1,5 @@
+import '../transit/transport_mode.dart';
+
 /// Route-specific data the notification handler needs without resolving the
 /// operator stop from the GTFS database for every push.
 class AlarmRouteConfig {
@@ -23,7 +25,7 @@ class AlarmRouteConfig {
   factory AlarmRouteConfig.fromJson(Map<String, dynamic> json) =>
       AlarmRouteConfig(
         routeNumber: json['routeNumber'] as String,
-        mode: json['mode'] as String? ?? 'bus',
+        mode: json['mode'] as String? ?? TransportMode.bus,
         providerCode: json['providerCode'] as String,
         apiUrl: json['apiUrl'] as String,
       );

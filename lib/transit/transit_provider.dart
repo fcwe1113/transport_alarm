@@ -9,11 +9,12 @@ import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/refresh_result.dart';
 
 import 'models/transport_route.dart';
+import 'transport_mode.dart';
 
 abstract class TransitProvider {
   String get providerCode;
   String get providerName;
-  String get transportMode => 'bus';
+  String get transportMode => TransportMode.bus;
   // String get IconAsset; // contains the link to the icon
   Color get defaultIconColor;
   Color get defaultTextColor;

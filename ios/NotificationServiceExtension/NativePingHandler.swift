@@ -212,10 +212,18 @@ final class NativePingHandler {
     }
 
     private func ringResult(alarm: [String: Any], thresholdMinutes: Int, debugMessage: String? = nil) -> PingResult {
-        let title = (alarm["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? NativeLocalization.text("native.ring.title")
+        let routeConfigs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
+        let transportMode = routeConfigs.first?["mode"] as? String ?? NativeLocalization.busMode
+        let modeValues: [String: Any] = [
+            "transportMode": NativeLocalization.transportMode(transportMode),
+            "transportModeTitle": NativeLocalization.transportMode(transportMode, titleCase: true)
+        ]
+        let title = (alarm["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? NativeLocalization.text("native.ring.title", values: modeValues)
+        var bodyValues = modeValues
+        bodyValues["minutes"] = thresholdMinutes
         return PingResult(
             title: title,
-            body: NativeLocalization.text("native.ring.body", values: ["minutes": thresholdMinutes]),
+            body: NativeLocalization.text("native.ring.body", values: bodyValues),
             debugMessage: debugMessage,
             categoryIdentifier: "transport_alarm_ring"
         )

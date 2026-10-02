@@ -11,6 +11,25 @@ class AppStrings {
 
   static String get languageCode => _languageCode;
 
+  /// Looks up the localized name for a transport mode. Add a
+  /// `transport.mode.<mode>` entry to each locale catalog to add a mode.
+  static String transportMode(String mode, {bool titleCase = false}) {
+    final normalized = mode.trim().toLowerCase();
+    final key = 'transport.mode.$normalized${titleCase ? '.title' : ''}';
+    final localized = text(key);
+    if (localized != key) return localized;
+    if (normalized.isEmpty) return 'transport';
+    return titleCase
+        ? '${normalized[0].toUpperCase()}${normalized.substring(1)}'
+        : normalized;
+  }
+
+  /// Supplies both grammatical forms used by localized UI templates.
+  static Map<String, Object?> transportModeValues(String mode) => {
+    'transportMode': transportMode(mode),
+    'transportModeTitle': transportMode(mode, titleCase: true),
+  };
+
   static Future<void> load(String languageCode) async {
     Future<Map<String, String>> loadCatalog(String code) async {
       final json = await rootBundle.loadString(

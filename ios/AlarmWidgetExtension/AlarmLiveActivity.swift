@@ -16,7 +16,9 @@ struct TransportAlarmLiveActivity: Widget {
             } compactLeading: {
                 Image(systemName: "bus.fill")
             } compactTrailing: {
-                Text(NativeLocalization.text("live_activity.bus"))
+                Text(NativeLocalization.text("live_activity.transport_mode", values: [
+                    "transportModeTitle": NativeLocalization.transportMode(NativeLocalization.busMode, titleCase: true)
+                ]))
             } minimal: {
                 Image(systemName: "bus.fill")
             }
