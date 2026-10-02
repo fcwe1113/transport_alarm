@@ -421,6 +421,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   @override
   Widget build(BuildContext context) {
     return AppShell(title: AppStrings.text(widget.alarmToEdit != null ? 'alarm.edit.title' : 'alarm.add.title'),
+    selectedTab: 0,
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

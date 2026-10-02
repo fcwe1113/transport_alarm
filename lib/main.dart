@@ -114,16 +114,46 @@ class MyApp extends StatelessWidget { // statelesswidget only has constant inter
         colorScheme: .fromSeed(seedColor: Colors.deepPurple),
       ),
       initialRoute: initialRoute, // indicate which route to show on boot
-      routes: { // list of screens with the routes linked to it
-        "/": (context) => const AlarmListScreen(),
-        "/map": (context) => const MapScreen(),
-        "/setup": (context) => const SetupScreen(),
-        "/loading": (context) => const LoadingScreen(),
-        "/add-alarm": (context) => const AddAlarmScreen(),
-        "/settings": (context) => const SettingsScreen(),
-        // add more routes here as we add more screens
-      },
+      onGenerateRoute: _generateRoute,
       ),
     );
   }
+}
+
+Route<dynamic>? _generateRoute(RouteSettings settings) {
+  switch (settings.name) {
+    case '/':
+      return _tabRoute(settings, const AlarmListScreen());
+    case '/map':
+      return _tabRoute(settings, const MapScreen());
+    case '/settings':
+      return _tabRoute(settings, const SettingsScreen());
+    case '/setup':
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => const SetupScreen(),
+      );
+    case '/loading':
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => const LoadingScreen(),
+      );
+    case '/add-alarm':
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => const AddAlarmScreen(),
+      );
+    default:
+      return null;
+  }
+}
+
+PageRoute<void> _tabRoute(RouteSettings settings, Widget page) {
+  return PageRouteBuilder<void>(
+    settings: settings,
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+    pageBuilder: (_, _, _) => page,
+    transitionsBuilder: (_, _, _, child) => child,
+  );
 }

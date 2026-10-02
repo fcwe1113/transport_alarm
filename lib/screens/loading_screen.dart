@@ -1,12 +1,21 @@
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
+import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
 class LoadingScreen extends StatefulWidget {
   final bool forceRefresh;
   final TransitOperation operation;
-  const LoadingScreen({super.key, this.forceRefresh = false, this.operation = initializeTransitData});
+  final bool returnToPrevious;
+  final bool showBottomNavigation;
+  const LoadingScreen({
+    super.key,
+    this.forceRefresh = false,
+    this.operation = initializeTransitData,
+    this.returnToPrevious = false,
+    this.showBottomNavigation = false,
+  });
 
   @override
   State<LoadingScreen> createState() => _LoadingScreenState();
@@ -33,6 +42,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
       final failures = await widget.operation(
         forceRefresh: widget.forceRefresh,
         onProgress: (message, progress) {
+          if (!mounted) return;
           setState(() {
             _message = message;
             _progress = progress;
@@ -68,13 +78,16 @@ class _LoadingScreenState extends State<LoadingScreen> {
   }
 
   void _onOkPressed() {
-    Navigator.pushReplacementNamed(context, "/");
+    if (widget.returnToPrevious) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushReplacementNamed(context, "/");
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
+    final content = Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: _error != null ? [
@@ -96,7 +109,14 @@ class _LoadingScreenState extends State<LoadingScreen> {
             ]
           ],
         ),
-      ),
     );
+    if (widget.showBottomNavigation) {
+      return AppShell(
+        title: AppStrings.text('settings.title'),
+        selectedTab: 2,
+        body: content,
+      );
+    }
+    return Scaffold(body: content);
   }
 }

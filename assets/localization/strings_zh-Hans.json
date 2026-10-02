@@ -202,5 +202,8 @@
   "notification.default_transport_body": "你的{transportMode}即将抵达",
   "notification.transport_expected_at": "你的{transportMode}将会途径{stop}.",
   "notification.transport_approaching": "你的{transportMode}即将抵达{stop}.",
-  "live_activity.transport_mode": "{transportModeTitle}"
+  "live_activity.transport_mode": "{transportModeTitle}",
+  "settings.enabled_locales": "已启用地区",
+  "settings.enabled_locales.subtitle": "选择应用要使用的交通地区",
+  "settings.enabled_locales.required": "请至少保留一个已启用的地区。"
 }

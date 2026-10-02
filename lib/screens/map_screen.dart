@@ -163,10 +163,15 @@ class _MapScreenState extends State<MapScreen> {
     // for the "refresh after api pull" effect put in a setState() in the same function as the api call and put it after the api call line
     // if real time updates needed try StreamBuilder
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator(),),);
+      return AppShell(
+        title: AppStrings.text(widget.pickerMode ? 'map.choose_stop' : 'map.title'),
+        selectedTab: 1,
+        body: const Center(child: CircularProgressIndicator()),
+      );
     }
     return AppShell(
       title: AppStrings.text(widget.pickerMode ? 'map.choose_stop' : 'map.title'),
+      selectedTab: 1,
       actions: widget.pickerMode ? [
         IconButton(icon: _selectedPickerStop == null ? const Icon(Icons.arrow_back) : const Icon(Icons.check), onPressed: () {
           final mapRoute = ModalRoute.of(context);
