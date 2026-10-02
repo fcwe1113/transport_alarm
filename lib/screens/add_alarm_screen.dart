@@ -1,20 +1,23 @@
-import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/models/transport_alarm.dart';
+import 'package:transport_alarm/models/alarm_route_config.dart';
+import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
-import 'package:transport_alarm/transit/models/bus_route.dart';
+import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
+import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/alarm_lifecycle_service.dart';
 
 class AddAlarmScreen extends StatefulWidget {
-  final BusAlarm? alarmToEdit;
+  final TransportAlarm? alarmToEdit;
 
   const AddAlarmScreen({super.key, this.alarmToEdit});
 
@@ -37,8 +40,8 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   GtfsStop? _selectedStop;
   TextEditingController? _searchController;
 
-  Set<BusRoute> _selectedRoutes = {};
-  Set<BusRoute> _availableRoutes = {};
+  Set<TransportRoute> _selectedRoutes = {};
+  Set<TransportRoute> _availableRoutes = {};
 
   RepeatPattern _repeatPattern = RepeatPattern.none;
   final Set<int> _selectedWeekdays = {1, 2, 3, 4, 5}; // 1 = mon ... 7 = sun
@@ -65,7 +68,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     }
   }
 
-  Future<void> _prefillExistingAlarmData(BusAlarm alarm) async {
+  Future<void> _prefillExistingAlarmData(TransportAlarm alarm) async {
     _thresholdController.text = alarm.thresholdStates.map((t) => t.minutesBeforeArrival.toString()).join(",");
     _attemptsController.text = alarm.thresholdStates.first.ringCount.toString();
     _messageController.text = alarm.message;
@@ -80,12 +83,14 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     final db = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
     final stop = await db.getGtfsStopById(alarm.gtfsStopId);
     if (stop != null) {
-      final routes = Set<BusRoute>.from(await db.getRoutesForGtfsStop(alarm.gtfsStopId));
+      final routes = TransportRoute.dedupeByRouteAndDestination(
+        await db.getRoutesForGtfsStop(alarm.gtfsStopId),
+      );
       final selectedRoutes = routes.where((r) => alarm.routeNumbers.contains(r.routeNumber)).toSet();
 
       setState(() {
         _selectedStop = stop;
-        _availableRoutes = routes;
+        _availableRoutes = routes.toSet();
         _selectedRoutes = selectedRoutes;
         _searchController?.text = GtfsStop.cleanStopName(stop.name);
       });
@@ -137,7 +142,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   void _openMapPicker() async {
     final picked = await Navigator.push<GtfsStop>(context, MaterialPageRoute(builder: (context) => const MapScreen(pickerMode: true,)));
     if (picked == null) return; // user did not select stop
-    final routeList = Set<BusRoute>.from(await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(picked.id)); // todo remove locale hardcode
+    final routeList = Set<TransportRoute>.from(await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(picked.id)); // todo remove locale hardcode
     setState(() {
       _selectedStop = picked;
       _availableRoutes = routeList;
@@ -211,18 +216,45 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       if (proceed != true) return;
     }
 
-    if (_repeatPattern.frequency == RepeatFrequency.monthly && splitDays.containsAll({29, 30, 31})) {
+    if (_repeatPattern.frequency == RepeatFrequency.monthly && (splitDays.contains(29) || splitDays.contains(30) || splitDays.contains(31))) {
       final proceed = await _showWarning("You entered days not present in every month, the alarm will not trigger on months without those days.");
       if (proceed != true) return;
     }
 
     final alarmThresholds = _thresholdController.text.split(",").map((t) => int.tryParse(t.trim())).whereType<int>().map(
             (m) => ThresholdState(minutesBeforeArrival: m, ringCount: int.tryParse(_attemptsController.text) ?? 10)
-    ).toList();
+    ).toList()
+      ..sort((a, b) => b.minutesBeforeArrival.compareTo(a.minutesBeforeArrival));
 
-    final newAlarm = BusAlarm(
+    // Resolve each selected route's operator stop now and persist its exact ETA
+    // URL with the alarm, avoiding this GTFS mapping query during every push.
+    final gtfsDatabase = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
+    final routeApiConfigs = <AlarmRouteConfig>[];
+    for (final route in _selectedRoutes) {
+      final operatorStopId = await gtfsDatabase.getOperatorStopIdForRouteAtGtfsStop(
+        operatorRouteId: route.id,
+        gtfsStopId: _selectedStop!.id,
+      );
+      if (operatorStopId == null) continue;
+      final config = _buildAlarmRouteConfig(route, operatorStopId);
+      if (config != null) routeApiConfigs.add(config);
+    }
+    if (routeApiConfigs.length != _selectedRoutes.length) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => const AlertDialog(
+          title: Text("Route API unavailable"),
+          content: Text("One or more selected routes could not be linked to an ETA API. Refresh transit data or choose another route."),
+        ),
+      );
+      return;
+    }
+
+    final newAlarm = TransportAlarm(
         id: widget.alarmToEdit?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         gtfsStopId: _selectedStop!.id,
+        routeApiConfigs: routeApiConfigs,
         routeNumbers: _selectedRoutes.map((r) => r.routeNumber).toList(),
         windowStart: _leftTime,
         windowEnd: _rightTime,
@@ -241,6 +273,22 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (widget.alarmToEdit != null) await lifecycle.deleteAlarm(newAlarm.id); // todo write lifecycle edit alarm method
     await lifecycle.createAlarm(newAlarm);
     Navigator.pop(context);
+  }
+
+  AlarmRouteConfig? _buildAlarmRouteConfig(TransportRoute route, String operatorStopId) {
+    final provider = availableProviders
+        .where((candidate) => candidate.providerCode == route.providerCode)
+        .firstOrNull;
+    if (provider == null) return null;
+    final apiUrl = provider.alarmEtaUrl(operatorStopId: operatorStopId, route: route);
+    if (apiUrl == null) return null;
+
+    return AlarmRouteConfig(
+      routeNumber: route.routeNumber,
+      mode: provider.transportMode,
+      providerCode: route.providerCode,
+      apiUrl: apiUrl,
+    );
   }
 
   Future<bool?> _showWarning(String text) async {
@@ -316,10 +364,13 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
               return _loadedStops.where((s) => GtfsStop.cleanStopName(s.name).toLowerCase().contains(query));
             },
             onSelected: (GtfsStop selection) async {
-              final Set<BusRoute> _routeList = Set.from(await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(selection.id));
+              FocusScope.of(context).unfocus();
+              final routeList = TransportRoute.dedupeByRouteAndDestination(
+                await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(selection.id),
+              ).toSet();
               setState(() {
                 _selectedStop = selection;
-                _availableRoutes = _routeList;
+                _availableRoutes = routeList;
                 _selectedRoutes = {};
               });
             },
@@ -357,7 +408,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                   : "${_selectedRoutes.length} route${_selectedRoutes.length > 1 ? "s" : ""} selected",
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),),
               children: _availableRoutes.map((r) {
-                return CheckboxListTile(title: Text(r.routeNumber), subtitle: Text(r.destinationText["en"]!) ,value: _selectedRoutes.contains(r), onChanged: (bool? checked) {
+                return CheckboxListTile(title: RoutePill(route: r), subtitle: Text(r.destinationText["en"] ?? ""), value: _selectedRoutes.contains(r), onChanged: (bool? checked) {
                   setState(() {
                     if (checked == true) {
                       _selectedRoutes.add(r);

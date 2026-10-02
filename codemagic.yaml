@@ -1,0 +1,66 @@
+workflows:
+  ios-testflight:
+    integrations:
+      app_store_connect: "AppStoreConnect"
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+        - $HOME/.cocoapods
+        - ~/Library/Developer/Xcode/DerivedData/CompilationCache.noindex
+        - ~/Library/Caches/org.swift.swiftpm
+    environment:
+      flutter: 3.47.5
+      xcode: latest
+      groups:
+        - transport_alarm
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.fcwe1113.busArrivalNotificationApp.66RCG95DR7
+    scripts:
+      - name: Generate secrets configuration
+        script: |
+          mkdir -p config
+          echo "$SECRETS_JSON" | base64 --decode > config/secrets.json
+      - name: Debug signing state
+        script: |
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "no profiles directory"
+          security find-identity -v -p codesigning
+      - name: Inspect Provisioning Profile
+        script: |
+          for PROF in ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision; do
+            echo "=========================================="
+            echo "Profile: $PROF"
+            security cms -D -i "$PROF" > /tmp/profile.plist
+            echo "--- Profile Name ---"
+            /usr/libexec/PlistBuddy -c "Print :Name" /tmp/profile.plist || true
+            echo "--- Profile Entitlements ---"
+            /usr/libexec/PlistBuddy -c "Print :Entitlements" /tmp/profile.plist || true
+          done
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Install pods
+        script: cd ios && pod install
+      - name: Apply signing
+        script: xcode-project use-profiles --archive-method=app-store
+      - name: Build ipa
+        script: |
+          flutter build ipa --release \
+            --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID") + 1)) \
+            --export-options-plist=/Users/builder/export_options.plist
+      - name: Verify IPA entitlements
+        script: |
+          echo "=== Inspecting xcarchive Runner.app ==="
+          codesign -d --entitlements :- build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app || true
+          echo "=== Inspecting exported IPA Payload/Runner.app ==="
+          IPA=$(ls build/ios/ipa/*.ipa | head -n 1)
+          rm -rf /tmp/ipa && unzip -q "$IPA" -d /tmp/ipa
+          codesign -d --entitlements :- /tmp/ipa/Payload/Runner.app || true
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        expire_build_submitted_for_review: true
+    

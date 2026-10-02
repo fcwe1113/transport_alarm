@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -11,18 +12,23 @@ import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_ping_handler.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/app_group_storage.dart';
+import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'firebase_options.dart';
+
 @pragma("vm:entry-point")
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // print("Background message received: ${message.messageId}");
-  // print("Data: ${message.data}");
+  print("Background message received: ${message.messageId}");
+  print("Data: ${message.data}");
 
-  await Firebase.initializeApp();
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   final pingId = message.data["ping_id"];
   if (pingId == null) return; // should never happen
   final storage = AlarmStorageService();
@@ -34,49 +40,54 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> main() async { // dart entry point
 
   WidgetsFlutterBinding.ensureInitialized();
+  await AppGroupStorage.migrateLegacyDocuments();
   final String jsonString = await rootBundle.loadString("config/secrets.json");
   final Map<String, dynamic> secrets = jsonDecode(jsonString);
   final String apiKey = secrets["MAPS_API_KEY"];
 
-  if (defaultTargetPlatform == TargetPlatform.iOS && apiKey.isNotEmpty) {
-    const channel = MethodChannel("com.fcwe1113.transport_alarm/google_maps");
-    try {
-      await channel.invokeMethod("setApiKey", {"apiKey": apiKey});
-    } on PlatformException catch (e) {
-      debugPrint("Failed to pass Google Maps API key to iOS: ${e.message}");
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    if (apiKey.isNotEmpty) {
+      const channel = MethodChannel("com.fcwe1113.transport_alarm/google_maps");
+      try {
+        await channel.invokeMethod("setApiKey", {"apiKey": apiKey});
+      } on PlatformException catch (e) {
+        debugPrint("Failed to pass Google Maps API key to iOS: ${e.message}");
+      }
     }
+
+    String? apnsToken = await ApnsTokenService.instance.getToken();
+    var attempts = 0;
+    while (apnsToken == null && attempts < 5) {
+      await Future.delayed(const Duration(seconds: 1));
+      apnsToken = await ApnsTokenService.instance.getToken();
+      attempts++;
+    }
+    print("APNS DEVICE TOKEN: ${apnsToken}");
+  } else {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+    NotificationSettings settings = await messaging.requestPermission(alert: true, badge: true, sound: true);
+    print("User permission status: ${settings.authorizationStatus}");
+    String? token = Platform.isIOS ? await messaging.getAPNSToken() : await messaging.getToken();
+    print("FCM DEVICE TOKEN: ${token}");
+
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+      print("FCM Token Refreshed: ${newToken}"); // todo update token at server
+    });
+
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+    await NotificationService.init();
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      final pingId = message.data["ping_id"];
+      if (pingId == null) return; // should never happen
+      final storage = AlarmStorageService();
+      final server = AlarmServerService();
+      final handler = AlarmPingHandler(storage, server, AlarmLifecycleService(storage: storage, server: server));
+      await handler.handlePing(pingId);
+    });
   }
-
-  await Firebase.initializeApp();
-  FirebaseMessaging messaging = FirebaseMessaging.instance;
-  NotificationSettings settings = await messaging.requestPermission(alert: true, badge: true, sound: true);
-
-  print("User permission status: ${settings.authorizationStatus}");
-  String? token = await messaging.getToken();
-  print("FCM DEVICE TOKEN: ${token}");
-
-  FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-    print("FCM Token Refreshed: ${newToken}"); // todo update token at server
-  });
-
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-
-  await NotificationService.init();
-
-  FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-    // print("Foreground message received: ${message.messageId}, data: ${message.data}");
-    // const androidDetails = AndroidNotificationDetails("alarm_test_channel", "Alarm Test", importance: Importance.high, priority: Priority.high);
-    // const notificationDetails = NotificationDetails(android: androidDetails);
-    //
-    // await flutterLocalNotificationsPlugin.show(id: message.hashCode, title: message.notification?.title ?? "Ping received", body: message.notification?.body ?? "", notificationDetails: notificationDetails);
-
-    final pingId = message.data["ping_id"];
-    if (pingId == null) return; // should never happen
-    final storage = AlarmStorageService();
-    final server = AlarmServerService();
-    final handler = AlarmPingHandler(storage, server, AlarmLifecycleService(storage: storage, server: server));
-    await handler.handlePing(pingId);
-  });
 
   final selectionService = LocaleSelectionService();
   final setupDone = await selectionService.hasCompletedSetup(); // check if user did setup before

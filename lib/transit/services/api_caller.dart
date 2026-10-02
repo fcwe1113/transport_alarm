@@ -104,6 +104,10 @@ class ApiCaller {
         for (final r in batchResults) {
           if (r.failed) {
             failed.add(r.item);
+          } else if (r.value == null) {
+            // call() returns null when this endpoint is still fresh. It was
+            // skipped successfully, so don't cast null to T or retry it.
+            doneCount++;
           } else {
             results[r.item.key] = r.value as T;
             doneCount++;

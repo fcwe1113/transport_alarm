@@ -1,6 +1,6 @@
 import 'dart:math';
 
-import 'package:transport_alarm/transit/models/bus_route.dart';
+import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
@@ -32,7 +32,7 @@ class _MapScreenState extends State<MapScreen> {
   static const mapsApiKey = String.fromEnvironment('MAPS_API_KEY');
   // final Map<String, BitmapDescriptor> _iconCache = {};
   List<GtfsStop> _stops = [];
-  final Map<String, BusRoute> _routesById = {};
+  final Map<String, TransportRoute> _routesById = {};
   final Set<Marker> _markers = {};
   Set<Marker> _visibleMarkers = {};
   bool _loading = true;

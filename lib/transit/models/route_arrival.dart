@@ -1,7 +1,7 @@
-import 'package:transport_alarm/transit/models/bus_route.dart';
+import 'package:transport_alarm/transit/models/transport_route.dart';
 
 class RouteArrival {
-  final BusRoute route;
+  final TransportRoute route;
   final int minutesFromNow;
   final bool isLive;
 

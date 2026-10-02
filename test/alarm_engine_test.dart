@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_engine.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 
 void main() {
   test("rings when minutesUntilArrival reaches the threshold", () {
-    final alarm = BusAlarm(
+    final alarm = TransportAlarm(
         id: "test-1",
         gtfsStopId: "stop-1",
         routeNumbers: ["1A"],
@@ -24,7 +24,7 @@ void main() {
   });
 
   test("schedules a re-check when far from threshold", () {
-    final alarm = BusAlarm(
+    final alarm = TransportAlarm(
         id: "test-2",
         gtfsStopId: "stop-1",
         routeNumbers: ["1A"],
@@ -42,7 +42,7 @@ void main() {
   });
 
   test("exhausting retries marks threshold missed and arms next one", () {
-    final alarm = BusAlarm(
+    final alarm = TransportAlarm(
         id: "test-3",
         gtfsStopId: "stop-1",
         routeNumbers: ["1A"],
@@ -64,7 +64,7 @@ void main() {
   });
 
   test("retries running up to the next threshold", () {
-    final alarm = BusAlarm(
+    final alarm = TransportAlarm(
         id: "test-4",
         gtfsStopId: "stop-1",
         routeNumbers: ["1A"],

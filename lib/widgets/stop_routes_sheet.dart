@@ -7,7 +7,7 @@ import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
 
-import '../transit/models/bus_route.dart';
+import '../transit/models/transport_route.dart';
 import '../transit/models/gtfs_stop.dart';
 
 class StopRoutesSheet extends StatefulWidget {
@@ -58,8 +58,8 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(GtfsStop.cleanStopName(widget.stop.name), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
         const SizedBox(height: 12,),
-        Expanded(child: FutureBuilder<List<BusRoute>>(future: db.getRoutesForGtfsStop(widget.stop.id), builder: (context, snapshot) {
-          final routes = BusRoute.dedupeByRouteNumber(snapshot.data ?? []);
+        Expanded(child: FutureBuilder<List<TransportRoute>>(future: db.getRoutesForGtfsStop(widget.stop.id), builder: (context, snapshot) {
+          final routes = TransportRoute.dedupeByRouteNumber(snapshot.data ?? []);
           if (routes.isEmpty) return const Text("No routes found for this stop");
           return Scrollbar(child: ListView(children: routes.map((r) => ListTile(
             leading: _RoutePill(route: r),
@@ -82,7 +82,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
             return const SizedBox(height: 32, child: Center(child: CircularProgressIndicator(),),);
           }
           final routes = snapshot.data ?? [];
-          final dedupedRoutes = BusRoute.dedupeByRouteNumber(routes);
+          final dedupedRoutes = TransportRoute.dedupeByRouteNumber(routes);
           if (dedupedRoutes.isEmpty) return const SizedBox.shrink();
 
           return SizedBox(height: 32, child: ListView(
@@ -155,11 +155,11 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
 
     final results = await Future.wait([db.getRoutesForGtfsStop(stop.id), _fetchLiveEtaForStop(stop), db.getUpcomingDepartures(stop.id, limit: 50)]);
 
-    final routes = results[0] as List<BusRoute>;
+    final routes = results[0] as List<TransportRoute>;
     final liveEtas = (results[1] as List<LiveEta>).where((e) => e.etaTime != null).toList();
     final scheduled = results[2] as List<ScheduledDeparture>;
 
-    final routeGroups = <String, List<BusRoute>>{};
+    final routeGroups = <String, List<TransportRoute>>{};
     for (final route in routes) {
       routeGroups.putIfAbsent(route.routeNumber, () => []).add(route);
     }
@@ -189,7 +189,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
 }
 
 class _RoutePill extends StatelessWidget {
-  final BusRoute route;
+  final TransportRoute route;
 
   const _RoutePill({required this.route});
 

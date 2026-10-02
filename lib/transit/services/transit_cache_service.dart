@@ -4,7 +4,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path_provider/path_provider.dart';
+import 'package:transport_alarm/services/app_group_storage.dart';
 
 class CachedEntry<T> {
   final T data;
@@ -34,7 +34,7 @@ class TransitCacheService {
       "schemaVersion": _schemaVersion,
       "lastUpdated": DateTime.now().millisecondsSinceEpoch,
       "sourceUrl": sourceUrl,
-      "data": toJson(data)
+      "data": toJson(data),
     };
     await file.writeAsString(jsonEncode(envelope));
   }
@@ -42,7 +42,7 @@ class TransitCacheService {
   Future<CachedEntry<T>?> load<T>({
     required String providerCode,
     required String endpointName,
-    required T Function(Map<String, dynamic>) fromJson
+    required T Function(Map<String, dynamic>) fromJson,
   }) async {
     final file = await _fileFor(providerCode, endpointName);
     if (!await file.exists()) return null;
@@ -51,14 +51,14 @@ class TransitCacheService {
     if (envelope["schemaVersion"] != _schemaVersion) return null;
 
     return CachedEntry(
-        data: fromJson(envelope["data"]),
-        lastUpdated: DateTime.fromMillisecondsSinceEpoch(envelope["lastUpdated"]),
-        sourceUrl: envelope["sourceUrl"]
+      data: fromJson(envelope["data"]),
+      lastUpdated: DateTime.fromMillisecondsSinceEpoch(envelope["lastUpdated"]),
+      sourceUrl: envelope["sourceUrl"],
     );
   }
 
   Future<File> _fileFor(String providerCode, String endpoint) async { // the code that enforces file structure
-    final dir = await getApplicationDocumentsDirectory(); // dir.path likely /data/data/com.fcwe1113.bus_arrival_notification_app/app_flutter
+    final dir = await AppGroupStorage.directory;
     return File("${dir.path}/transit_cache/$providerCode/$endpoint.json");
   }
 }

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:transport_alarm/provider_registry.dart';
-import 'package:transport_alarm/transit/models/bus_route.dart';
+import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
@@ -44,7 +44,7 @@ class _RoutePillStripState extends State<RoutePillStrip> {
     return FutureBuilder(future: GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(widget.gtfsStopId), builder: (context, snapshot) {
       final allRoutes = snapshot.data ?? [];
       final filtered = widget.routeNumberFilter == null ?  allRoutes : allRoutes.where((r) => widget.routeNumberFilter!.contains(r.routeNumber)).toList();
-      final routes = BusRoute.dedupeByRouteNumber(filtered);
+      final routes = TransportRoute.dedupeByRouteNumber(filtered);
 
       if (routes.isEmpty) return const SizedBox.shrink();
       WidgetsBinding.instance.addPostFrameCallback((_) => _startAutoScroll());
@@ -55,16 +55,16 @@ class _RoutePillStripState extends State<RoutePillStrip> {
         physics: const NeverScrollableScrollPhysics(),
         children: routes.map((route) => Padding(
           padding: const EdgeInsets.only(right: 6),
-          child: _MiniRoutePill(route: route),
+          child: RoutePill(route: route),
         )).toList(),
       ),);
     });
   }
 }
 
-class _MiniRoutePill extends StatelessWidget {
-  final BusRoute route;
-  const _MiniRoutePill({required this.route});
+class RoutePill extends StatelessWidget {
+  final TransportRoute route;
+  const RoutePill({super.key, required this.route});
 
   @override
   Widget build(BuildContext context) {
