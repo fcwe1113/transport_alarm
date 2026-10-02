@@ -15,22 +15,36 @@ enum PingAcknowledgementHandler {
         var alarm = alarms[alarmIndex]
         var thresholds = alarm["thresholdStates"] as? [[String: Any]] ?? []
         guard let ringingIndex = thresholds.firstIndex(where: { $0["outcome"] as? String == "ringing" }) else { return }
+        let currentThreshold = integer(thresholds[ringingIndex]["minutesBeforeArrival"]) ?? 0
         thresholds[ringingIndex]["outcome"] = "acknowledged"
 
         if let nextIndex = thresholds.indices.first(where: { $0 > ringingIndex && thresholds[$0]["outcome"] as? String == "pending" }) {
-            let estimate = integer(alarm["lastEstimatedMinutesUntilArrival"])
             let nextThreshold = integer(thresholds[nextIndex]["minutesBeforeArrival"]) ?? 0
-            let minutesUntilNext = max(0, (estimate ?? nextThreshold) - nextThreshold)
+            let minutesUntilCurrentThreshold = integer(alarm["lastEstimatedMinutesUntilThreshold"])
+                ?? integer(alarm["lastEstimatedMinutesUntilArrival"]).map { $0 - currentThreshold }
+            let minutesUntilNext = minutesUntilCurrentThreshold.map {
+                $0 + currentThreshold - nextThreshold
+            }
             let delayMinutes: Int
-            if minutesUntilNext > 5, let estimate {
-                delayMinutes = max(1, Int((Double(estimate) / 2).rounded()))
-            } else {
+            if let minutesUntilNext, minutesUntilNext > 5 {
+                delayMinutes = max(1, Int((Double(minutesUntilNext) / 2).rounded()))
+            } else if let minutesUntilNext {
                 delayMinutes = max(1, minutesUntilNext)
+            } else {
+                delayMinutes = 1
             }
 
             do {
-                try await reschedule(pingID: pingID, at: Date().addingTimeInterval(TimeInterval(delayMinutes * 60)), requireAck: minutesUntilNext <= 5)
+                try await reschedule(
+                    pingID: pingID,
+                    at: Date().addingTimeInterval(TimeInterval(delayMinutes * 60)),
+                    requireAck: minutesUntilNext.map { $0 <= 5 } ?? false
+                )
                 alarm["thresholdStates"] = thresholds
+                if let minutesUntilNext {
+                    alarm["lastEstimatedMinutesUntilThreshold"] = minutesUntilNext
+                    alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
+                }
                 alarms[alarmIndex] = alarm
                 try save(alarms, to: alarmsURL)
             } catch {
@@ -48,7 +62,8 @@ enum PingAcknowledgementHandler {
                     reset["ringCount"] = 0
                     return reset
                 }
-                alarm["lastEstimatedMinutesUntilArrival"] = NSNull()
+                alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
+                alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
                 alarms[alarmIndex] = alarm
                 try save(alarms, to: alarmsURL)
             } catch {

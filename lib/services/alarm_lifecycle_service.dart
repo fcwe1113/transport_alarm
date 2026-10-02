@@ -32,7 +32,7 @@ class AlarmLifecycleService {
       if (enabled) {
         final reenabled = alarm.copyWith(
           enabled: true,
-          clearLastEstimatedMinutesUntilArrival: true,
+          clearLastEstimatedMinutesUntilThreshold: true,
         );
         final scheduled = await _schedulePing(reenabled);
         await _storage.updateAlarm(scheduled);
@@ -69,7 +69,10 @@ class AlarmLifecycleService {
     }
 
     final resetStates = alarm.thresholdStates.map((t) => ThresholdState(minutesBeforeArrival: t.minutesBeforeArrival)).toList();
-    final resetAlarm = alarm.copyWith(thresholdStates: resetStates);
+    final resetAlarm = alarm.copyWith(
+      thresholdStates: resetStates,
+      clearLastEstimatedMinutesUntilThreshold: true,
+    );
     final scheduled = await _schedulePingForNextOccurrence(resetAlarm);
     return _storage.updateAlarm(scheduled);
   }

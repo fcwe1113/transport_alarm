@@ -19,7 +19,8 @@ class BusAlarm {
   final String message;
   final bool enabled; // indicates alarm enabled (similar to ios alarm ui alarm toggle)
   final String? pingId;
-  final int? lastEstimatedMinutesUntilArrival;
+  // Cached distance from the active threshold, rather than distance to arrival.
+  final int? lastEstimatedMinutesUntilThreshold;
 
   const BusAlarm({ //  constructor
     required this.id,
@@ -35,7 +36,7 @@ class BusAlarm {
     required this.message,
     this.enabled = true,
     this.pingId,
-    this.lastEstimatedMinutesUntilArrival,
+    this.lastEstimatedMinutesUntilThreshold,
   });
 
   BusAlarm copyWith({
@@ -51,8 +52,8 @@ class BusAlarm {
     String? message,
     bool? enabled,
     String? pingId,
-    int? lastEstimatedMinutesUntilArrival,
-    bool clearLastEstimatedMinutesUntilArrival = false,
+    int? lastEstimatedMinutesUntilThreshold,
+    bool clearLastEstimatedMinutesUntilThreshold = false,
   }) {
     return BusAlarm(
         id: id,
@@ -67,9 +68,9 @@ class BusAlarm {
         message: message ?? this.message,
         enabled: enabled ?? this.enabled,
         pingId: pingId ?? this.pingId,
-        lastEstimatedMinutesUntilArrival: clearLastEstimatedMinutesUntilArrival
+        lastEstimatedMinutesUntilThreshold: clearLastEstimatedMinutesUntilThreshold
             ? null
-            : lastEstimatedMinutesUntilArrival ?? this.lastEstimatedMinutesUntilArrival,
+            : lastEstimatedMinutesUntilThreshold ?? this.lastEstimatedMinutesUntilThreshold,
     );
   }
 
@@ -87,7 +88,7 @@ class BusAlarm {
     'message': message,
     'enabled': enabled,
     'pingId': pingId,
-    'lastEstimatedMinutesUntilArrival': lastEstimatedMinutesUntilArrival,
+    'lastEstimatedMinutesUntilThreshold': lastEstimatedMinutesUntilThreshold,
   };
 
   static BusAlarm fromJson(Map<String, dynamic> json) => BusAlarm(
@@ -104,9 +105,27 @@ class BusAlarm {
     message: json['message'] as String,
     enabled: json['enabled'] as bool,
     pingId: json['pingId'] as String?,
-    lastEstimatedMinutesUntilArrival:
-        json['lastEstimatedMinutesUntilArrival'] as int?,
+    lastEstimatedMinutesUntilThreshold:
+        _cachedMinutesUntilThreshold(json),
   );
+
+  static int? _cachedMinutesUntilThreshold(Map<String, dynamic> json) {
+    final explicit = json['lastEstimatedMinutesUntilThreshold'] as int?;
+    if (explicit != null) return explicit;
+
+    // Convert pre-threshold-cache data once when loading an existing alarm.
+    final arrivalEstimate = json['lastEstimatedMinutesUntilArrival'] as int?;
+    final states = (json['thresholdStates'] as List?)
+        ?.map((state) => Map<String, dynamic>.from(state as Map))
+        .toList();
+    if (arrivalEstimate == null || states == null) return null;
+    final active = states.where((state) {
+      final outcome = state['outcome'];
+      return outcome == 'pending' || outcome == 'ringing';
+    }).firstOrNull;
+    final thresholdMinutes = active?['minutesBeforeArrival'] as int?;
+    return thresholdMinutes == null ? null : arrivalEstimate - thresholdMinutes;
+  }
 
   static TimeOfDay _minutesToTimeOfDay (int totalMinutes) =>
     TimeOfDay(hour: totalMinutes ~/ 60, minute: totalMinutes % 60);

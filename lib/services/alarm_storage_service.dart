@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/models/bus_alarm.dart';
+import 'package:transport_alarm/transit/models/threshold_state.dart';
 
 class AlarmStorageService {
   Future<File> _file() async {
@@ -46,9 +47,18 @@ class AlarmStorageService {
     if (index == -1) return;
 
     final alarm = alarms[index];
-    if (alarm.lastEstimatedMinutesUntilArrival == estimate) return;
+    final activeThreshold = alarm.thresholdStates
+        .where((state) =>
+            state.outcome == ThresholdOutcome.pending ||
+            state.outcome == ThresholdOutcome.ringing)
+        .firstOrNull;
+    if (activeThreshold == null) return;
+    final minutesUntilThreshold = estimate - activeThreshold.minutesBeforeArrival;
+    if (alarm.lastEstimatedMinutesUntilThreshold == minutesUntilThreshold) return;
 
-    alarms[index] = alarm.copyWith(lastEstimatedMinutesUntilArrival: estimate);
+    alarms[index] = alarm.copyWith(
+      lastEstimatedMinutesUntilThreshold: minutesUntilThreshold,
+    );
     await saveAlarms(alarms);
   }
 

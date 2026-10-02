@@ -71,7 +71,8 @@ final class NativePingHandler {
                         thresholdStates[index]["ringCount"] = 0
                     }
                     alarm["thresholdStates"] = thresholdStates
-                    alarm["lastEstimatedMinutesUntilArrival"] = NSNull()
+                    alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
+                    alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
                     alarms[alarmIndex] = alarm
                     try saveAlarms(alarms)
                     return PingResult(title: "Next alarm occurrence scheduled", body: "The next repeat is scheduled.")
@@ -86,15 +87,17 @@ final class NativePingHandler {
 
             // Use a fresh arrival estimate when available, otherwise retain the
             // last good value so a transient API failure does not stop the alarm.
-            let freshEstimate = await estimateMinutesUntilArrival(for: alarm)
-            let cachedEstimate = Self.intValue(alarm["lastEstimatedMinutesUntilArrival"])
-            let estimate = freshEstimate ?? cachedEstimate
-            if let freshEstimate {
-                alarm["lastEstimatedMinutesUntilArrival"] = freshEstimate
-            }
-
             guard let thresholdMinutes = Self.intValue(thresholdStates[activeIndex]["minutesBeforeArrival"]) else {
                 throw PingHandlerError.invalidAlarmData
+            }
+            let freshArrivalEstimate = await estimateMinutesUntilArrival(for: alarm)
+            let freshEstimateUntilThreshold = freshArrivalEstimate.map { $0 - thresholdMinutes }
+            let cachedEstimateUntilThreshold = Self.intValue(alarm["lastEstimatedMinutesUntilThreshold"])
+                ?? Self.intValue(alarm["lastEstimatedMinutesUntilArrival"]).map { $0 - thresholdMinutes }
+            let estimateUntilThreshold = freshEstimateUntilThreshold ?? cachedEstimateUntilThreshold
+            if let freshEstimateUntilThreshold {
+                alarm["lastEstimatedMinutesUntilThreshold"] = freshEstimateUntilThreshold
+                alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
             }
 
             // Once a threshold is ringing, keep sending the same visible push
@@ -103,8 +106,9 @@ final class NativePingHandler {
                 do {
                     try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
                     alarm["thresholdStates"] = thresholdStates
-                    if let freshEstimate {
-                        alarm["lastEstimatedMinutesUntilArrival"] = freshEstimate
+                    if let freshEstimateUntilThreshold {
+                        alarm["lastEstimatedMinutesUntilThreshold"] = freshEstimateUntilThreshold
+                        alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
                     }
                     alarms[alarmIndex] = alarm
                     try saveAlarms(alarms)
@@ -114,7 +118,7 @@ final class NativePingHandler {
                 }
             }
 
-            guard let estimate else {
+            guard let estimateUntilThreshold else {
                 let retryAt = Date().addingTimeInterval(5 * 60)
                 try await reschedule(pingID: pingID, at: retryAt, requireAck: false)
                 alarms[alarmIndex] = alarm
@@ -122,10 +126,9 @@ final class NativePingHandler {
                 return PingResult(title: "Arrival estimate unavailable", body: "Another update is scheduled in 5 minutes.")
             }
 
-            let minutesUntilThreshold = estimate - thresholdMinutes
-            if minutesUntilThreshold > 5 {
-                // Recheck halfway through the current estimate (7 minutes -> 4).
-                let delayMinutes = max(1, Int((Double(estimate) / 2).rounded()))
+            if estimateUntilThreshold > 5 {
+                // Recheck halfway through the remaining time to this threshold.
+                let delayMinutes = max(1, Int((Double(estimateUntilThreshold) / 2).rounded()))
                 try await reschedule(
                     pingID: pingID,
                     at: Date().addingTimeInterval(TimeInterval(delayMinutes * 60)),
@@ -136,14 +139,14 @@ final class NativePingHandler {
                 try saveAlarms(alarms)
                 return PingResult(
                     title: "Alarm update scheduled",
-                    body: "The arrival estimate is about \(estimate) minutes. Another check is scheduled in \(delayMinutes) minutes."
+                    body: "The threshold is about \(estimateUntilThreshold) minutes away. Another check is scheduled in \(delayMinutes) minutes."
                 )
             }
 
-            if minutesUntilThreshold > 0 {
+            if estimateUntilThreshold > 0 {
                 try await reschedule(
                     pingID: pingID,
-                    at: Date().addingTimeInterval(TimeInterval(minutesUntilThreshold * 60)),
+                    at: Date().addingTimeInterval(TimeInterval(estimateUntilThreshold * 60)),
                     requireAck: true
                 )
                 alarm["thresholdStates"] = thresholdStates

@@ -36,16 +36,24 @@ class AlarmPingHandler {
       );
     }
 
-    final fetchedEstimate = await _getMinutesUntilArrival(alarm);
-    final alarmWithLatestEstimate = fetchedEstimate == null
+    final activeThreshold = alarm.thresholdStates
+        .where((state) =>
+            state.outcome == ThresholdOutcome.pending ||
+            state.outcome == ThresholdOutcome.ringing)
+        .firstOrNull;
+    final fetchedArrivalEstimate = await _getMinutesUntilArrival(alarm);
+    final fetchedEstimateUntilThreshold = fetchedArrivalEstimate == null || activeThreshold == null
+        ? null
+        : fetchedArrivalEstimate - activeThreshold.minutesBeforeArrival;
+    final alarmWithLatestEstimate = fetchedEstimateUntilThreshold == null
         ? alarm
-        : alarm.copyWith(lastEstimatedMinutesUntilArrival: fetchedEstimate);
+        : alarm.copyWith(lastEstimatedMinutesUntilThreshold: fetchedEstimateUntilThreshold);
     // Keep using the last successful estimate when a live lookup fails.
-    final minutesUntilArrival =
-        fetchedEstimate ?? alarm.lastEstimatedMinutesUntilArrival;
+    final minutesUntilThreshold = fetchedEstimateUntilThreshold ??
+        alarm.lastEstimatedMinutesUntilThreshold;
     final decision = evaluateAlarm(
       alarm: alarmWithLatestEstimate,
-      minutesUntilArrival: minutesUntilArrival,
+      minutesUntilThreshold: minutesUntilThreshold,
     );
     await _storage.updateAlarm(decision.updatedAlarm);
     if (decision.action == AlarmAction.ring && decision.nextPingTime == null) {
@@ -113,9 +121,26 @@ class AlarmPingHandler {
       return;
     }
 
-    final fetchedEstimate = await _getMinutesUntilArrival(updatedAlarm);
-    final minutesUntilArrival = fetchedEstimate ?? updatedAlarm.lastEstimatedMinutesUntilArrival;
-    if (minutesUntilArrival == null) {
+    final nextThreshold = updatedStates[nextPendingIndex];
+    final currentThreshold = alarm.thresholdStates[activeIndex];
+    final fetchedArrivalEstimate = await _getMinutesUntilArrival(updatedAlarm);
+    final minutesUntilNextThreshold = fetchedArrivalEstimate != null
+        ? fetchedArrivalEstimate - nextThreshold.minutesBeforeArrival
+        : updatedAlarm.lastEstimatedMinutesUntilThreshold == null
+            ? null
+            : updatedAlarm.lastEstimatedMinutesUntilThreshold! +
+                currentThreshold.minutesBeforeArrival -
+                nextThreshold.minutesBeforeArrival;
+    final alarmWithLatestEstimate = minutesUntilNextThreshold == null
+        ? updatedAlarm
+        : updatedAlarm.copyWith(
+            lastEstimatedMinutesUntilThreshold: minutesUntilNextThreshold,
+          );
+    if (minutesUntilNextThreshold != null) {
+      await _storage.updateAlarm(alarmWithLatestEstimate);
+    }
+
+    if (minutesUntilNextThreshold == null) {
       if (alarm.pingId != null) {
         await _server.reschedule(
           pingId: alarm.pingId!,
@@ -125,20 +150,10 @@ class AlarmPingHandler {
       }
       return;
     }
-
-    final alarmWithLatestEstimate = fetchedEstimate == null
-        ? updatedAlarm
-        : updatedAlarm.copyWith(lastEstimatedMinutesUntilArrival: fetchedEstimate);
-    if (fetchedEstimate != null) {
-      await _storage.updateAlarm(alarmWithLatestEstimate);
-    }
-
-    final nextThreshold = alarmWithLatestEstimate.thresholdStates[nextPendingIndex];
-    final minutesUntilNextThreshold = minutesUntilArrival - nextThreshold.minutesBeforeArrival;
     final DateTime nextPingTime;
     final bool requireAck;
     if (minutesUntilNextThreshold > 5) {
-      final estimateHalf = (minutesUntilArrival / 2).round();
+      final estimateHalf = (minutesUntilNextThreshold / 2).round();
       nextPingTime = DateTime.now().add(
         Duration(minutes: estimateHalf < 1 ? 1 : estimateHalf),
       );
