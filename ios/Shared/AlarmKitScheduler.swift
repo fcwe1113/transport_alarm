@@ -14,7 +14,13 @@ enum AlarmKitScheduler {
     }
 
     static func schedule(alarmID: UUID, secondsUntilFire: TimeInterval, title: String) async throws {
-        guard try await requestAuthorization() else {
+        let isAuthorized: Bool
+        do {
+            isAuthorized = try await requestAuthorization()
+        } catch {
+            throw SchedulerError.authorizationFailed(Self.describe(error))
+        }
+        guard isAuthorized else {
             throw SchedulerError.notAuthorized
         }
 
@@ -37,7 +43,11 @@ enum AlarmKitScheduler {
         )
         let duration = Alarm.CountdownDuration(preAlert: max(1, secondsUntilFire), postAlert: nil)
         let configuration = Configuration(countdownDuration: duration, attributes: attributes)
-        _ = try await AlarmManager.shared.schedule(id: alarmID, configuration: configuration)
+        do {
+            _ = try await AlarmManager.shared.schedule(id: alarmID, configuration: configuration)
+        } catch {
+            throw SchedulerError.scheduleFailed(Self.describe(error))
+        }
     }
 
     static func requestAuthorization() async throws -> Bool {
@@ -49,11 +59,27 @@ enum AlarmKitScheduler {
         try AlarmManager.shared.cancel(id: alarmID)
     }
 
+    /// Keeps the failing AlarmKit phase and underlying NSError details in the
+    /// notification text, where extension-process logs may not be available.
+    private static func describe(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(nsError.domain) code \(nsError.code): \(nsError.localizedDescription)"
+    }
+
     enum SchedulerError: LocalizedError {
         case notAuthorized
+        case authorizationFailed(String)
+        case scheduleFailed(String)
 
         var errorDescription: String? {
-            "AlarmKit authorization is not granted."
+            switch self {
+            case .notAuthorized:
+                "AlarmKit authorization is not granted."
+            case .authorizationFailed(let details):
+                "AlarmKit authorization request failed: \(details)"
+            case .scheduleFailed(let details):
+                "AlarmKit schedule call failed: \(details)"
+            }
         }
     }
 }
