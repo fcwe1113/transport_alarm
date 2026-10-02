@@ -130,7 +130,10 @@ let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        guard response.actionIdentifier == "transport_alarm_acknowledge" else {
+        let isAlarmRing = response.notification.request.content.categoryIdentifier == "transport_alarm_ring"
+        let isAcknowledgement = response.actionIdentifier == "transport_alarm_acknowledge"
+        let isNotificationTap = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        guard isAlarmRing && (isAcknowledgement || isNotificationTap) else {
             super.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
             return
         }

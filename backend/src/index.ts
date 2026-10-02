@@ -14,7 +14,7 @@ export interface Env {
 interface ScheduledPing {
 	id: number;
 	device_token: string;
-	scheduled_time: string;
+	scheduled_time: number;
 	require_ack: number; // 0 or 1
 	expire_on: number | null;
 	status: "PENDING" | "SENT";
@@ -36,7 +36,7 @@ interface ScheduleUpdateBody {
 }
 
 interface AckRequestBody {
-	ping_id: number;
+	ping_id: number | string;
 }
 
 export default {
@@ -102,10 +102,15 @@ export default {
 
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
 		const now = Math.floor(Date.now() / 1000);
-		const oneMinuteAgo = now - 60;
 
-		const { results } = await env.DB.prepare( // send a ping when a pending ping has a scheduled_time past now (current timestamp higher than schedule)
-			"SELECT * FROM scheduled_pings WHERE (status = 'PENDING' AND scheduled_time <= ?) OR (status = 'SENT' AND expire_on > ?)"
+		// Expired rows no longer represent an active client schedule.
+		await env.DB.prepare("DELETE FROM scheduled_pings WHERE expire_on IS NOT NULL AND expire_on <= ?").bind(now).run();
+
+		// A client reschedule returns the row to PENDING. SENT rows are not
+		// delivered again; only a new due schedule from the client can trigger
+		// another visible push.
+		const { results } = await env.DB.prepare(
+			"SELECT * FROM scheduled_pings WHERE status = 'PENDING' AND scheduled_time <= ? AND (expire_on IS NULL OR expire_on > ?)"
 		).bind(now, now).all<ScheduledPing>();
 
 		console.log(`[Cron run at ${new Date().toISOString()}] found ${results.length} jobs to process`);
@@ -113,6 +118,14 @@ export default {
 		let fcmAccessToken: string | null = null;
 
 		for (const job of results) {
+			// Claim the row before calling APNs/FCM so overlapping cron runs do
+			// not send the same due ping concurrently. A failed provider request
+			// returns it to PENDING for the next cron run to retry.
+			const claim = await env.DB.prepare(
+				"UPDATE scheduled_pings SET status = 'SENT', last_sent_at = ? WHERE id = ? AND status = 'PENDING' AND scheduled_time <= ? AND (expire_on IS NULL OR expire_on > ?)"
+			).bind(now, job.id, now, now).run();
+			if (claim.meta.changes === 0) continue;
+
 			let success = false;
 
 			if (env.APNS_PRIVATE_KEY && env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_TOPIC) {
@@ -124,12 +137,10 @@ export default {
 				success = await mockSendVisiblePush(job);
 			}
 
-			if (success) {
-				if (job.require_ack === 1) {
-					await env.DB.prepare("UPDATE scheduled_pings SET status = 'SENT', last_sent_at = ? WHERE id = ?").bind(now, job.id).run();
-				} else {
-					await env.DB.prepare("DELETE FROM scheduled_pings WHERE expire_on <= ?").bind(now).run();
-				}
+			if (!success) {
+				await env.DB.prepare(
+					"UPDATE scheduled_pings SET status = 'PENDING', last_sent_at = NULL WHERE id = ? AND status = 'SENT' AND last_sent_at = ?"
+				).bind(job.id, now).run();
 			}
 		}
 	}
