@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:live_update_countdown/live_update_countdown.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_ping_handler.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
@@ -120,6 +121,9 @@ class NotificationService {
           enableVibration: true,
           ongoing: true,
           autoCancel: false,
+          category: AndroidNotificationCategory.alarm,
+          fullScreenIntent: true,
+          visibility: NotificationVisibility.public,
           actions: [
             AndroidNotificationAction(
               'acknowledge',
@@ -131,6 +135,70 @@ class NotificationService {
       ),
       payload: 'ring:$alarmId',
     );
+  }
+
+  /// Shows a silent notification with a timeline ending at [estimatedArrivalTime].
+  static Future<void> showCountdown({
+    required int notificationId,
+    required String alarmId,
+    required String title,
+    required String body,
+    required DateTime progressStartTime,
+    required DateTime countdownTargetTime,
+    required DateTime estimatedArrivalTime,
+    required List<DateTime> thresholdTimes,
+  }) async {
+    if (Platform.isAndroid) {
+      await LiveUpdateCountdown.show(
+        id: notificationId,
+        title: title,
+        body: body,
+        progressStartTime: progressStartTime,
+        countdownTargetTime: countdownTargetTime,
+        estimatedArrivalTime: estimatedArrivalTime,
+        thresholdTimes: thresholdTimes,
+      );
+      return;
+    }
+
+    await plugin.show(
+      id: notificationId,
+      title: title,
+      body: body,
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          statusChannelId,
+          statusChannelName,
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+          playSound: false,
+          enableVibration: false,
+          ongoing: true,
+          autoCancel: false,
+          progress: _progressValue(
+            progressStartTime,
+            estimatedArrivalTime,
+          ),
+          maxProgress: 1000,
+          showProgress: true,
+          showWhen: true,
+          when: countdownTargetTime.millisecondsSinceEpoch,
+          usesChronometer: true,
+          chronometerCountDown: true,
+        ),
+      ),
+      payload: 'status:$alarmId',
+    );
+  }
+
+  static int _progressValue(DateTime start, DateTime arrival) {
+    final totalMillis = arrival.difference(start).inMilliseconds;
+    if (totalMillis <= 0) return 1000;
+    final elapsedMillis = DateTime.now().difference(start).inMilliseconds;
+    return (elapsedMillis * 1000 / totalMillis)
+        .round()
+        .clamp(0, 1000)
+        .toInt();
   }
 
   static Future<void> showSilentStatus({
@@ -171,9 +239,7 @@ class NotificationService {
   ) async {
     final payload = response.payload;
     if (Platform.isAndroid && payload != null) {
-      final isRingNotification = payload.startsWith('ring:');
-      if (response.actionId == 'acknowledge' ||
-          (response.actionId == null && isRingNotification)) {
+      if (response.actionId == 'acknowledge') {
         final alarmId = payload.substring(payload.indexOf(':') + 1);
         await AndroidAlarmCoordinator(
           AlarmStorageService(),

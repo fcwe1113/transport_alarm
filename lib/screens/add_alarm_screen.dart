@@ -1,11 +1,13 @@
 import 'dart:io';
 
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
@@ -15,6 +17,7 @@ import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../services/alarm_lifecycle_service.dart';
 
@@ -53,6 +56,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   late TextEditingController _messageController;
 
   bool _liveOnly = false;
+  bool _isSaving = false;
 
   final alarmStorage = AlarmStorageService();
 
@@ -154,6 +158,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   }
 
   Future<void> _compileAndSave() async {
+    if (_isSaving) return;
 
     // errors
     bool error = false;
@@ -201,6 +206,16 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         ));
       }
       return;
+    }
+
+    // Ask before any alarm data is committed. If the user declines, keep the
+    // form open so they can grant access and try saving again.
+    if (Platform.isAndroid) {
+      setState(() => _isSaving = true);
+      if (!await _requestAndroidAlarmPermissions()) {
+        if (mounted) setState(() => _isSaving = false);
+        return;
+      }
     }
 
     // conversions, if user picked all weekdays convert to daily, etc
@@ -275,7 +290,9 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     if (widget.alarmToEdit != null && !Platform.isAndroid) {
       await lifecycle.deleteAlarm(newAlarm.id); // iOS still replaces its server-scheduled ping.
     }
+    if (!Platform.isAndroid) setState(() => _isSaving = true);
     final result = await lifecycle.createAlarm(newAlarm);
+    if (mounted) setState(() => _isSaving = false);
     if (!result.succeeded) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -284,7 +301,63 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       }
       return;
     }
-    Navigator.pop(context);
+    if (mounted) Navigator.pop(context);
+  }
+
+  Future<bool> _requestAndroidAlarmPermissions() async {
+    var notifications = await Permission.notification.status;
+    if (!notifications.isGranted) {
+      notifications = await Permission.notification.request();
+    }
+    if (!notifications.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Allow notifications before saving this alarm.'),
+          ),
+        );
+      }
+      return false;
+    }
+
+    var exactAlarms = await Permission.scheduleExactAlarm.status;
+    if (!exactAlarms.isGranted) {
+      await Permission.scheduleExactAlarm.request();
+      // Android may return from the settings screen before the permission
+      // state is reflected in the request result, so check the current state.
+      exactAlarms = await Permission.scheduleExactAlarm.status;
+    }
+    if (!exactAlarms.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Allow alarms and reminders before saving this alarm.',
+            ),
+          ),
+        );
+      }
+      return false;
+    }
+
+    final fullScreenAccess = await NotificationService.plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.requestFullScreenIntentPermission();
+    if (fullScreenAccess != true) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Allow full-screen alarms so threshold alerts can appear over the lock screen.',
+            ),
+          ),
+        );
+      }
+      return false;
+    }
+    return true;
   }
 
   AlarmRouteConfig? _buildAlarmRouteConfig(TransportRoute route, String operatorStopId) {
@@ -317,7 +390,27 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   @override
   Widget build(BuildContext context) {
     return AppShell(title: widget.alarmToEdit != null ? "Edit Alarm" : "Add a new alarm",
-        actions: [IconButton(onPressed: _compileAndSave, icon: const Icon(Icons.check))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(48, 48),
+              padding: EdgeInsets.zero,
+            ),
+            child: const Icon(Icons.close),
+          ),
+          IconButton(
+            onPressed: _isSaving ? null : _compileAndSave,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check),
+            tooltip: "Save alarm",
+          ),
+        ],
         body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
           // time range selector slider
           Card(child: Padding(padding: const EdgeInsetsGeometry.all(16), child:
@@ -420,15 +513,31 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                   : "${_selectedRoutes.length} route${_selectedRoutes.length > 1 ? "s" : ""} selected",
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),),
               children: _availableRoutes.map((r) {
-                return CheckboxListTile(title: RoutePill(route: r), subtitle: Text(r.destinationText["en"] ?? ""), value: _selectedRoutes.contains(r), onChanged: (bool? checked) {
-                  setState(() {
-                    if (checked == true) {
-                      _selectedRoutes.add(r);
-                    } else {
-                      _selectedRoutes.remove(r);
-                    }
-                  });
-                });
+                return CheckboxListTile(
+                  title: Row(
+                    children: [
+                      RoutePill(route: r),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          r.destinationText["en"] ?? "",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  value: _selectedRoutes.contains(r),
+                  onChanged: (bool? checked) {
+                    setState(() {
+                      if (checked == true) {
+                        _selectedRoutes.add(r);
+                      } else {
+                        _selectedRoutes.remove(r);
+                      }
+                    });
+                  },
+                );
               }).toList(),
             ),),
             const SizedBox(height: 16,)

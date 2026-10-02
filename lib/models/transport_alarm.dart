@@ -30,6 +30,8 @@ class TransportAlarm {
   // Android stores local-device window bounds for the current occurrence.
   final int? androidOccurrenceStartEpochSeconds;
   final int? androidOccurrenceEndEpochSeconds;
+  // Start of the visible Android progress timeline for this occurrence.
+  final int? androidProgressStartEpochSeconds;
   // Preserve a single GTFS fallback bus while live ETA calls are failing.
   final int? androidFallbackArrivalEpochSeconds;
   final bool androidApiWarningActive;
@@ -53,6 +55,7 @@ class TransportAlarm {
     this.lastEstimatedMinutesUntilThreshold,
     this.androidOccurrenceStartEpochSeconds,
     this.androidOccurrenceEndEpochSeconds,
+    this.androidProgressStartEpochSeconds,
     this.androidFallbackArrivalEpochSeconds,
     this.androidApiWarningActive = false,
   });
@@ -76,10 +79,12 @@ class TransportAlarm {
     int? lastEstimatedMinutesUntilThreshold,
     int? androidOccurrenceStartEpochSeconds,
     int? androidOccurrenceEndEpochSeconds,
+    int? androidProgressStartEpochSeconds,
     int? androidFallbackArrivalEpochSeconds,
     bool? androidApiWarningActive,
     bool clearLastEstimatedMinutesUntilThreshold = false,
     bool clearAndroidOccurrence = false,
+    bool clearAndroidProgressStartEpochSeconds = false,
     bool clearAndroidFallbackArrival = false,
   }) {
     return TransportAlarm(
@@ -106,6 +111,11 @@ class TransportAlarm {
         androidOccurrenceEndEpochSeconds: clearAndroidOccurrence
             ? null
             : androidOccurrenceEndEpochSeconds ?? this.androidOccurrenceEndEpochSeconds,
+        androidProgressStartEpochSeconds:
+            clearAndroidOccurrence || clearAndroidProgressStartEpochSeconds
+                ? null
+                : androidProgressStartEpochSeconds ??
+                    this.androidProgressStartEpochSeconds,
         androidFallbackArrivalEpochSeconds: clearAndroidFallbackArrival
             ? null
             : androidFallbackArrivalEpochSeconds ?? this.androidFallbackArrivalEpochSeconds,
@@ -132,6 +142,7 @@ class TransportAlarm {
     'lastEstimatedMinutesUntilThreshold': lastEstimatedMinutesUntilThreshold,
     'androidOccurrenceStartEpochSeconds': androidOccurrenceStartEpochSeconds,
     'androidOccurrenceEndEpochSeconds': androidOccurrenceEndEpochSeconds,
+    'androidProgressStartEpochSeconds': androidProgressStartEpochSeconds,
     'androidFallbackArrivalEpochSeconds': androidFallbackArrivalEpochSeconds,
     'androidApiWarningActive': androidApiWarningActive,
   };
@@ -161,6 +172,8 @@ class TransportAlarm {
         json['androidOccurrenceStartEpochSeconds'] as int?,
     androidOccurrenceEndEpochSeconds:
         json['androidOccurrenceEndEpochSeconds'] as int?,
+    androidProgressStartEpochSeconds:
+        json['androidProgressStartEpochSeconds'] as int?,
     androidFallbackArrivalEpochSeconds:
         json['androidFallbackArrivalEpochSeconds'] as int?,
     androidApiWarningActive: json['androidApiWarningActive'] as bool? ?? false,

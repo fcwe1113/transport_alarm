@@ -45,6 +45,7 @@ class AndroidAlarmCoordinator {
           occurrence.start.millisecondsSinceEpoch ~/ 1000,
       androidOccurrenceEndEpochSeconds:
           occurrence.end.millisecondsSinceEpoch ~/ 1000,
+      androidProgressStartEpochSeconds: now.millisecondsSinceEpoch ~/ 1000,
     );
     await _storage.updateAlarm(prepared);
     await _cancelScheduledCallbacks(prepared.id);
@@ -60,6 +61,7 @@ class AndroidAlarmCoordinator {
     await _cancelScheduledCallbacks(alarmId);
     await NotificationService.cancel(_ringNotificationId(alarmId));
     await NotificationService.cancel(_statusNotificationId(alarmId));
+    await NotificationService.cancel(_countdownNotificationId(alarmId));
   }
 
   /// Acknowledges a ringing threshold and immediately evaluates the next stage.
@@ -88,21 +90,28 @@ class AndroidAlarmCoordinator {
     if (event == 'windowStart') {
       final alarm = await _findAlarm(alarmId);
       if (alarm == null || !alarm.enabled) return;
-      if (alarm.spent && alarm.repeat.frequency != RepeatFrequency.none) {
-        final reset = alarm.copyWith(
-          spent: false,
-          thresholdStates: alarm.thresholdStates
-              .map(
-                (state) => ThresholdState(
-                  minutesBeforeArrival: state.minutesBeforeArrival,
-                ),
-              )
-              .toList(),
-          clearLastEstimatedMinutesUntilThreshold: true,
-          clearAndroidFallbackArrival: true,
-          androidApiWarningActive: false,
-        );
-        await _storage.updateAlarm(reset);
+      final startsRepeat =
+          alarm.spent && alarm.repeat.frequency != RepeatFrequency.none;
+      final reset = alarm.copyWith(
+        spent: startsRepeat ? false : alarm.spent,
+        thresholdStates: startsRepeat
+            ? alarm.thresholdStates
+                  .map(
+                    (state) => ThresholdState(
+                      minutesBeforeArrival: state.minutesBeforeArrival,
+                    ),
+                  )
+                  .toList()
+            : null,
+        clearLastEstimatedMinutesUntilThreshold: startsRepeat,
+        clearAndroidFallbackArrival: startsRepeat,
+        androidApiWarningActive: startsRepeat ? false : null,
+        androidProgressStartEpochSeconds:
+            alarm.androidProgressStartEpochSeconds ??
+                DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      );
+      await _storage.updateAlarm(reset);
+      if (startsRepeat) {
         await NotificationService.cancel(_statusNotificationId(alarmId));
       }
     }
@@ -120,6 +129,12 @@ class AndroidAlarmCoordinator {
       return;
     }
     final now = DateTime.now();
+    if (alarm.androidProgressStartEpochSeconds == null) {
+      alarm = alarm.copyWith(
+        androidProgressStartEpochSeconds: now.millisecondsSinceEpoch ~/ 1000,
+      );
+      await _storage.updateAlarm(alarm);
+    }
     final startsAt = DateTime.fromMillisecondsSinceEpoch(startSeconds * 1000);
     final endsAt = DateTime.fromMillisecondsSinceEpoch(endSeconds * 1000);
     if (now.isBefore(startsAt)) {
@@ -151,9 +166,17 @@ class AndroidAlarmCoordinator {
                   .reduce((a, b) => a > b ? a : b) *
               60
         : null;
+    debugPrint(
+      '[AndroidAlarmCoordinator] Refreshing ETA for alarm ${alarm.id} '
+      'at ${now.toIso8601String()}',
+    );
     final lookup = await _lookupArrival(
       alarm,
       minimumArrivalSeconds: earliestArrival,
+    );
+    debugPrint(
+      '[AndroidAlarmCoordinator] ETA refresh for alarm ${alarm.id}: '
+      '${lookup.arrivalAt?.toIso8601String() ?? 'no arrival found'}',
     );
     alarm = await _findAlarm(alarm.id) ?? alarm;
     alarm = await _updateApiWarning(alarm, lookup.apiFailed);
@@ -167,6 +190,7 @@ class AndroidAlarmCoordinator {
       final arrivalAt = lookup.arrivalAt;
       if (arrivalAt == null) {
         await _cancel(_fireAlarmId(alarm.id));
+        await NotificationService.cancel(_countdownNotificationId(alarm.id));
         await _scheduleRetry(alarm, now);
         return;
       }
@@ -205,6 +229,26 @@ class AndroidAlarmCoordinator {
       }
 
       await _schedule(alarm, thresholdAt, 'fire');
+      if (thresholdAt.isBefore(endsAt)) {
+        await NotificationService.showCountdown(
+          notificationId: _countdownNotificationId(alarm.id),
+          alarmId: alarm.id,
+          title: 'Next bus alarm',
+          body: _ringBody(alarm, await _stopName(alarm)),
+          progressStartTime: _androidProgressStartTime(alarm, now),
+          countdownTargetTime: thresholdAt,
+          estimatedArrivalTime: arrivalAt,
+          thresholdTimes: alarm.thresholdStates
+              .map(
+                (state) => arrivalAt.subtract(
+                  Duration(minutes: state.minutesBeforeArrival),
+                ),
+              )
+              .toList(),
+        );
+      } else {
+        await NotificationService.cancel(_countdownNotificationId(alarm.id));
+      }
       await _scheduleHalfwayCheck(alarm, now, thresholdAt);
       return;
     }
@@ -213,6 +257,7 @@ class AndroidAlarmCoordinator {
     final finalArrivalAt = lookup.arrivalAt;
     if (finalArrivalAt == null) {
       await _cancel(_fireAlarmId(alarm.id));
+      await NotificationService.cancel(_countdownNotificationId(alarm.id));
       await _scheduleRetry(alarm, now);
       return;
     }
@@ -223,6 +268,28 @@ class AndroidAlarmCoordinator {
     }
 
     await _schedule(alarm, arrivalAlertAt, 'fire');
+    if (arrivalAlertAt.isBefore(endsAt)) {
+      await NotificationService.showCountdown(
+        notificationId: _countdownNotificationId(alarm.id),
+        alarmId: alarm.id,
+        title: 'Bus arriving soon',
+        body: alarm.message.isNotEmpty
+            ? alarm.message
+            : 'Your bus is expected shortly.',
+        progressStartTime: _androidProgressStartTime(alarm, now),
+        countdownTargetTime: finalArrivalAt,
+        estimatedArrivalTime: finalArrivalAt,
+        thresholdTimes: alarm.thresholdStates
+            .map(
+              (state) => finalArrivalAt.subtract(
+                Duration(minutes: state.minutesBeforeArrival),
+              ),
+            )
+            .toList(),
+      );
+    } else {
+      await NotificationService.cancel(_countdownNotificationId(alarm.id));
+    }
     await _scheduleHalfwayCheck(alarm, now, arrivalAlertAt);
   }
 
@@ -479,6 +546,7 @@ class AndroidAlarmCoordinator {
     required bool dueToWindowEnd,
   }) async {
     await _cancelScheduledCallbacks(alarm.id);
+    await NotificationService.cancel(_countdownNotificationId(alarm.id));
     final now = DateTime.now();
     if (alarm.repeat.frequency == RepeatFrequency.none) {
       final concluded = alarm.copyWith(
@@ -524,6 +592,7 @@ class AndroidAlarmCoordinator {
       spent: true,
       clearLastEstimatedMinutesUntilThreshold: true,
       clearAndroidFallbackArrival: true,
+      clearAndroidProgressStartEpochSeconds: true,
       androidOccurrenceStartEpochSeconds:
           nextWindow.start.millisecondsSinceEpoch ~/ 1000,
       androidOccurrenceEndEpochSeconds:
@@ -567,6 +636,12 @@ class AndroidAlarmCoordinator {
           ? 'Live arrival updates were unavailable. This alarm is set for its next repeat.'
           : 'Live arrival updates were unavailable before this alarm window ended.',
     );
+  }
+
+  DateTime _androidProgressStartTime(TransportAlarm alarm, DateTime fallback) {
+    final startSeconds = alarm.androidProgressStartEpochSeconds;
+    if (startSeconds == null) return fallback;
+    return DateTime.fromMillisecondsSinceEpoch(startSeconds * 1000);
   }
 
   Future<void> _cancelScheduledCallbacks(String alarmId) async {
@@ -685,6 +760,8 @@ class AndroidAlarmCoordinator {
   int _fireAlarmId(String alarmId) => _stableId(alarmId) * 2 + 1;
   int _ringNotificationId(String alarmId) => _stableId(alarmId);
   int _statusNotificationId(String alarmId) => _stableId(alarmId) + 0x40000000;
+  int _countdownNotificationId(String alarmId) =>
+      -0x40000000 + _stableId(alarmId);
 }
 
 /// Top-level entrypoint invoked by AlarmManager in its background Dart isolate.
