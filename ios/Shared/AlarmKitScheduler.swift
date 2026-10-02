@@ -14,14 +14,12 @@ enum AlarmKitScheduler {
     }
 
     static func schedule(alarmID: UUID, secondsUntilFire: TimeInterval, title: String) async throws {
-        let isAuthorized: Bool
-        do {
-            isAuthorized = try await requestAuthorization()
-        } catch {
-            throw SchedulerError.authorizationFailed(Self.describe(error))
-        }
-        guard isAuthorized else {
-            throw SchedulerError.notAuthorized
+        // Permission is requested from the foreground app when the alarm is
+        // created. Push handling runs in an extension, where requesting a new
+        // user authorization can fail because there is no foreground UI.
+        let authorizationState = AlarmManager.shared.authorizationState
+        guard authorizationState == .authorized else {
+            throw SchedulerError.notAuthorized(String(describing: authorizationState))
         }
 
         typealias Configuration = AlarmManager.AlarmConfiguration<TransportAlarmMetadata>
@@ -67,16 +65,13 @@ enum AlarmKitScheduler {
     }
 
     enum SchedulerError: LocalizedError {
-        case notAuthorized
-        case authorizationFailed(String)
+        case notAuthorized(String)
         case scheduleFailed(String)
 
         var errorDescription: String? {
             switch self {
-            case .notAuthorized:
-                "AlarmKit authorization is not granted."
-            case .authorizationFailed(let details):
-                "AlarmKit authorization request failed: \(details)"
+            case .notAuthorized(let state):
+                "AlarmKit authorization is not granted (state: \(state))."
             case .scheduleFailed(let details):
                 "AlarmKit schedule call failed: \(details)"
             }
