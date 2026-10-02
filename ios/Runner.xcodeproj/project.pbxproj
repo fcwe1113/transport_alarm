@@ -20,6 +20,33 @@
 		D20000000000000000000041 /* strings_zh-Hans.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000004 /* strings_zh-Hans.json */; };
 		D20000000000000000000042 /* strings_zh-Hans.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000004 /* strings_zh-Hans.json */; };
 		D20000000000000000000043 /* strings_zh-Hans.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000004 /* strings_zh-Hans.json */; };
+		D20000000000000000000065 /* strings_ja.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000005 /* strings_ja.json */; };
+		D20000000000000000000066 /* strings_ja.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000005 /* strings_ja.json */; };
+		D20000000000000000000067 /* strings_ja.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000005 /* strings_ja.json */; };
+		D20000000000000000000068 /* strings_fr.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000006 /* strings_fr.json */; };
+		D20000000000000000000069 /* strings_fr.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000006 /* strings_fr.json */; };
+		D2000000000000000000006A /* strings_fr.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000006 /* strings_fr.json */; };
+		D2000000000000000000006B /* strings_de.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000007 /* strings_de.json */; };
+		D2000000000000000000006C /* strings_de.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000007 /* strings_de.json */; };
+		D2000000000000000000006D /* strings_de.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000007 /* strings_de.json */; };
+		D2000000000000000000006E /* strings_nl.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000008 /* strings_nl.json */; };
+		D2000000000000000000006F /* strings_nl.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000008 /* strings_nl.json */; };
+		D20000000000000000000070 /* strings_nl.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000008 /* strings_nl.json */; };
+		D20000000000000000000071 /* strings_it.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000009 /* strings_it.json */; };
+		D20000000000000000000072 /* strings_it.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000009 /* strings_it.json */; };
+		D20000000000000000000073 /* strings_it.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000009 /* strings_it.json */; };
+		D20000000000000000000074 /* strings_pl.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000A /* strings_pl.json */; };
+		D20000000000000000000075 /* strings_pl.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000A /* strings_pl.json */; };
+		D20000000000000000000076 /* strings_pl.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000A /* strings_pl.json */; };
+		D20000000000000000000077 /* strings_ko.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000B /* strings_ko.json */; };
+		D20000000000000000000078 /* strings_ko.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000B /* strings_ko.json */; };
+		D20000000000000000000079 /* strings_ko.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000B /* strings_ko.json */; };
+		D2000000000000000000007A /* strings_uk.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000C /* strings_uk.json */; };
+		D2000000000000000000007D /* strings_es.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000D /* strings_es.json */; };
+		D2000000000000000000007B /* strings_uk.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000C /* strings_uk.json */; };
+		D2000000000000000000007E /* strings_es.json in NotificationService Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000D /* strings_es.json */; };
+		D2000000000000000000007C /* strings_uk.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000C /* strings_uk.json */; };
+		D2000000000000000000007F /* strings_es.json in Widget Resources */ = {isa = PBXBuildFile; fileRef = D1000000000000000000000D /* strings_es.json */; };
 
 		0EC74B1E9A57CFFF0ECF6368 /* AppGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA842F78E2A33F2110979FE /* AppGroup.swift */; };
 		A10000000000000000000001 /* NativePingHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* NativePingHandler.swift */; };
@@ -96,6 +123,15 @@
 		D10000000000000000000002 /* strings_en.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_en.json; path = ../assets/localization/strings_en.json; sourceTree = SOURCE_ROOT; };
 		D10000000000000000000003 /* strings_zh-Hant.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_zh-Hant.json; path = ../assets/localization/strings_zh-Hant.json; sourceTree = SOURCE_ROOT; };
 		D10000000000000000000004 /* strings_zh-Hans.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_zh-Hans.json; path = ../assets/localization/strings_zh-Hans.json; sourceTree = SOURCE_ROOT; };
+		D10000000000000000000005 /* strings_ja.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_ja.json; path = ../assets/localization/strings_ja.json; sourceTree = SOURCE_ROOT; };
+		D10000000000000000000006 /* strings_fr.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_fr.json; path = ../assets/localization/strings_fr.json; sourceTree = SOURCE_ROOT; };
+		D10000000000000000000007 /* strings_de.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_de.json; path = ../assets/localization/strings_de.json; sourceTree = SOURCE_ROOT; };
+		D10000000000000000000008 /* strings_nl.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_nl.json; path = ../assets/localization/strings_nl.json; sourceTree = SOURCE_ROOT; };
+		D10000000000000000000009 /* strings_it.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_it.json; path = ../assets/localization/strings_it.json; sourceTree = SOURCE_ROOT; };
+		D1000000000000000000000A /* strings_pl.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_pl.json; path = ../assets/localization/strings_pl.json; sourceTree = SOURCE_ROOT; };
+		D1000000000000000000000B /* strings_ko.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_ko.json; path = ../assets/localization/strings_ko.json; sourceTree = SOURCE_ROOT; };
+		D1000000000000000000000C /* strings_uk.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_uk.json; path = ../assets/localization/strings_uk.json; sourceTree = SOURCE_ROOT; };
+		D1000000000000000000000D /* strings_es.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_es.json; path = ../assets/localization/strings_es.json; sourceTree = SOURCE_ROOT; };
 
 		06D84277ADB6CC2F36720051 /* AppGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppGroup.swift; path = Shared/AppGroup.swift; sourceTree = SOURCE_ROOT; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
@@ -210,6 +246,15 @@
 				D10000000000000000000002 /* strings_en.json */,
 				D10000000000000000000003 /* strings_zh-Hant.json */,
 				D10000000000000000000004 /* strings_zh-Hans.json */,
+				D10000000000000000000005 /* strings_ja.json */,
+				D10000000000000000000006 /* strings_fr.json */,
+				D10000000000000000000007 /* strings_de.json */,
+				D10000000000000000000008 /* strings_nl.json */,
+				D10000000000000000000009 /* strings_it.json */,
+				D1000000000000000000000A /* strings_pl.json */,
+				D1000000000000000000000B /* strings_ko.json */,
+				D1000000000000000000000C /* strings_uk.json */,
+				D1000000000000000000000D /* strings_es.json */,
 				B50000000000000000000001 /* AlarmWidgetExtension */,
 			);
 			sourceTree = "<group>";
@@ -407,8 +452,8 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		D30000000000000000000001 /* NotificationService Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (D20000000000000000000012 /* strings_en.json in NotificationService Resources */, D20000000000000000000032 /* strings_zh-Hant.json in NotificationService Resources */, D20000000000000000000042 /* strings_zh-Hans.json in NotificationService Resources */); runOnlyForDeploymentPostprocessing = 0; };
-		D30000000000000000000002 /* Widget Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (D20000000000000000000013 /* strings_en.json in Widget Resources */, D20000000000000000000033 /* strings_zh-Hant.json in Widget Resources */, D20000000000000000000043 /* strings_zh-Hans.json in Widget Resources */); runOnlyForDeploymentPostprocessing = 0; };
+		D30000000000000000000001 /* NotificationService Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (D20000000000000000000012 /* strings_en.json in NotificationService Resources */, D20000000000000000000032 /* strings_zh-Hant.json in NotificationService Resources */, D20000000000000000000042 /* strings_zh-Hans.json in NotificationService Resources */, D20000000000000000000066 /* strings_ja.json in NotificationService Resources */, D20000000000000000000069 /* strings_fr.json in NotificationService Resources */, D2000000000000000000006C /* strings_de.json in NotificationService Resources */, D2000000000000000000006F /* strings_nl.json in NotificationService Resources */, D20000000000000000000072 /* strings_it.json in NotificationService Resources */, D20000000000000000000075 /* strings_pl.json in NotificationService Resources */, D20000000000000000000078 /* strings_ko.json in NotificationService Resources */, D2000000000000000000007B /* strings_uk.json in NotificationService Resources */, D2000000000000000000007E /* strings_es.json in NotificationService Resources */); runOnlyForDeploymentPostprocessing = 0; };
+		D30000000000000000000002 /* Widget Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (D20000000000000000000013 /* strings_en.json in Widget Resources */, D20000000000000000000033 /* strings_zh-Hant.json in Widget Resources */, D20000000000000000000043 /* strings_zh-Hans.json in Widget Resources */, D20000000000000000000067 /* strings_ja.json in Widget Resources */, D2000000000000000000006A /* strings_fr.json in Widget Resources */, D2000000000000000000006D /* strings_de.json in Widget Resources */, D20000000000000000000070 /* strings_nl.json in Widget Resources */, D20000000000000000000073 /* strings_it.json in Widget Resources */, D20000000000000000000076 /* strings_pl.json in Widget Resources */, D20000000000000000000079 /* strings_ko.json in Widget Resources */, D2000000000000000000007C /* strings_uk.json in Widget Resources */, D2000000000000000000007F /* strings_es.json in Widget Resources */); runOnlyForDeploymentPostprocessing = 0; };
 
 		97C146EC1CF9000F007C117D /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
@@ -421,6 +466,15 @@
 				D20000000000000000000011 /* strings_en.json in Runner Resources */,
 				D20000000000000000000031 /* strings_zh-Hant.json in Runner Resources */,
 				D20000000000000000000041 /* strings_zh-Hans.json in Runner Resources */,
+				D20000000000000000000065 /* strings_ja.json in Runner Resources */,
+				D20000000000000000000068 /* strings_fr.json in Runner Resources */,
+				D2000000000000000000006B /* strings_de.json in Runner Resources */,
+				D2000000000000000000006E /* strings_nl.json in Runner Resources */,
+				D20000000000000000000071 /* strings_it.json in Runner Resources */,
+				D20000000000000000000074 /* strings_pl.json in Runner Resources */,
+				D20000000000000000000077 /* strings_ko.json in Runner Resources */,
+				D2000000000000000000007A /* strings_uk.json in Runner Resources */,
+				D2000000000000000000007D /* strings_es.json in Runner Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
