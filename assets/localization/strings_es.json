@@ -196,5 +196,5 @@
   "notification.default_transport_body": "Se espera su {transportMode} en breve.",
   "notification.transport_expected_at": "Se espera su {transportMode} en {stop}.",
   "notification.transport_approaching": "Su {transportMode} se aproxima a {stop}.",
-  "live_activity.transport_mode": "{transportModeTitle}",
+  "live_activity.transport_mode": "{transportModeTitle}"
 }
