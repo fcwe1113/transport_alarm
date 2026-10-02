@@ -1,7 +1,6 @@
 import Flutter
 import UIKit
 import GoogleMaps
-import Firebase
 import UserNotifications
 
 let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"

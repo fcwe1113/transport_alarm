@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
@@ -5,6 +7,7 @@ import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/device_token_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
+import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 
 ///
 class AlarmLifecycleService {
@@ -14,6 +17,42 @@ class AlarmLifecycleService {
   const AlarmLifecycleService({required this._storage, required this._server});
 
   Future<AlarmActionResult> createAlarm(TransportAlarm alarm) async {
+    if (Platform.isAndroid) {
+      final existing = (await _storage.loadAlarms())
+          .where((saved) => saved.id == alarm.id)
+          .firstOrNull;
+      try {
+        if (existing == null) {
+          await _storage.addAlarm(alarm);
+        } else {
+          if (existing.pingId != null) {
+            try {
+              await _server.cancelPing(existing.pingId!);
+            } catch (_) {
+              // Local Android alarms do not depend on the old server ping.
+            }
+          }
+          await _storage.updateAlarm(alarm);
+        }
+        await AndroidAlarmCoordinator(_storage).startOrSchedule(alarm);
+        return const AlarmActionResult.success();
+      } catch (e) {
+        if (existing == null) {
+          await AndroidAlarmCoordinator(_storage).disable(alarm.id);
+          await _storage.deleteAlarm(alarm.id);
+        } else {
+          await _storage.updateAlarm(existing);
+          if (!e.toString().contains('Allow Transport Alarm')) {
+            try {
+              await AndroidAlarmCoordinator(_storage).startOrSchedule(existing);
+            } catch (_) {
+              // Preserve the prior alarm if Android refuses to rearm it.
+            }
+          }
+        }
+        return AlarmActionResult.failure(e.toString());
+      }
+    }
     try {
       final scheduled = await _schedulePing(alarm);
       await _storage.addAlarm(scheduled);
@@ -37,14 +76,44 @@ class AlarmLifecycleService {
               .map((t) => ThresholdState(minutesBeforeArrival: t.minutesBeforeArrival))
               .toList(),
           clearLastEstimatedMinutesUntilThreshold: true,
+          clearPingId: Platform.isAndroid,
         );
+        if (Platform.isAndroid) {
+          if (alarm.pingId != null) {
+            try {
+              await _server.cancelPing(alarm.pingId!);
+            } catch (_) {
+              // A legacy server ping is independent of the new local schedule.
+            }
+          }
+          await _storage.updateAlarm(reenabled);
+          try {
+            await AndroidAlarmCoordinator(_storage).startOrSchedule(reenabled);
+          } catch (e) {
+            await _storage.updateAlarm(
+              reenabled.copyWith(enabled: false, clearAndroidOccurrence: true),
+            );
+            return AlarmActionResult.failure(e.toString());
+          }
+          return const AlarmActionResult.success();
+        }
         final scheduled = await _schedulePing(reenabled);
         await _storage.updateAlarm(scheduled);
       } else {
+        if (Platform.isAndroid) {
+          await AndroidAlarmCoordinator(_storage).disable(alarmId);
+        }
         if (alarm.pingId != null) {
           await _server.cancelPing(alarm.pingId!);
         }
-        await _storage.updateAlarm(alarm.copyWith(enabled: false, pingId: null));
+        await _storage.updateAlarm(
+          alarm.copyWith(
+            enabled: false,
+            clearPingId: true,
+            clearAndroidOccurrence: true,
+            clearAndroidFallbackArrival: true,
+          ),
+        );
       }
       return AlarmActionResult.success();
     } catch (e) {
@@ -55,6 +124,9 @@ class AlarmLifecycleService {
   Future<void> deleteAlarm(String alarmId) async {
     final alarms = await _storage.loadAlarms();
     final alarm = alarms.where((a) => a.id == alarmId).firstOrNull;
+    if (Platform.isAndroid) {
+      await AndroidAlarmCoordinator(_storage).disable(alarmId);
+    }
     if (alarm?.pingId != null) {
       await _server.cancelPing(alarm!.pingId!);
     }

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/provider_registry.dart';
@@ -270,8 +272,18 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     );
 
     final lifecycle = AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService());
-    if (widget.alarmToEdit != null) await lifecycle.deleteAlarm(newAlarm.id); // todo write lifecycle edit alarm method
-    await lifecycle.createAlarm(newAlarm);
+    if (widget.alarmToEdit != null && !Platform.isAndroid) {
+      await lifecycle.deleteAlarm(newAlarm.id); // iOS still replaces its server-scheduled ping.
+    }
+    final result = await lifecycle.createAlarm(newAlarm);
+    if (!result.succeeded) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save alarm: ${result.errorMessage}')),
+        );
+      }
+      return;
+    }
     Navigator.pop(context);
   }
 
