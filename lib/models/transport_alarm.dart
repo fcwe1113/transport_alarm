@@ -27,6 +27,14 @@ class TransportAlarm {
   final String? pingId;
   // Cached distance from the active threshold, rather than distance to arrival.
   final int? lastEstimatedMinutesUntilThreshold;
+  // Android stores local-device window bounds for the current occurrence.
+  final int? androidOccurrenceStartEpochSeconds;
+  final int? androidOccurrenceEndEpochSeconds;
+  // Start of the visible Android progress timeline for this occurrence.
+  final int? androidProgressStartEpochSeconds;
+  // Preserve a single GTFS fallback bus while live ETA calls are failing.
+  final int? androidFallbackArrivalEpochSeconds;
+  final bool androidApiWarningActive;
 
   const TransportAlarm({ //  constructor
     required this.id,
@@ -45,6 +53,11 @@ class TransportAlarm {
     this.enabled = true,
     this.pingId,
     this.lastEstimatedMinutesUntilThreshold,
+    this.androidOccurrenceStartEpochSeconds,
+    this.androidOccurrenceEndEpochSeconds,
+    this.androidProgressStartEpochSeconds,
+    this.androidFallbackArrivalEpochSeconds,
+    this.androidApiWarningActive = false,
   });
 
   TransportAlarm copyWith({
@@ -62,8 +75,17 @@ class TransportAlarm {
     String? message,
     bool? enabled,
     String? pingId,
+    bool clearPingId = false,
     int? lastEstimatedMinutesUntilThreshold,
+    int? androidOccurrenceStartEpochSeconds,
+    int? androidOccurrenceEndEpochSeconds,
+    int? androidProgressStartEpochSeconds,
+    int? androidFallbackArrivalEpochSeconds,
+    bool? androidApiWarningActive,
     bool clearLastEstimatedMinutesUntilThreshold = false,
+    bool clearAndroidOccurrence = false,
+    bool clearAndroidProgressStartEpochSeconds = false,
+    bool clearAndroidFallbackArrival = false,
   }) {
     return TransportAlarm(
         id: id,
@@ -79,10 +101,25 @@ class TransportAlarm {
         spent: spent ?? this.spent,
         message: message ?? this.message,
         enabled: enabled ?? this.enabled,
-        pingId: pingId ?? this.pingId,
+        pingId: clearPingId ? null : pingId ?? this.pingId,
         lastEstimatedMinutesUntilThreshold: clearLastEstimatedMinutesUntilThreshold
             ? null
             : lastEstimatedMinutesUntilThreshold ?? this.lastEstimatedMinutesUntilThreshold,
+        androidOccurrenceStartEpochSeconds: clearAndroidOccurrence
+            ? null
+            : androidOccurrenceStartEpochSeconds ?? this.androidOccurrenceStartEpochSeconds,
+        androidOccurrenceEndEpochSeconds: clearAndroidOccurrence
+            ? null
+            : androidOccurrenceEndEpochSeconds ?? this.androidOccurrenceEndEpochSeconds,
+        androidProgressStartEpochSeconds:
+            clearAndroidOccurrence || clearAndroidProgressStartEpochSeconds
+                ? null
+                : androidProgressStartEpochSeconds ??
+                    this.androidProgressStartEpochSeconds,
+        androidFallbackArrivalEpochSeconds: clearAndroidFallbackArrival
+            ? null
+            : androidFallbackArrivalEpochSeconds ?? this.androidFallbackArrivalEpochSeconds,
+        androidApiWarningActive: androidApiWarningActive ?? this.androidApiWarningActive,
     );
   }
 
@@ -103,6 +140,11 @@ class TransportAlarm {
     'enabled': enabled,
     'pingId': pingId,
     'lastEstimatedMinutesUntilThreshold': lastEstimatedMinutesUntilThreshold,
+    'androidOccurrenceStartEpochSeconds': androidOccurrenceStartEpochSeconds,
+    'androidOccurrenceEndEpochSeconds': androidOccurrenceEndEpochSeconds,
+    'androidProgressStartEpochSeconds': androidProgressStartEpochSeconds,
+    'androidFallbackArrivalEpochSeconds': androidFallbackArrivalEpochSeconds,
+    'androidApiWarningActive': androidApiWarningActive,
   };
 
   static TransportAlarm fromJson(Map<String, dynamic> json) => TransportAlarm(
@@ -126,6 +168,15 @@ class TransportAlarm {
     pingId: json['pingId'] as String?,
     lastEstimatedMinutesUntilThreshold:
         _cachedMinutesUntilThreshold(json),
+    androidOccurrenceStartEpochSeconds:
+        json['androidOccurrenceStartEpochSeconds'] as int?,
+    androidOccurrenceEndEpochSeconds:
+        json['androidOccurrenceEndEpochSeconds'] as int?,
+    androidProgressStartEpochSeconds:
+        json['androidProgressStartEpochSeconds'] as int?,
+    androidFallbackArrivalEpochSeconds:
+        json['androidFallbackArrivalEpochSeconds'] as int?,
+    androidApiWarningActive: json['androidApiWarningActive'] as bool? ?? false,
   );
 
   static int? _cachedMinutesUntilThreshold(Map<String, dynamic> json) {

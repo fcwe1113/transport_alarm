@@ -1,17 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:transport_alarm/screens/add_alarm_screen.dart';
 import 'package:transport_alarm/screens/alarm_list_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/screens/setup_screen.dart';
-import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
-import 'package:transport_alarm/services/alarm_ping_handler.dart';
-import 'package:transport_alarm/services/alarm_server_service.dart';
-import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
@@ -20,32 +14,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'firebase_options.dart';
-
-@pragma("vm:entry-point")
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  print("Background message received: ${message.messageId}");
-  print("Data: ${message.data}");
-
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  final pingId = message.data["ping_id"];
-  if (pingId == null) return; // should never happen
-  final storage = AlarmStorageService();
-  final server = AlarmServerService();
-  final handler = AlarmPingHandler(storage, server, AlarmLifecycleService(storage: storage, server: server));
-  await handler.handlePing(pingId);
-}
-
 Future<void> main() async { // dart entry point
 
   WidgetsFlutterBinding.ensureInitialized();
   await AppGroupStorage.migrateLegacyDocuments();
-  final String jsonString = await rootBundle.loadString("config/secrets.json");
-  final Map<String, dynamic> secrets = jsonDecode(jsonString);
-  final String apiKey = secrets["MAPS_API_KEY"];
-
   if (defaultTargetPlatform == TargetPlatform.iOS) {
+    final String jsonString = await rootBundle.loadString("config/secrets.json");
+    final Map<String, dynamic> secrets = jsonDecode(jsonString);
+    final String apiKey = secrets["MAPS_API_KEY"];
     if (apiKey.isNotEmpty) {
       const channel = MethodChannel("com.fcwe1113.transport_alarm/google_maps");
       try {
@@ -63,30 +39,9 @@ Future<void> main() async { // dart entry point
       attempts++;
     }
     print("APNS DEVICE TOKEN: ${apnsToken}");
-  } else {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    FirebaseMessaging messaging = FirebaseMessaging.instance;
-    NotificationSettings settings = await messaging.requestPermission(alert: true, badge: true, sound: true);
-    print("User permission status: ${settings.authorizationStatus}");
-    String? token = Platform.isIOS ? await messaging.getAPNSToken() : await messaging.getToken();
-    print("FCM DEVICE TOKEN: ${token}");
-
-    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-      print("FCM Token Refreshed: ${newToken}"); // todo update token at server
-    });
-
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-
+  } else if (defaultTargetPlatform == TargetPlatform.android) {
+    await AndroidAlarmManager.initialize();
     await NotificationService.init();
-
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      final pingId = message.data["ping_id"];
-      if (pingId == null) return; // should never happen
-      final storage = AlarmStorageService();
-      final server = AlarmServerService();
-      final handler = AlarmPingHandler(storage, server, AlarmLifecycleService(storage: storage, server: server));
-      await handler.handlePing(pingId);
-    });
   }
 
   final selectionService = LocaleSelectionService();

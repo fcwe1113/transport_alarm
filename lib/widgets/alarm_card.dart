@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
+import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
@@ -37,6 +38,7 @@ class AlarmCard extends StatefulWidget {
 class _AlarmCardState extends State<AlarmCard> {
   Timer? _refreshTimer;
   int _refreshTick = 0;
+  List<RouteArrival>? _lastArrivals;
 
   @override
   void initState() {
@@ -47,17 +49,29 @@ class _AlarmCardState extends State<AlarmCard> {
   }
 
   Future<List<RouteArrival>> _loadArrivalsAndPersistEstimate() async {
+    final savedAlarm = (await AlarmStorageService().loadAlarms())
+        .where((alarm) => alarm.id == widget.alarm.id)
+        .firstOrNull;
+    final alarm = savedAlarm ?? widget.alarm;
+    final waitingForFirstEligibleBus =
+        alarm.thresholdStates.isNotEmpty &&
+        alarm.thresholdStates.every(
+          (state) => state.outcome == ThresholdOutcome.pending,
+        ) &&
+        alarm.lastEstimatedMinutesUntilThreshold == null &&
+        alarm.androidFallbackArrivalEpochSeconds == null;
     final arrivals = await resolveArrivals(
-      gtfsStopId: widget.alarm.gtfsStopId,
-      routeNumberFilter: widget.alarm.routeNumbers,
-      minimumMinutesFromNow: widget.alarm.thresholdStates.isEmpty
-          ? null
-          : widget.alarm.thresholdStates
+      gtfsStopId: alarm.gtfsStopId,
+      routeNumberFilter: alarm.routeNumbers,
+      minimumMinutesFromNow: waitingForFirstEligibleBus
+          ? alarm.thresholdStates
                 .map((state) => state.minutesBeforeArrival)
-                .reduce((a, b) => a > b ? a : b),
+                .reduce((a, b) => a > b ? a : b)
+          : null,
     );
+    _lastArrivals = arrivals;
     if (Platform.isIOS) {
-      final eligible = widget.alarm.liveOnly
+      final eligible = alarm.liveOnly
           ? arrivals.where((arrival) => arrival.isLive)
           : arrivals;
       if (eligible.isNotEmpty) {
@@ -65,7 +79,7 @@ class _AlarmCardState extends State<AlarmCard> {
             .reduce((a, b) => a.minutesFromNow <= b.minutesFromNow ? a : b)
             .minutesFromNow;
         await AlarmStorageService().updateLastEstimate(
-          widget.alarm.id,
+          alarm.id,
           estimate,
         );
       }
@@ -237,6 +251,12 @@ class _AlarmCardState extends State<AlarmCard> {
                     future: _loadArrivalsAndPersistEstimate(),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
+                        final previousArrivals = _lastArrivals;
+                        final previousEstimate =
+                            previousArrivals != null &&
+                                previousArrivals.isNotEmpty
+                            ? _formatNextArrival(previousArrivals)
+                            : null;
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -249,7 +269,9 @@ class _AlarmCardState extends State<AlarmCard> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              "Loading arrivals...",
+                              previousEstimate == null
+                                  ? "Loading arrivals..."
+                                  : "$previousEstimate (updating...)",
                               style: TextStyle(
                                 color: Colors.grey.shade600,
                                 fontSize: 13,
@@ -269,8 +291,7 @@ class _AlarmCardState extends State<AlarmCard> {
                       } else if (arrivals == null || arrivals.isEmpty) {
                         contents = "No upcoming arrivals found";
                       } else {
-                        contents =
-                            "Next arrival in ${arrivals.first.minutesFromNow} minute${arrivals.first.minutesFromNow == 1 ? "" : "s"}";
+                        contents = _formatNextArrival(arrivals);
                       }
 
                       return Column(
@@ -303,5 +324,10 @@ class _AlarmCardState extends State<AlarmCard> {
         ],
       ),
     );
+  }
+
+  String _formatNextArrival(List<RouteArrival> arrivals) {
+    final minutes = arrivals.first.minutesFromNow;
+    return "Next arrival in $minutes minute${minutes == 1 ? "" : "s"}";
   }
 }

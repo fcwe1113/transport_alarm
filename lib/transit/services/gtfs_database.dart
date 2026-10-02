@@ -28,7 +28,13 @@ class GtfsDatabase {
     }
     final dir = Directory('${(await AppGroupStorage.directory).path}/gtfs');
     await dir.create(recursive: true);
-    final db = await _initDB('${dir.path}/gtfs/$locale.db');
+    final databaseFile = File('${dir.path}/$locale.db');
+    final legacyFile = File('${dir.path}/gtfs/$locale.db');
+    if (!await databaseFile.exists() && await legacyFile.exists()) {
+      await databaseFile.parent.create(recursive: true);
+      await legacyFile.copy(databaseFile.path);
+    }
+    final db = await _initDB(databaseFile.path);
     _databases[locale] = db;
     return db;
   }
@@ -533,6 +539,10 @@ class GtfsDatabase {
     final file = File("${dir.path}/gtfs/$locale.db");
     if (await file.exists()) {
       await file.delete();
+    }
+    final legacyFile = File('${dir.path}/gtfs/gtfs/$locale.db');
+    if (await legacyFile.exists()) {
+      await legacyFile.delete();
     }
   }
 

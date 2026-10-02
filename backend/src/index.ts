@@ -6,9 +6,6 @@ export interface Env {
 	APNS_TEAM_ID?: string;
 	APNS_TOPIC?: string;
 	APNS_PRIVATE_KEY?: string;
-	FCM_PROJECT_ID?: string;
-	FCM_CLIENT_EMAIL?: string;
-	FCM_PRIVATE_KEY?: string;
 }
 
 interface ScheduledPing {
@@ -115,10 +112,8 @@ export default {
 
 		console.log(`[Cron run at ${new Date().toISOString()}] found ${results.length} jobs to process`);
 
-		let fcmAccessToken: string | null = null;
-
 		for (const job of results) {
-			// Claim the row before calling APNs/FCM so overlapping cron runs do
+			// Claim the row before calling APNs so overlapping cron runs do
 			// not send the same due ping concurrently. A failed provider request
 			// returns it to PENDING for the next cron run to retry.
 			const claim = await env.DB.prepare(
@@ -130,9 +125,6 @@ export default {
 
 			if (env.APNS_PRIVATE_KEY && env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_TOPIC) {
 				success = await sendVisiblePush(env, job);
-			} else if (env.FCM_PROJECT_ID && env.FCM_CLIENT_EMAIL && env.FCM_PRIVATE_KEY) {
-				fcmAccessToken ??= await getFCMAccessToken(env);
-				success = fcmAccessToken ? await sendFCMPush(env, job, fcmAccessToken) : false;
 			} else {
 				success = await mockSendVisiblePush(job);
 			}
@@ -346,86 +338,7 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 	}
 }
 
-// Exchanges the FCM service account's credentials for a short-lived OAuth2
-// access token, required by FCM's HTTP v1 API. Signed with RS256, unlike
-// APNs' ES256 — the service account key is an RSA key, not EC.
-async function getFCMAccessToken(env: Env): Promise<string | null> {
-	try {
-		const nowSeconds = Math.floor(Date.now() / 1000);
-		const assertion = await jwt.sign(
-			{
-				iss: env.FCM_CLIENT_EMAIL,
-				scope: "https://www.googleapis.com/auth/firebase.messaging",
-				aud: "https://oauth2.googleapis.com/token",
-				iat: nowSeconds,
-				exp: nowSeconds + 3600
-			},
-			cleanKeyString(env.FCM_PRIVATE_KEY!),
-			{ algorithm: "RS256" }
-		);
-
-		const response = await fetch("https://oauth2.googleapis.com/token", {
-			method: "POST",
-			headers: { "content-type": "application/x-www-form-urlencoded" },
-			body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${assertion}`
-		});
-
-		if (!response.ok) {
-			console.log("FCM token exchange failed:", await response.text());
-			return null;
-		}
-
-		const data = (await response.json()) as { access_token: string };
-		return data.access_token;
-	} catch (error) {
-		console.log("FCM token exchange error:", error);
-		return null;
-	}
-}
-
-async function sendFCMPush(env: Env, job: ScheduledPing, accessToken: string): Promise<boolean> {
-	try {
-		const payload = {
-			message: {
-				token: job.device_token,
-				notification: {
-					title: "server cronjob ping",
-					body: "you should not be able to see this lol"
-				},
-				android: {
-					notification: {
-						channel_id: "alarm_test_channel"
-					}
-				},
-				data: { ping_id: String(job.id) }
-			}
-		};
-
-		const response = await fetch(`https://fcm.googleapis.com/v1/projects/${env.FCM_PROJECT_ID}/messages:send`, {
-			method: "POST",
-			headers: {
-				authorization: `Bearer ${accessToken}`,
-				"content-type": "application/json"
-			},
-			body: JSON.stringify(payload)
-		});
-
-		if (!response.ok) {
-			console.log(`FCM push failed for ping ${job.id}:`, await response.text());
-		}
-		return response.ok;
-	} catch (error) {
-		console.log(`FCM push error for ping ${job.id}:`, error);
-		return false;
-	}
-}
-
 async function mockSendVisiblePush(job: ScheduledPing): Promise<boolean> {
 	console.log(`[MOCK APNs PUSH] Triggered for Ping ID: ${job.id} -> Token: ${job.device_token}`);
-	return true;
-}
-
-async function mockSendFCMPush(job: ScheduledPing): Promise<boolean> {
-	console.log(`[MOCK FCM PUSH] Triggered for Ping ID: ${job.id} -> Token: ${job.device_token}`);
 	return true;
 }

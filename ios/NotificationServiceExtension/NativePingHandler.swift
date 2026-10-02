@@ -38,7 +38,7 @@ final class NativePingHandler {
 
     /// Processes one server ping. A visible push is the ring itself; the same
     /// server ping ID is rescheduled until the user acknowledges the threshold.
-    func handle(pingID: String) async -> PingResult {
+    func handle(pingID: String) async -> PingResult { // todo track the second when ping comes in and decide all schedules to "5-30 sec before the second"
         do {
             var alarms = try loadAlarms()
             guard let alarmIndex = alarms.firstIndex(where: {
