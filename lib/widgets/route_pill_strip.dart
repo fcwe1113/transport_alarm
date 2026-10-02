@@ -55,16 +55,16 @@ class _RoutePillStripState extends State<RoutePillStrip> {
         physics: const NeverScrollableScrollPhysics(),
         children: routes.map((route) => Padding(
           padding: const EdgeInsets.only(right: 6),
-          child: _MiniRoutePill(route: route),
+          child: RoutePill(route: route),
         )).toList(),
       ),);
     });
   }
 }
 
-class _MiniRoutePill extends StatelessWidget {
+class RoutePill extends StatelessWidget {
   final BusRoute route;
-  const _MiniRoutePill({required this.route});
+  const RoutePill({super.key, required this.route});
 
   @override
   Widget build(BuildContext context) {

@@ -57,4 +57,16 @@ class BusRoute {
     }
     return byRouteNumber.values.toList();
   }
+
+  static List<BusRoute> dedupeByRouteAndDestination(List<BusRoute> routes) {
+    final uniqueRoutes = <String, BusRoute>{};
+    for (final route in routes) {
+      final destination = route.destinationText['en'] ?? '';
+      uniqueRoutes.putIfAbsent(
+        '${route.routeNumber}\u0000$destination',
+        () => route,
+      );
+    }
+    return uniqueRoutes.values.toList();
+  }
 }

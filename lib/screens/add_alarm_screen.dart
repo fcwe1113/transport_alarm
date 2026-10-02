@@ -10,6 +10,7 @@ import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
+import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -82,12 +83,14 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     final db = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
     final stop = await db.getGtfsStopById(alarm.gtfsStopId);
     if (stop != null) {
-      final routes = Set<BusRoute>.from(await db.getRoutesForGtfsStop(alarm.gtfsStopId));
+      final routes = BusRoute.dedupeByRouteAndDestination(
+        await db.getRoutesForGtfsStop(alarm.gtfsStopId),
+      );
       final selectedRoutes = routes.where((r) => alarm.routeNumbers.contains(r.routeNumber)).toSet();
 
       setState(() {
         _selectedStop = stop;
-        _availableRoutes = routes;
+        _availableRoutes = routes.toSet();
         _selectedRoutes = selectedRoutes;
         _searchController?.text = GtfsStop.cleanStopName(stop.name);
       });
@@ -361,10 +364,13 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
               return _loadedStops.where((s) => GtfsStop.cleanStopName(s.name).toLowerCase().contains(query));
             },
             onSelected: (GtfsStop selection) async {
-              final Set<BusRoute> _routeList = Set.from(await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(selection.id));
+              FocusScope.of(context).unfocus();
+              final routeList = BusRoute.dedupeByRouteAndDestination(
+                await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(selection.id),
+              ).toSet();
               setState(() {
                 _selectedStop = selection;
-                _availableRoutes = _routeList;
+                _availableRoutes = routeList;
                 _selectedRoutes = {};
               });
             },
@@ -402,7 +408,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                   : "${_selectedRoutes.length} route${_selectedRoutes.length > 1 ? "s" : ""} selected",
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),),
               children: _availableRoutes.map((r) {
-                return CheckboxListTile(title: Text(r.routeNumber), subtitle: Text(r.destinationText["en"]!) ,value: _selectedRoutes.contains(r), onChanged: (bool? checked) {
+                return CheckboxListTile(title: RoutePill(route: r), subtitle: Text(r.destinationText["en"] ?? ""), value: _selectedRoutes.contains(r), onChanged: (bool? checked) {
                   setState(() {
                     if (checked == true) {
                       _selectedRoutes.add(r);
