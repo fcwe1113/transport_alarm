@@ -114,7 +114,7 @@ enum PingAcknowledgementHandler {
         let repeatInfo = alarm["repeat"] as? [String: Any] ?? [:]
         let frequency = repeatInfo["frequency"] as? String ?? "none"
         let windowStart = integer(alarm["windowStart"]) ?? 0
-        var calendar = NativeTransitLocales.gregorianCalendar(for: alarm)
+        var calendar = NativeTransitLocales.gregorianCalendar()
         let now = Date()
         let today = calendar.startOfDay(for: now)
 

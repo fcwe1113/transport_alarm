@@ -494,7 +494,7 @@ final class NativePingHandler {
         guard let windowStart = Self.intValue(alarm["windowStart"]) else {
             throw PingHandlerError.invalidAlarmData
         }
-        let calendar = NativeTransitLocales.gregorianCalendar(for: alarm)
+        let calendar = NativeTransitLocales.gregorianCalendar()
         let now = Date()
         let today = calendar.startOfDay(for: now)
 
@@ -552,7 +552,7 @@ final class NativePingHandler {
     private func occurrenceKey(for date: Date, alarm: [String: Any]) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = NativeTransitLocales.timeZone(for: alarm)
+        formatter.timeZone = NativeTransitLocales.deviceTimeZone
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
     }

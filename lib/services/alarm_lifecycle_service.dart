@@ -115,23 +115,24 @@ class AlarmLifecycleService {
 
   DateTime _computeNextOccurrenceDate(RepeatPattern repeat) {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     switch (repeat.frequency) {
       case RepeatFrequency.daily:
-        return now.add(Duration(days: 1));
+        return DateTime(today.year, today.month, today.day + 1);
       case RepeatFrequency.weekly:
         final weekdays = repeat.weekdays ?? [];
         for (var i = 1; i <= 7; i++) {
-          final candidate = now.add(Duration(days: i));
+          final candidate = DateTime(today.year, today.month, today.day + i);
           if (weekdays.contains(candidate.weekday)) return candidate;
         }
-        return now.add(Duration(days: 7)); // fallback if no weekdays selected
+        return DateTime(today.year, today.month, today.day + 7); // fallback if no weekdays selected
       case RepeatFrequency.monthly:
         final days = repeat.dayOfMonth ?? [];
         for (var i = 1; i <= 31; i++) {
-          final candidate = now.add(Duration(days: i));
+          final candidate = DateTime(today.year, today.month, today.day + i);
           if (days.contains(candidate.day)) return candidate;
         }
-        return DateTime(now.year, now.month + 1, now.day); // fallback
+        return DateTime(today.year, today.month + 1, today.day); // fallback
       case RepeatFrequency.none:
         return now; // how did you get here lol
     }

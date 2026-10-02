@@ -12,10 +12,8 @@ class BusAlarm {
   // API URLs are resolved when the alarm is created, so notification
   // processing does not need GTFS to map this stop to an operator stop.
   final List<AlarmRouteConfig> routeApiConfigs;
-  // Locale key used for operator API, timezone, and GTFS arrival lookups.
+  // Locale key used for operator API and GTFS arrival lookups.
   final String localeCode;
-  // IANA timezone used when computing local repeat window start times.
-  final String timeZoneIdentifier;
   final TimeOfDay windowStart;
   final TimeOfDay windowEnd;
   final List<ThresholdState> thresholdStates; // ordered
@@ -35,7 +33,6 @@ class BusAlarm {
     required this.gtfsStopId,
     this.routeApiConfigs = const [],
     this.localeCode = 'hk',
-    this.timeZoneIdentifier = 'Asia/Hong_Kong',
     required this.routeNumbers,
     required this.windowStart,
     required this.windowEnd,
@@ -54,7 +51,6 @@ class BusAlarm {
     String? gtfsStopId,
     List<AlarmRouteConfig>? routeApiConfigs,
     String? localeCode,
-    String? timeZoneIdentifier,
     List<String>? routeNumbers,
     TimeOfDay? windowStart,
     TimeOfDay? windowEnd,
@@ -74,7 +70,6 @@ class BusAlarm {
         gtfsStopId: gtfsStopId ?? this.gtfsStopId,
         routeApiConfigs: routeApiConfigs ?? this.routeApiConfigs,
         localeCode: localeCode ?? this.localeCode,
-        timeZoneIdentifier: timeZoneIdentifier ?? this.timeZoneIdentifier,
         routeNumbers: routeNumbers ?? this.routeNumbers,
         windowStart: windowStart ?? this.windowStart,
         windowEnd: windowEnd ?? this.windowEnd,
@@ -96,7 +91,6 @@ class BusAlarm {
     'gtfsStopId': gtfsStopId,
     'routeApiConfigs': routeApiConfigs.map((route) => route.toJson()).toList(),
     'localeCode': localeCode,
-    'timeZoneIdentifier': timeZoneIdentifier,
     'routeNumbers': routeNumbers,
     'windowStart': windowStart.hour * 60 + windowStart.minute,
     'windowEnd': windowEnd.hour * 60 + windowEnd.minute,
@@ -119,7 +113,6 @@ class BusAlarm {
             .toList() ??
         const [],
     localeCode: json['localeCode'] as String? ?? 'hk',
-    timeZoneIdentifier: json['timeZoneIdentifier'] as String? ?? 'Asia/Hong_Kong',
     routeNumbers: List<String>.from(json['routeNumbers']),
     windowStart: _minutesToTimeOfDay(json['windowStart'] as int),
     windowEnd: _minutesToTimeOfDay(json['windowEnd'] as int),

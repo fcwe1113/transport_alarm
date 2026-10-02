@@ -252,7 +252,6 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         id: widget.alarmToEdit?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         gtfsStopId: _selectedStop!.id,
         routeApiConfigs: routeApiConfigs,
-        timeZoneIdentifier: localeConfigs['hk']!.timeZoneIdentifier,
         routeNumbers: _selectedRoutes.map((r) => r.routeNumber).toList(),
         windowStart: _leftTime,
         windowEnd: _rightTime,

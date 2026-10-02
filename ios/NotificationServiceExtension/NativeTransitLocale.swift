@@ -1,12 +1,12 @@
 import Foundation
 
-/// Region-specific settings used by native alarm and GTFS calculations.
+/// Region-specific settings used for transit APIs and GTFS service data.
 /// Register one configuration per locale supported by the extension.
 struct NativeTransitLocale {
     /// Stable locale key stored with each alarm, for example `hk`.
     let code: String
 
-    /// IANA timezone identifier used for local service dates and repeat times.
+    /// IANA timezone identifier used for local transit service dates.
     let timeZoneIdentifier: String
 
     /// Relative path from the shared App Group directory to this locale's GTFS DB.
@@ -17,7 +17,7 @@ struct NativeTransitLocale {
         TimeZone(identifier: timeZoneIdentifier) ?? TimeZone(secondsFromGMT: 0)!
     }
 
-    /// Creates the Gregorian calendar used for GTFS service dates and repeats.
+    /// Creates the Gregorian calendar used for GTFS service dates.
     var gregorianCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
@@ -43,20 +43,16 @@ enum NativeTransitLocales {
         return locale
     }
 
-    /// Uses the timezone saved on the alarm, falling back to its locale for
-    /// alarms created before the timezone field was added.
-    static func timeZone(for alarm: [String: Any]) -> TimeZone {
-        if let identifier = alarm["timeZoneIdentifier"] as? String,
-           let timeZone = TimeZone(identifier: identifier) {
-            return timeZone
-        }
-        return locale(for: alarm["localeCode"] as? String).timeZone
+    /// Alarm wall-clock times follow the device timezone, independent of the
+    /// locale used by the transit operator or bus stop.
+    static var deviceTimeZone: TimeZone {
+        .autoupdatingCurrent
     }
 
-    /// Creates a Gregorian calendar in the alarm's saved timezone.
-    static func gregorianCalendar(for alarm: [String: Any]) -> Calendar {
+    /// Creates a Gregorian calendar in the device's current timezone.
+    static func gregorianCalendar() -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone(for: alarm)
+        calendar.timeZone = deviceTimeZone
         return calendar
     }
 
