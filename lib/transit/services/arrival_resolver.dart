@@ -6,6 +6,7 @@ import '../../provider_registry.dart';
 import '../models/gtfs_stop.dart';
 import '../models/live_eta.dart';
 
+/// Combines matching live ETAs and scheduled departures for one GTFS stop.
 Future<List<RouteArrival>> resolveArrivals({
   // todo change eta api to using stop_id and route_id instead of batching the entire stop
   required String gtfsStopId,

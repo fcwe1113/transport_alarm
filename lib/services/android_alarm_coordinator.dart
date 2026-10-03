@@ -308,6 +308,7 @@ class AndroidAlarmCoordinator {
     await _scheduleHalfwayCheck(alarm, now, arrivalAlertAt);
   }
 
+  /// Finds the next arrival and records whether it came from live data or schedule.
   Future<ArrivalLookup> _lookupArrival(
     TransportAlarm alarm, {
     int? minimumArrivalSeconds,
@@ -458,6 +459,7 @@ class AndroidAlarmCoordinator {
     }
   }
 
+  /// Resolves one route URL into live ETAs or its local UK timetable departures.
   Future<RouteEtaResult> _fetchRouteEta(AlarmRouteConfig config) async {
     final uri = Uri.tryParse(config.apiUrl);
     if (uri?.scheme == 'gtfs' && uri?.host == 'uk') {

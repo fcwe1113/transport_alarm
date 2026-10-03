@@ -15,6 +15,7 @@ class ScheduledDeparture {
     required this.locale,
   });
 
+  /// Calculates the departure's minutes from the current time in its locale.
   int get minutesFromNow {
     final parts = arrivalTime.split(":");
     final hours = int.parse(parts[0]);

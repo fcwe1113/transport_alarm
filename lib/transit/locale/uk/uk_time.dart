@@ -4,12 +4,15 @@ import 'package:transport_alarm/provider_registry.dart';
 /// Converts a GTFS service-time value, including values after 24:00, into the
 /// real instant for the UK service date and applies the current DST offset.
 class UkTime {
+  /// Converts a GTFS service time into its UTC instant in the UK timezone.
   static DateTime departureToUtc(String arrivalTime) =>
       _departure(arrivalTime).toUtc();
 
+  /// Converts a GTFS service time into the device's local timezone.
   static DateTime departureToDeviceLocal(String arrivalTime) =>
       _departure(arrivalTime).toLocal();
 
+  /// Resolves GTFS hours, including values beyond 24:00, on today's UK service date.
   static timezone.TZDateTime _departure(String arrivalTime) {
     // Calling nowInLocale initializes the bundled timezone database.
     final now = localeConfigs['uk']!.nowInLocale();

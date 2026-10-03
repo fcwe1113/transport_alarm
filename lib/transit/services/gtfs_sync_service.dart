@@ -9,9 +9,16 @@ import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:path/path.dart' as p;
 
 abstract class GtfsSyncProvider {
+  /// Locale code whose timetable database this provider manages.
   String get locale;
+
+  /// Source URL for the provider's GTFS archive.
   String get feedUrl;
+
+  /// Downloads and installs a complete provider feed.
   Future<void> syncFeed({ProgressCallback? onProgress});
+
+  /// Reports whether the local feed should be downloaded again.
   Future<bool> checkIsStale();
 }
 
@@ -26,6 +33,7 @@ class GtfsSyncService {
     this.atcoAreaCodes,
   }) : _db = database ?? GtfsDatabase.forLocale(locale);
 
+  /// Extracts a GTFS archive, filters its records, and stores a usable snapshot.
   Future<void> parseAndStoreGtfsArchive(
     File zipFile,
     ProgressCallback? onProgress,

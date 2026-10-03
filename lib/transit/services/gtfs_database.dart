@@ -153,6 +153,7 @@ class GtfsDatabase {
     }
   }
 
+  /// Carries forward provider records not being replaced into a new snapshot.
   Future<void> _copyOperatorData(
     Database source,
     Database target, {
@@ -221,6 +222,7 @@ class GtfsDatabase {
     });
   }
 
+  /// Rejects incomplete GTFS snapshots before they replace the active database.
   Future<void> _validateSnapshot(Database db) async {
     for (final table in [
       'gtfs_routes',
@@ -251,6 +253,7 @@ class GtfsDatabase {
     if (db != null && db.isOpen) await db.close();
   }
 
+  /// Opens the database and applies schema upgrades needed by newer feed fields.
   Future<Database> _initDB(String filePath) async {
     return await openDatabase(
       filePath,
@@ -282,6 +285,7 @@ class GtfsDatabase {
     );
   }
 
+  /// Creates all timetable, provider, stop-mapping, and route-stop tables.
   Future<void> _createDB(Database db, int version) async {
     await db.execute('''CREATE TABLE gtfs_routes (
     route_id TEXT PRIMARY KEY, 
@@ -384,6 +388,7 @@ class GtfsDatabase {
   String _val(List<dynamic> row, int index) =>
       row.length > index ? row[index].toString() : "";
 
+  /// Inserts route identifiers and both GTFS route names into the database.
   Future<void> batchInsertRoutes(List<List<dynamic>> rows) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -399,6 +404,7 @@ class GtfsDatabase {
     });
   }
 
+  /// Inserts trips and retains their direction and destination headsign.
   Future<void> batchInsertTrips(List<List<dynamic>> rows) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -416,6 +422,7 @@ class GtfsDatabase {
     });
   }
 
+  /// Inserts recurring weekly service dates from calendar.txt.
   Future<void> batchInsertCalendar(List<List<dynamic>> rows) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -438,6 +445,7 @@ class GtfsDatabase {
     });
   }
 
+  /// Inserts date-specific service additions and removals from calendar_dates.txt.
   Future<void> batchInsertCalendarDates(List<List<dynamic>> rows) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -453,6 +461,7 @@ class GtfsDatabase {
     });
   }
 
+  /// Inserts stop names, coordinates, and optional ATCO stop codes.
   Future<void> batchInsertStops(List<List<dynamic>> rows) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -470,6 +479,7 @@ class GtfsDatabase {
     });
   }
 
+  /// Inserts each trip's stop sequence and scheduled times.
   Future<void> batchInsertStopTimes(List<List<dynamic>> rows) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -493,7 +503,8 @@ class GtfsDatabase {
     final db = await database;
     await db.transaction((txn) async {
       final stops = await txn.query('gtfs_stops');
-      final stopBatch = txn.batch();
+      var stopBatch = txn.batch();
+      var processedStops = 0;
       for (final stop in stops) {
         final stopId = stop['stop_id'] as String;
         final operatorStopId = 'uk:$stopId';
@@ -509,6 +520,13 @@ class GtfsDatabase {
           'gtfs_stop_id': stopId,
           'match_confidence': 1.0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+        processedStops++;
+        if (processedStops % 500 == 0) {
+          await stopBatch.commit(noResult: true);
+          stopBatch = txn.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
+          // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
+        }
       }
       await stopBatch.commit(noResult: true);
 
@@ -585,8 +603,9 @@ class GtfsDatabase {
           'origin_text': jsonEncode({'en': origin}),
           'destination_text': jsonEncode({'en': destination}),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
-        final routeStopBatch = txn.batch();
+        var routeStopBatch = txn.batch();
         var sequence = 0;
+        var processedRouteStops = 0;
         for (final time in times) {
           final stopId = time['stop_id'] as String;
           routeStopBatch.insert('route_stops', {
@@ -594,6 +613,13 @@ class GtfsDatabase {
             'operator_stop_id': 'uk:$stopId',
             'stop_sequence': sequence++,
           }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+          processedRouteStops++;
+          if (processedRouteStops % 500 == 0) {
+            await routeStopBatch.commit(noResult: true);
+            routeStopBatch = txn.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
+            // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
+          }
         }
         await routeStopBatch.commit(noResult: true);
       }
@@ -961,6 +987,7 @@ class GtfsDatabase {
     return rows.map((row) => row['operator_stop_id'] as String).toList();
   }
 
+  /// Returns the next active departures, optionally restricted to route and direction.
   Future<List<ScheduledDeparture>> getUpcomingDepartures(
     String stopId, {
     int limit = 5,
@@ -1147,6 +1174,7 @@ class GtfsDatabase {
         .toList();
   }
 
+  /// Loads UK operator routes serving a stop, excluding terminal-only stops.
   Future<List<TransportRoute>> getRoutesForOperatorStop(
     String operatorStopId,
   ) async {
@@ -1204,6 +1232,7 @@ class GtfsDatabase {
     return rows.map((r) => r["operator_stop_id"] as String).toList();
   }
 
+  /// Resolves a UK operator stop identifier to its underlying GTFS stop ID.
   Future<String?> getGtfsStopIdForOperatorStop(String operatorStopId) async {
     final rows = await (await database).query(
       'stop_mapping',

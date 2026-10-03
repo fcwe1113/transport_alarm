@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:csv/csv.dart';
 
+/// Reads a GTFS CSV by column name and sends included rows to the importer in batches.
 Future<void> streamParseAndInsert(
   File csvFile,
   Future<void> Function(List<List<dynamic>> batch) insertBatch, {

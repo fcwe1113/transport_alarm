@@ -216,6 +216,7 @@ class AlarmPingHandler {
     }
   }
 
+  /// Gets the next eligible arrival from the route source or timetable fallback.
   Future<int?> _getMinutesUntilArrival(TransportAlarm alarm) async {
     final isFreshOccurrence =
         alarm.lastEstimatedMinutesUntilThreshold == null &&
@@ -300,6 +301,7 @@ class AlarmPingHandler {
         .minutesFromNow;
   }
 
+  /// Fetches an arrival for one saved route URL, including UK GTFS schedules.
   Future<List<DateTime>> _fetchArrivalFromRouteConfig(
     AlarmRouteConfig config,
   ) async {

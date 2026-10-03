@@ -6,6 +6,7 @@ import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 
 /// Runs the data refresh routine for a given provider.
+/// Loads the selected locales' timetables and operator data during setup.
 Future<List<String>> initializeTransitData({
   ProgressCallback? onProgress,
   bool forceRefresh = false,
@@ -63,6 +64,7 @@ Future<List<String>> initializeTransitData({
   return allFailures;
 }
 
+/// Refreshes stale selected feeds and rematches provider stops to GTFS records.
 Future<List<String>> refreshStaleProviders({
   ProgressCallback? onProgress,
   bool forceRefresh = false,

@@ -10,24 +10,30 @@ import 'package:transport_alarm/transit/models/transport_route.dart';
 
 /// Static BODS timetable provider. Live ETA support can be added separately.
 class UkProvider extends TransitProvider {
+  /// Identifies this provider in the shared transit database.
   @override
   String get providerCode => 'uk';
 
+  /// Returns the provider name shown by the app.
   @override
   String get providerName => 'UK Bus Data';
 
+  /// Supplies the UK provider's default icon color.
   @override
   Color get defaultIconColor => const Color(0xFF005EB8);
 
+  /// Supplies the UK provider's default text color.
   @override
   Color get defaultTextColor => const Color(0xFFFFFFFF);
 
+  /// Does no provider-specific refresh because timetable downloads are separate.
   @override
   Future<RefreshResult> refresh({
     bool forceRefresh = false,
     ProgressCallback? onProgress,
   }) async => const RefreshResult();
 
+  /// Reports no provider refresh staleness; the GTFS sync provider tracks it.
   @override
   Future<bool> isStale() async => false;
 
@@ -53,6 +59,7 @@ class UkProvider extends TransitProvider {
         .toList();
   }
 
+  /// Builds the persisted reference used to look up this stop and route's schedule.
   @override
   String? alarmEtaUrl({
     required String operatorStopId,
@@ -68,6 +75,7 @@ class UkProvider extends TransitProvider {
     ).toString();
   }
 
+  /// Extracts the feed's route ID from the app's UK route identifier.
   String? _gtfsRouteId(String operatorRouteId) {
     if (!operatorRouteId.startsWith('uk:')) return null;
     final separator = operatorRouteId.lastIndexOf(':');
@@ -75,9 +83,11 @@ class UkProvider extends TransitProvider {
     return operatorRouteId.substring(3, separator);
   }
 
+  /// Returns no live arrivals because this provider currently supplies schedules.
   @override
   Future<List<LiveEta>> fetchLiveEta(String rawStopId) async => const [];
 
+  /// Returns no live route arrivals because this provider currently supplies schedules.
   @override
   Future<List<LiveEta>> fetchLiveEtaForRoute(
     String rawStopId,

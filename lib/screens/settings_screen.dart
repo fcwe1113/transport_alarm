@@ -119,6 +119,7 @@ class _AppLanguageSettingsScreenState extends State<AppLanguageSettingsScreen> {
     _loadSelection();
   }
 
+  /// Loads saved locale and ATCO selections and groups ATCO areas by region.
   Future<void> _loadSelection() async {
     final code = await _selectionService.getAppLanguageCode();
     if (!mounted) return;
@@ -251,6 +252,7 @@ class _EnabledLocalesSettingsScreenState
     });
   }
 
+  /// Saves the locale selection, refreshes added data, and removes disabled data.
   Future<void> _saveSelection() async {
     if (_saving) return;
     setState(() => _saving = true);
@@ -278,10 +280,12 @@ class _EnabledLocalesSettingsScreenState
     final navigator = Navigator.of(context);
     navigator.pop();
     if (localesToRefresh.isNotEmpty || localesToRemove.isNotEmpty) {
+      /// Applies the requested data changes and rolls back selection on failure.
       Future<List<String>> applySelectedData({
         ProgressCallback? onProgress,
         bool forceRefresh = false,
       }) async {
+        /// Restores the saved locale and ATCO selections after a failed refresh.
         Future<void> restorePreviousSelection() async {
           await _selectionService.setEnabledLocales(previous.toList()..sort());
           await _selectionService.setEnabledAtcoCodes(
@@ -390,6 +394,7 @@ class _EnabledLocalesSettingsScreenState
     );
   }
 
+  /// Builds a region row whose checkbox controls every ATCO area beneath it.
   Widget _buildAtcoRegion(
     String region,
     List<({String code, String name})> areas,
@@ -417,6 +422,7 @@ class _EnabledLocalesSettingsScreenState
     );
   }
 
+  /// Returns checked, unchecked, or mixed state for a parent checkbox.
   bool? _checkboxState(Set<String> codes) {
     final selectedCount = codes.intersection(_selectedAtcoCodes).length;
     if (selectedCount == 0) return false;
@@ -424,6 +430,7 @@ class _EnabledLocalesSettingsScreenState
     return null;
   }
 
+  /// Adds or removes the specified ATCO area codes from the pending selection.
   void _setAtcoCodes(Set<String> codes, bool enabled) {
     setState(() {
       if (enabled) {
@@ -434,6 +441,7 @@ class _EnabledLocalesSettingsScreenState
     });
   }
 
+  /// Toggles a group of ATCO codes as one selection.
   void _toggleAtcoCodes(Set<String> codes) {
     _setAtcoCodes(codes, _checkboxState(codes) != true);
   }

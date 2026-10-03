@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
@@ -8,27 +10,107 @@ import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/gtfs_sync_service.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
+import 'package:transport_alarm/transit/locale/uk/uk_txc_importer.dart';
 
-/// Downloads the national BODS timetable and keeps only selected ATCO areas.
+/// Fetches BODS timetable datasets that serve the selected ATCO areas.
 class UkGtfsSyncProvider implements GtfsSyncProvider {
+  /// Names the UK locale database this importer updates.
   @override
   final String locale = 'uk';
 
+  /// Names the BODS dataset API used to discover area-filtered timetables.
   @override
-  final String feedUrl =
-      'https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file/all/';
+  final String feedUrl = 'https://data.bus-data.dft.gov.uk/api/v1/dataset/';
 
   static const Duration _ttl = Duration(days: 7);
+  static const int _areaBatchSize = 40;
+  static const int _pageSize = 100;
 
+  /// Loads the BODS API key from the bundled local secrets file.
+  Future<String> _apiKey() async {
+    final source = await rootBundle.loadString('config/secrets.json');
+    final decoded = jsonDecode(source);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException(
+        'config/secrets.json must contain an object.',
+      );
+    }
+    final key = decoded['UK_BODS_KEY'];
+    if (key is! String || key.trim().isEmpty) {
+      throw StateError('UK_BODS_KEY is missing from config/secrets.json.');
+    }
+    return key.trim();
+  }
+
+  /// Queries BODS for the published timetable datasets relevant to ATCO areas.
+  Future<List<BodsTimetableDataset>> _findDatasets(
+    Set<String> selectedAreas, {
+    required String apiKey,
+  }) async {
+    final client = http.Client();
+    final byId = <String, BodsTimetableDataset>{};
+    try {
+      final areas = selectedAreas.toList()..sort();
+      for (var start = 0; start < areas.length; start += _areaBatchSize) {
+        final areaBatch = areas.skip(start).take(_areaBatchSize).toList();
+        var offset = 0;
+        while (true) {
+          final uri = Uri.parse(feedUrl).replace(
+            queryParameters: {
+              'api_key': apiKey,
+              'adminArea': areaBatch.join(','),
+              'status': 'published',
+              'limit': '$_pageSize',
+              'offset': '$offset',
+            },
+          );
+          final response = await client
+              .get(uri)
+              .timeout(ApiCaller.requestTimeout);
+          if (response.statusCode != HttpStatus.ok) {
+            throw HttpException(
+              'BODS timetable lookup failed: HTTP ${response.statusCode}',
+            );
+          }
+          final decoded = jsonDecode(response.body);
+          if (decoded is! Map<String, dynamic>) {
+            throw const FormatException(
+              'BODS returned an invalid dataset list.',
+            );
+          }
+          final results = decoded['results'];
+          if (results is! List) {
+            throw const FormatException(
+              'BODS dataset response has no results list.',
+            );
+          }
+          for (final item in results) {
+            if (item is! Map<String, dynamic>) continue;
+            final dataset = BodsTimetableDataset.fromJson(item);
+            if (dataset != null) byId[dataset.id] = dataset;
+          }
+          if (results.length < _pageSize || results.isEmpty) break;
+          offset += results.length;
+        }
+      }
+    } finally {
+      client.close();
+    }
+    return byId.values.toList();
+  }
+
+  /// Checks local data age and avoids querying BODS more often than needed.
   @override
   Future<bool> checkIsStale() async {
-    final database = GtfsDatabase.forLocale(locale);
-    if (!await database.hasUsableGtfsData()) return true;
-
-    final selectedAreas = await LocaleSelectionService().getEnabledAtcoCodes();
+    if (!await GtfsDatabase.forLocale(locale).hasUsableGtfsData()) return true;
+    final selectedAreas = (await LocaleSelectionService().getEnabledAtcoCodes())
+        .toSet();
     if (selectedAreas.isEmpty) return true;
-
     final prefs = await SharedPreferences.getInstance();
+    final selectionSignature = (selectedAreas.toList()..sort()).join(',');
+    if (prefs.getString('gtfs_atco_selection_$locale') != selectionSignature) {
+      return true;
+    }
     final checkedAt = DateTime.tryParse(
       prefs.getString('gtfs_last_checked_$locale') ?? '',
     );
@@ -36,86 +118,55 @@ class UkGtfsSyncProvider implements GtfsSyncProvider {
       final age = DateTime.now().difference(checkedAt);
       if (!age.isNegative && age < _ttl) return false;
     }
-
-    try {
-      final response = await ApiCaller.head(Uri.parse(feedUrl));
-      if (response.statusCode < 200 || response.statusCode >= 300) return true;
-      final etag = response.headers['etag'];
-      final modified = response.headers['last-modified'];
-      final cachedEtag = prefs.getString('gtfs_etag_$locale');
-      final cachedModified = prefs.getString('gtfs_last_modified_$locale');
-      if ((etag != null && etag == cachedEtag) ||
-          (etag == null && modified != null && modified == cachedModified)) {
-        await prefs.setString(
-          'gtfs_last_checked_$locale',
-          DateTime.now().toIso8601String(),
-        );
-        return false;
-      }
-    } catch (_) {
-      // Fall through to a GET attempt so transient HEAD failures remain retryable.
-    }
     return true;
   }
 
+  /// Downloads only datasets returned for selected areas and atomically installs them.
   @override
   Future<void> syncFeed({ProgressCallback? onProgress}) async {
-    final atcoAreas = (await LocaleSelectionService().getEnabledAtcoCodes())
+    final selectedAreas = (await LocaleSelectionService().getEnabledAtcoCodes())
         .toSet();
-    if (atcoAreas.isEmpty) {
+    if (selectedAreas.isEmpty) {
       throw StateError(
         'Select at least one UK ATCO area before downloading data.',
       );
     }
+    final apiKey = await _apiKey();
+    final datasets = await _findDatasets(selectedAreas, apiKey: apiKey);
+    if (datasets.isEmpty) {
+      throw StateError(
+        'BODS returned no published datasets for the selected ATCO areas.',
+      );
+    }
 
     final directory = await AppGroupStorage.directory;
-    final zipFile = File(
-      '${directory.path}/gtfs_download_uk_${DateTime.now().microsecondsSinceEpoch}.tmp',
-    );
-    final client = http.Client();
-    final http.StreamedResponse response;
+    final workDirectory = await Directory(directory.path)
+        .createTemp('uk_bods_');
+    final db = GtfsDatabase.forLocale(locale);
     try {
-      final request = http.Request('GET', Uri.parse(feedUrl));
-      response = await client.send(request).timeout(ApiCaller.requestTimeout);
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException(
-          'BODS GTFS download failed: HTTP ${response.statusCode}',
+      await db.refreshAtomically((stagingDatabase) async {
+        final importer = UkTxcImporter(
+          database: stagingDatabase,
+          selectedAtcoAreas: selectedAreas,
+          workDirectory: workDirectory,
+          onProgress: onProgress,
         );
+        await importer.importDatasets(datasets);
+      }, replaceProviderCodes: const {'uk'});
+    } finally {
+      if (await workDirectory.exists()) {
+        await workDirectory.delete(recursive: true);
       }
-      final sink = zipFile.openWrite();
-      await response.stream.timeout(ApiCaller.requestTimeout).pipe(sink);
-    } catch (_) {
-      if (await zipFile.exists()) await zipFile.delete();
-      rethrow;
-    } finally {
-      client.close();
     }
 
-    try {
-      await GtfsDatabase.forLocale(locale)
-          .refreshAtomically((stagingDatabase) async {
-            final syncService = GtfsSyncService(
-              locale: locale,
-              database: stagingDatabase,
-              atcoAreaCodes: atcoAreas,
-            );
-            await syncService.parseAndStoreGtfsArchive(zipFile, onProgress);
-          }, replaceProviderCodes: const {'uk'});
-    } finally {
-      if (await zipFile.exists()) await zipFile.delete();
-    }
-
-    // Cache validators only after the filtered snapshot was installed.
     final prefs = await SharedPreferences.getInstance();
-    final etag = response.headers['etag'];
-    final modified = response.headers['last-modified'];
-    if (etag != null) await prefs.setString('gtfs_etag_$locale', etag);
-    if (modified != null) {
-      await prefs.setString('gtfs_last_modified_$locale', modified);
-    }
     await prefs.setString(
       'gtfs_last_checked_$locale',
       DateTime.now().toIso8601String(),
+    );
+    await prefs.setString(
+      'gtfs_atco_selection_$locale',
+      (selectedAreas.toList()..sort()).join(','),
     );
   }
 }

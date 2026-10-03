@@ -14,6 +14,7 @@ class LocaleConfig {
     required this.timeZoneIdentifier,
   });
 
+  /// Returns the current locale wall-clock fields as UTC for service-date math.
   DateTime nowInLocale() {
     if (!_timezoneDatabaseInitialized) {
       timezone_data.initializeTimeZones();
