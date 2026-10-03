@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
+import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/alarm_engine.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
@@ -13,7 +14,6 @@ import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
-import 'package:transport_alarm/transit/locale/uk/uk_time.dart';
 import 'package:transport_alarm/transit/transport_mode.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 
@@ -216,7 +216,6 @@ class AlarmPingHandler {
     }
   }
 
-  /// Gets the next eligible arrival from the route source or timetable fallback.
   Future<int?> _getMinutesUntilArrival(TransportAlarm alarm) async {
     final isFreshOccurrence =
         alarm.lastEstimatedMinutesUntilThreshold == null &&
@@ -231,11 +230,8 @@ class AlarmPingHandler {
         : null;
 
     if (alarm.routeApiConfigs.isNotEmpty) {
-      final eligibleConfigs = alarm.routeApiConfigs.where((config) {
-        return !alarm.liveOnly || Uri.tryParse(config.apiUrl)?.scheme != 'gtfs';
-      }).toList();
       final liveDates = await Future.wait(
-        eligibleConfigs.map(_fetchArrivalFromRouteConfig),
+        alarm.routeApiConfigs.map(_fetchArrivalFromRouteConfig),
       );
       final arrivals =
           liveDates
@@ -254,21 +250,8 @@ class AlarmPingHandler {
       if (alarm.liveOnly) return null;
 
       // Keep the existing scheduled timetable fallback when live APIs have no ETA.
-      final ukRouteIds = alarm.localeCode == 'uk'
-          ? alarm.routeApiConfigs
-                .map((config) => Uri.tryParse(config.apiUrl))
-                .where((uri) => uri?.scheme == 'gtfs')
-                .map((uri) => uri?.queryParameters['route_id'])
-                .whereType<String>()
-                .toSet()
-                .toList()
-          : null;
       final scheduled = await GtfsDatabase.forLocale(alarm.localeCode)
-          .getUpcomingDepartures(
-            alarm.gtfsStopId,
-            limit: 50,
-            routeIds: ukRouteIds,
-          );
+          .getUpcomingDepartures(alarm.gtfsStopId, limit: 50);
       final matching =
           scheduled
               .where(
@@ -285,11 +268,7 @@ class AlarmPingHandler {
     // Older saved alarms do not yet have route-specific API URLs.
     final arrivals = await resolveArrivals(
       gtfsStopId: alarm.gtfsStopId,
-      localeCode: alarm.localeCode,
       routeNumberFilter: alarm.routeNumbers,
-      routeProviderCodeFilter: alarm.routeApiConfigs
-          .map((route) => route.providerCode)
-          .toList(),
       minimumMinutesFromNow: minimumArrivalMinutes,
     );
     final eligible = alarm.liveOnly
@@ -301,39 +280,9 @@ class AlarmPingHandler {
         .minutesFromNow;
   }
 
-  /// Fetches an arrival for one saved route URL, including UK GTFS schedules.
   Future<List<DateTime>> _fetchArrivalFromRouteConfig(
     AlarmRouteConfig config,
   ) async {
-    final uri = Uri.tryParse(config.apiUrl);
-    if (uri?.scheme == 'gtfs' && uri?.host == 'uk') {
-      final segments = uri!.pathSegments;
-      final routeId = uri.queryParameters['route_id'];
-      if (segments.isEmpty || routeId == null || routeId.isEmpty) {
-        return const [];
-      }
-      final stopId = segments[0].startsWith('uk:')
-          ? segments[0].substring(3)
-          : segments[0];
-      final routes = await GtfsDatabase.forLocale('uk')
-          .getRoutesForOperatorStop(segments[0]);
-      if (!routes.any((route) => route.routeNumber == config.routeNumber)) {
-        return const [];
-      }
-      final directionId = int.tryParse(
-        uri.queryParameters['direction_id'] ?? '',
-      );
-      final departures = await GtfsDatabase.forLocale('uk')
-          .getUpcomingDepartures(
-            stopId,
-            limit: 200,
-            routeIds: [routeId],
-            directionId: directionId,
-          );
-      return departures
-          .map((departure) => UkTime.departureToUtc(departure.arrivalTime))
-          .toList();
-    }
     if (config.mode != TransportMode.bus) return const [];
     try {
       final response = await http
@@ -383,8 +332,8 @@ class AlarmPingHandler {
       iOS: darwinDetails,
     );
 
-    final stop = await GtfsDatabase.forLocale(alarm.localeCode)
-        .getGtfsStopById(alarm.gtfsStopId);
+    final stop = await GtfsDatabase.forLocale("hk")
+        .getGtfsStopById(alarm.gtfsStopId); // todo fix locale hardcode
     await NotificationService.plugin.show(
       id: alarm.id.hashCode,
       title: AppStrings.text(

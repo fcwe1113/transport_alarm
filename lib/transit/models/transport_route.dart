@@ -5,15 +5,13 @@ import 'package:transport_alarm/l10n/app_strings.dart';
 
 class TransportRoute {
   final String id;
-  final Map<String, String>
-  names; // may hv locale diffs, maybe remove if not needed
+  final Map<String, String> names; // may hv locale diffs, maybe remove if not needed
   final String routeNumber;
   final String bound; // change if not adapting to new apis
   final Map<String, String> originText;
   final Map<String, String> destinationText; // the destination showed normally
   final List<TransportStop> stops;
   final String providerCode;
-  final String? destinationOverride;
 
   const TransportRoute({
     required this.id,
@@ -23,38 +21,17 @@ class TransportRoute {
     required this.originText,
     required this.destinationText,
     required this.providerCode,
-    this.destinationOverride,
     this.stops = const [],
   });
 
-  TransportStop get origin => stops.isNotEmpty
-      ? stops.first
-      : TransportStop.placeholder(
-          id: "$providerCode:origin_$routeNumber$bound",
-          name: originNameFor(AppStrings.languageCode),
-          providerCode: providerCode,
-        );
-  TransportStop get destination => stops.isNotEmpty
-      ? stops.last
-      : TransportStop.placeholder(
-          id: "$providerCode:destination_$routeNumber$bound",
-          name: destinationNameFor(AppStrings.languageCode),
-          providerCode: providerCode,
-        );
+  TransportStop get origin => stops.isNotEmpty ? stops.first : TransportStop.placeholder(id: "$providerCode:origin_$routeNumber$bound", name: originNameFor(AppStrings.languageCode), providerCode: providerCode);
+  TransportStop get destination => stops.isNotEmpty ? stops.last : TransportStop.placeholder(id: "$providerCode:destination_$routeNumber$bound", name: destinationNameFor(AppStrings.languageCode), providerCode: providerCode);
 
-  String nameFor(String languageCode) =>
-      _localizedValue(names, languageCode) ?? routeNumber;
-  String originNameFor(String languageCode) =>
-      _localizedValue(originText, languageCode) ?? '';
-  String destinationNameFor(String languageCode) =>
-      destinationOverride ??
-      _localizedValue(destinationText, languageCode) ??
-      '';
+  String nameFor(String languageCode) => _localizedValue(names, languageCode) ?? routeNumber;
+  String originNameFor(String languageCode) => _localizedValue(originText, languageCode) ?? '';
+  String destinationNameFor(String languageCode) => _localizedValue(destinationText, languageCode) ?? '';
 
-  static String? _localizedValue(
-    Map<String, String> values,
-    String languageCode,
-  ) {
+  static String? _localizedValue(Map<String, String> values, String languageCode) {
     final localized = values[languageCode]?.trim();
     if (localized != null && localized.isNotEmpty) return localized;
     final english = values['en']?.trim();
@@ -63,17 +40,7 @@ class TransportRoute {
   }
 
   TransportRoute copyWith({List<TransportStop>? stops}) {
-    return TransportRoute(
-      id: id,
-      names: names,
-      routeNumber: routeNumber,
-      bound: bound,
-      originText: originText,
-      destinationText: destinationText,
-      providerCode: providerCode,
-      stops: stops ?? this.stops,
-      destinationOverride: destinationOverride,
-    );
+    return TransportRoute(id: id, names: names, routeNumber: routeNumber, bound: bound, originText: originText, destinationText: destinationText, providerCode: providerCode, stops: stops ?? this.stops);
   }
 
   Map<String, dynamic> toJson() => {
@@ -84,18 +51,16 @@ class TransportRoute {
     "originText": originText,
     "destinationText": destinationText,
     "providerCode": providerCode,
-    "destinationOverride": destinationOverride,
   };
 
   static TransportRoute fromJson(Map<String, dynamic> json) => TransportRoute(
-    id: json["id"],
-    names: Map<String, String>.from(json["names"]),
-    routeNumber: json["routeNumber"],
-    bound: json["bound"],
-    originText: Map<String, String>.from(json["originText"]),
-    destinationText: Map<String, String>.from(json["destinationText"]),
-    providerCode: json["providerCode"],
-    destinationOverride: json["destinationOverride"] as String?,
+      id: json["id"],
+      names: Map<String, String>.from(json["names"]),
+      routeNumber: json["routeNumber"],
+      bound: json["bound"],
+      originText: Map<String, String>.from(json["originText"]),
+      destinationText: Map<String, String>.from(json["destinationText"]),
+      providerCode: json["providerCode"],
   );
 
   static List<TransportRoute> dedupeByRouteNumber(List<TransportRoute> routes) {

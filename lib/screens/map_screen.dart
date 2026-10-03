@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
-import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -14,8 +13,7 @@ import '../widgets/stop_routes_sheet.dart';
 // todo adapt this screen into future add new alarm process
 
 /// StatefulWidget wrapper for the map screen
-class MapScreen extends StatefulWidget {
-  // statefulwidgets are widgets that can have modifiable internal data, they contain an immutable Widget and a mutable State object within
+class MapScreen extends StatefulWidget { // statefulwidgets are widgets that can have modifiable internal data, they contain an immutable Widget and a mutable State object within
   final bool pickerMode;
 
   const MapScreen({super.key, this.pickerMode = false});
@@ -55,13 +53,8 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _loadMapData() async {
     try {
-      final enabledLocales = await LocaleSelectionService().getEnabledLocales();
-      final stopsByLocale = await Future.wait(
-        enabledLocales.map(
-          (locale) => GtfsDatabase.forLocale(locale).getAllGtfsStops(),
-        ),
-      );
-      final stops = stopsByLocale.expand((localeStops) => localeStops).toList();
+      final db = GtfsDatabase.forLocale("hk"); // todo remove hardcoded locale
+      final stops = await db.getAllGtfsStops();
 
       setState(() {
         _stops = stops;
@@ -75,10 +68,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<BitmapDescriptor> _loadStopIcon() async {
     if (_stopIcon != null) return _stopIcon!;
-    _stopIcon = await BitmapDescriptor.asset(
-      const ImageConfiguration(size: Size(32, 32)),
-      _stopIconAsset,
-    );
+    _stopIcon = await BitmapDescriptor.asset(const ImageConfiguration(size: Size(32, 32)), _stopIconAsset);
     return _stopIcon!;
   }
 
@@ -87,77 +77,52 @@ class _MapScreenState extends State<MapScreen> {
     for (final stop in stops) {
       // if (!stop.isResolved) continue;
       final icon = _loadStopIcon();
-      markers.add(
-        Marker(
-          markerId: MarkerId('${stop.localeCode}:${stop.id}'),
-          position: LatLng(stop.lat, stop.lng),
-          icon: await icon,
-          onTap: () => _onStopTapped(stop),
-        ),
-      );
+      markers.add(Marker(markerId: MarkerId(stop.id), position: LatLng(stop.lat, stop.lng), icon: await icon, onTap: () => _onStopTapped(stop)));
     }
     return markers;
   }
 
   void _onStopTapped(GtfsStop stop) async {
+
     const zoom = 19.0;
     final screenHeight = MediaQuery.of(context).size.height;
     final sheetHeightFraction = 0.5;
-    final metersPerPixel =
-        156543.03392 * cos(stop.lat * pi / 180) / pow(2, zoom);
-    final latOffset =
-        ((screenHeight * sheetHeightFraction / 2) * metersPerPixel) / 111320;
+    final metersPerPixel = 156543.03392 * cos(stop.lat * pi / 180) / pow(2, zoom);
+    final latOffset = ((screenHeight * sheetHeightFraction / 2) * metersPerPixel) / 111320;
 
     if (widget.pickerMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _mapController?.animateCamera(
-          CameraUpdate.newLatLngZoom(
-            LatLng(stop.lat - latOffset, stop.lng),
-            zoom,
-          ),
-        );
+        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(stop.lat - latOffset, stop.lng), zoom));
       });
       setState(() {
         _selectedPickerStop = stop;
-        _mapPadding = EdgeInsets.only(
-          bottom: MediaQuery.of(context).size.height * 0.5,
-        ); // 0.4
+        _mapPadding = EdgeInsets.only(bottom: MediaQuery.of(context).size.height * 0.5); // 0.4
       });
       showModalBottomSheet(
-        context: _nestedNavKey.currentContext!,
-        barrierColor: Colors.transparent,
-        isScrollControlled: true,
-        builder: (context) => StopRoutesSheet(stop: stop, pickerMode: true),
-      ).whenComplete(() {
-        setState(() => _mapPadding = EdgeInsets.zero);
-        _selectedPickerStop = null;
-      });
+          context: _nestedNavKey.currentContext!,
+          barrierColor: Colors.transparent,
+          isScrollControlled: true,
+          builder: (context) => StopRoutesSheet(stop: stop, pickerMode: true)
+      ).whenComplete(() {setState(() => _mapPadding = EdgeInsets.zero); _selectedPickerStop = null;});
       return;
     }
 
     setState(() {
-      _mapPadding = EdgeInsets.only(
-        bottom: MediaQuery.of(context).size.height * 0.5,
-      );
+      _mapPadding = EdgeInsets.only(bottom: MediaQuery.of(context).size.height * 0.5);
       // selectedStop = stop;
     });
     // await _updateVisibleMarkers();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLngZoom(
-          LatLng(stop.lat - latOffset, stop.lng),
-          zoom,
-        ),
-      );
+      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(stop.lat - latOffset, stop.lng), zoom));
     });
 
     showModalBottomSheet(
-      context: context,
-      // backgroundColor: Colors.transparent,
-      barrierColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => StopRoutesSheet(stop: stop),
+        context: context,
+        // backgroundColor: Colors.transparent,
+        barrierColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (context) => StopRoutesSheet(stop: stop)
     ).whenComplete(() async {
       setState(() => _mapPadding = EdgeInsets.zero);
       selectedStop = null;
@@ -168,9 +133,7 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _updateVisibleMarkers() async {
     if (_mapController == null) return;
     if (selectedStop != null) {
-      setState(
-        () async => _visibleMarkers = (await _buildMarkers([?selectedStop])),
-      );
+      setState(() async => _visibleMarkers = (await _buildMarkers([?selectedStop])));
       return;
     }
 
@@ -201,56 +164,34 @@ class _MapScreenState extends State<MapScreen> {
     // if real time updates needed try StreamBuilder
     if (_loading) {
       return AppShell(
-        title: AppStrings.text(
-          widget.pickerMode ? 'map.choose_stop' : 'map.title',
-        ),
+        title: AppStrings.text(widget.pickerMode ? 'map.choose_stop' : 'map.title'),
         selectedTab: 1,
         body: const Center(child: CircularProgressIndicator()),
       );
     }
     return AppShell(
-      title: AppStrings.text(
-        widget.pickerMode ? 'map.choose_stop' : 'map.title',
-      ),
+      title: AppStrings.text(widget.pickerMode ? 'map.choose_stop' : 'map.title'),
       selectedTab: 1,
-      actions: widget.pickerMode
-          ? [
-              IconButton(
-                icon: _selectedPickerStop == null
-                    ? const Icon(Icons.arrow_back)
-                    : const Icon(Icons.check),
-                onPressed: () {
-                  final mapRoute = ModalRoute.of(context);
-                  if (mapRoute != null && !mapRoute.isCurrent) {
-                    // pop stop_route_sheet first if still present
-                    Navigator.of(context).pop();
-                  }
-                  Navigator.pop(context, _selectedPickerStop);
-                },
-              ),
-            ]
-          : null,
-      body: Navigator(
-        key: _nestedNavKey,
-        onGenerateRoute: (settings) => MaterialPageRoute(
-          builder: (nestedContext) => GoogleMap(
-            padding: _mapPadding, // not working for some reason
-            initialCameraPosition: CameraPosition(
-              target: _stops.isEmpty
-                  ? const LatLng(22.3193, 114.1694)
-                  : LatLng(_stops.first.lat, _stops.first.lng),
-              zoom: 12,
-            ),
-            onMapCreated: (controller) {
-              _mapController = controller;
-              _updateVisibleMarkers();
-            },
-            onCameraIdle: _updateVisibleMarkers,
-            myLocationEnabled: true, // enables phone location services
-            markers: _visibleMarkers,
-          ),
-        ),
-      ),
+      actions: widget.pickerMode ? [
+        IconButton(icon: _selectedPickerStop == null ? const Icon(Icons.arrow_back) : const Icon(Icons.check), onPressed: () {
+          final mapRoute = ModalRoute.of(context);
+          if (mapRoute != null && !mapRoute.isCurrent) { // pop stop_route_sheet first if still present
+            Navigator.of(context).pop();
+          }
+          Navigator.pop(context, _selectedPickerStop);
+        },),
+      ] : null,
+      body: Navigator(key: _nestedNavKey, onGenerateRoute: (settings) => MaterialPageRoute(builder: (nestedContext) => GoogleMap(
+          padding: _mapPadding, // not working for some reason
+          initialCameraPosition: const CameraPosition(target: LatLng(22.3193, 114.1694), zoom: 12),
+          onMapCreated: (controller) {
+            _mapController = controller;
+            _updateVisibleMarkers();
+          },
+          onCameraIdle: _updateVisibleMarkers,
+          myLocationEnabled: true, // enables phone location services
+          markers: _visibleMarkers
+      ),),)
     );
   }
 }

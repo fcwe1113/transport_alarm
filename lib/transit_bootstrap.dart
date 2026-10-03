@@ -6,23 +6,19 @@ import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 
 /// Runs the data refresh routine for a given provider.
-/// Loads the selected locales' timetables and operator data during setup.
 Future<List<String>> initializeTransitData({
   ProgressCallback? onProgress,
   bool forceRefresh = false,
-  List<String>? onlyLocales,
 }) async {
   final allFailures = <String>[];
   final selectionService = LocaleSelectionService();
-  final allEnabledLocales = await selectionService.getEnabledLocales();
-  final onlyLocalesSet = onlyLocales?.toSet();
-  final enabledLocales = onlyLocales == null
-      ? allEnabledLocales
-      : allEnabledLocales.where(onlyLocalesSet!.contains).toList();
-  final enabledProviders = providersForLocales(enabledLocales);
-  final gtfsProviders = LocaleGtfsRegistry.getProvidersForLocale(
+  final enabledLocales = await selectionService.getEnabledLocales();
+  final gtfsLocales = await _gtfsLocalesForSelection(
+    selectionService,
     enabledLocales,
   );
+  final enabledProviders = providersForLocales(enabledLocales);
+  final gtfsProviders = LocaleGtfsRegistry.getProvidersForLocale(gtfsLocales);
 
   for (final provider in gtfsProviders) {
     try {
@@ -52,9 +48,7 @@ Future<List<String>> initializeTransitData({
         AppStrings.text('transit.matching_stops', {'locale': locale}),
         null,
       );
-      if (locale != 'uk') {
-        await GtfsDatabase.forLocale(locale).matchOperatorStopsToGtfs();
-      }
+      await GtfsDatabase.forLocale(locale).matchOperatorStopsToGtfs();
     } catch (error) {
       allFailures.add('$locale stop matching: $error');
     }
@@ -64,16 +58,17 @@ Future<List<String>> initializeTransitData({
   return allFailures;
 }
 
-/// Refreshes stale selected feeds and rematches provider stops to GTFS records.
 Future<List<String>> refreshStaleProviders({
   ProgressCallback? onProgress,
   bool forceRefresh = false,
 }) async {
   final selectionService = LocaleSelectionService();
   final enabledLocales = await selectionService.getEnabledLocales();
-  final gtfsProviders = LocaleGtfsRegistry.getProvidersForLocale(
+  final gtfsLocales = await _gtfsLocalesForSelection(
+    selectionService,
     enabledLocales,
   );
+  final gtfsProviders = LocaleGtfsRegistry.getProvidersForLocale(gtfsLocales);
   final enabledProviders = providersForLocales(enabledLocales);
   final allFailures = <String>[];
 
@@ -118,9 +113,7 @@ Future<List<String>> refreshStaleProviders({
         AppStrings.text('transit.matching_stops', {'locale': locale}),
         null,
       );
-      if (locale != 'uk') {
-        await GtfsDatabase.forLocale(locale).matchOperatorStopsToGtfs();
-      }
+      await GtfsDatabase.forLocale(locale).matchOperatorStopsToGtfs();
     } catch (error) {
       allFailures.add('$locale stop matching: $error');
     }
@@ -128,4 +121,15 @@ Future<List<String>> refreshStaleProviders({
 
   onProgress?.call(AppStrings.text('transit.refresh_complete'), 1.0);
   return allFailures;
+}
+
+Future<List<String>> _gtfsLocalesForSelection(
+  LocaleSelectionService selectionService,
+  List<String> enabledLocales,
+) async {
+  final gtfsLocales = enabledLocales.toSet();
+  if ((await selectionService.getEnabledUkRegions()).isNotEmpty) {
+    gtfsLocales.add('uk');
+  }
+  return gtfsLocales.toList();
 }

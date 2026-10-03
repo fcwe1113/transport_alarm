@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:live_update_countdown/live_update_countdown.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
@@ -16,11 +15,9 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   static const String ringChannelId = 'transport_alarm_ring_channel';
-  static String get ringChannelName =>
-      AppStrings.text('notification.channel.rings');
+  static String get ringChannelName => AppStrings.text('notification.channel.rings');
   static const String statusChannelId = 'transport_alarm_status_channel';
-  static String get statusChannelName =>
-      AppStrings.text('notification.channel.updates');
+  static String get statusChannelName => AppStrings.text('notification.channel.updates');
 
   static Future<void> init() async {
     const androidSettings = AndroidInitializationSettings(
@@ -60,20 +57,11 @@ class NotificationService {
       if (launchDetails?.didNotificationLaunchApp == true && response != null) {
         await _handleNotificationResponse(response);
       }
-    }
-  }
-
-  /// Requests Android notification permission after the app's first frame.
-  static Future<void> requestAndroidNotificationPermission() async {
-    if (!Platform.isAndroid) return;
-    try {
       await plugin
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >()
           ?.requestNotificationsPermission();
-    } catch (error, stackTrace) {
-      debugPrint('Notification permission request failed: $error\n$stackTrace');
     }
   }
 
@@ -93,22 +81,20 @@ class NotificationService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     await android?.createNotificationChannel(
-      AndroidNotificationChannel(
-        ringChannelId,
-        ringChannelName,
-        description: AppStrings.text('notification.channel.rings.description'),
+        AndroidNotificationChannel(
+          ringChannelId,
+          ringChannelName,
+          description: AppStrings.text('notification.channel.rings.description'),
         importance: Importance.max,
         playSound: true,
         enableVibration: true,
       ),
     );
     await android?.createNotificationChannel(
-      AndroidNotificationChannel(
-        statusChannelId,
-        statusChannelName,
-        description: AppStrings.text(
-          'notification.channel.updates.description',
-        ),
+        AndroidNotificationChannel(
+          statusChannelId,
+          statusChannelName,
+          description: AppStrings.text('notification.channel.updates.description'),
         importance: Importance.defaultImportance,
         playSound: false,
         enableVibration: false,
@@ -190,7 +176,10 @@ class NotificationService {
           enableVibration: false,
           ongoing: true,
           autoCancel: false,
-          progress: _progressValue(progressStartTime, estimatedArrivalTime),
+          progress: _progressValue(
+            progressStartTime,
+            estimatedArrivalTime,
+          ),
           maxProgress: 1000,
           showProgress: true,
           showWhen: true,
@@ -207,7 +196,10 @@ class NotificationService {
     final totalMillis = arrival.difference(start).inMilliseconds;
     if (totalMillis <= 0) return 1000;
     final elapsedMillis = DateTime.now().difference(start).inMilliseconds;
-    return (elapsedMillis * 1000 / totalMillis).round().clamp(0, 1000).toInt();
+    return (elapsedMillis * 1000 / totalMillis)
+        .round()
+        .clamp(0, 1000)
+        .toInt();
   }
 
   static Future<void> showSilentStatus({
@@ -250,8 +242,9 @@ class NotificationService {
     if (Platform.isAndroid && payload != null) {
       if (response.actionId == 'acknowledge') {
         final alarmId = payload.substring(payload.indexOf(':') + 1);
-        await AndroidAlarmCoordinator(AlarmStorageService())
-            .acknowledge(alarmId);
+        await AndroidAlarmCoordinator(
+          AlarmStorageService(),
+        ).acknowledge(alarmId);
       }
       return;
     }

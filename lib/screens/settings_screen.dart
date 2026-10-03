@@ -1,7 +1,5 @@
-import 'dart:convert';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/l10n/app_language_state.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
@@ -10,7 +8,6 @@ import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
-import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 
 /// Settings landing page; language selection is implemented as a child page.
@@ -119,7 +116,6 @@ class _AppLanguageSettingsScreenState extends State<AppLanguageSettingsScreen> {
     _loadSelection();
   }
 
-  /// Loads saved locale and ATCO selections and groups ATCO areas by region.
   Future<void> _loadSelection() async {
     final code = await _selectionService.getAppLanguageCode();
     if (!mounted) return;
@@ -211,10 +207,23 @@ class EnabledLocalesSettingsScreen extends StatefulWidget {
 
 class _EnabledLocalesSettingsScreenState
     extends State<EnabledLocalesSettingsScreen> {
+  static const _ukRegions = <String>[
+    'East Midlands',
+    'East Anglia',
+    'London',
+    'North East',
+    'North West',
+    'Scotland',
+    'South East',
+    'South West',
+    'Wales',
+    'West Midlands',
+    'Yorkshire',
+  ];
+
   final _selectionService = LocaleSelectionService();
   Set<String> _selected = {};
-  Set<String> _selectedAtcoCodes = {};
-  Map<String, List<({String code, String name})>> _atcoByRegion = {};
+  Set<String> _selectedUkRegions = {};
   bool _loading = true;
   bool _saving = false;
 
@@ -226,103 +235,48 @@ class _EnabledLocalesSettingsScreenState
 
   Future<void> _loadSelection() async {
     final enabled = await _selectionService.getEnabledLocales();
-    final enabledAtcoCodes = await _selectionService.getEnabledAtcoCodes();
-    final atcoJson = await rootBundle.loadString(
-      'lib/transit/locale/uk/atco.json',
-    );
-    final atcoAreas = jsonDecode(atcoJson) as Map<String, dynamic>;
-    final byRegion = <String, List<({String code, String name})>>{};
-    for (final entry in atcoAreas.entries) {
-      final area = Map<String, dynamic>.from(entry.value as Map);
-      final region = area['region'] as String;
-      byRegion.putIfAbsent(region, () => []).add((
-        code: entry.key,
-        name: area['name'] as String,
-      ));
-    }
-    for (final areas in byRegion.values) {
-      areas.sort((a, b) => a.name.compareTo(b.name));
-    }
+    final enabledUkRegions = await _selectionService.getEnabledUkRegions();
     if (!mounted) return;
     setState(() {
       _selected = enabled.toSet();
-      _selectedAtcoCodes = enabledAtcoCodes.toSet();
-      _atcoByRegion = byRegion;
+      _selectedUkRegions = enabledUkRegions.toSet();
       _loading = false;
     });
   }
 
-  /// Saves the locale selection, refreshes added data, and removes disabled data.
   Future<void> _saveSelection() async {
     if (_saving) return;
+    if (_selected.isEmpty && _selectedUkRegions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.text('settings.enabled_locales.required')),
+        ),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
     final previous = (await _selectionService.getEnabledLocales()).toSet();
-    final previousAtcoCodes = (await _selectionService.getEnabledAtcoCodes())
+    final previousUkRegions = (await _selectionService.getEnabledUkRegions())
         .toSet();
-    final nextAtcoCodes = _selectedAtcoCodes.toList()..sort();
-    final nextSet = _selected.toSet();
-    if (nextAtcoCodes.isNotEmpty) {
-      nextSet.add('uk');
-    } else {
-      nextSet.remove('uk');
-    }
-    final next = nextSet.toList()..sort();
-    final localesToRefresh = nextSet.difference(previous).toSet();
-    if (!previousAtcoCodes.containsAll(nextAtcoCodes) ||
-        !nextAtcoCodes.toSet().containsAll(previousAtcoCodes)) {
-      if (nextSet.contains('uk')) localesToRefresh.add('uk');
-    }
-    final localesToRemove = previous.difference(nextSet);
+    final next = _selected.toList()..sort();
+    final addedLocales = next.toSet().difference(previous);
+    final nextUkRegions = _selectedUkRegions.toList()..sort();
+    final ukRegionsChanged = !setEquals(
+      previousUkRegions,
+      nextUkRegions.toSet(),
+    );
     await _selectionService.setEnabledLocales(next);
-    await _selectionService.setEnabledAtcoCodes(nextAtcoCodes);
+    await _selectionService.setEnabledUkRegions(nextUkRegions);
     if (!mounted) return;
 
     final navigator = Navigator.of(context);
     navigator.pop();
-    if (localesToRefresh.isNotEmpty || localesToRemove.isNotEmpty) {
-      /// Applies the requested data changes and rolls back selection on failure.
-      Future<List<String>> applySelectedData({
-        ProgressCallback? onProgress,
-        bool forceRefresh = false,
-      }) async {
-        /// Restores the saved locale and ATCO selections after a failed refresh.
-        Future<void> restorePreviousSelection() async {
-          await _selectionService.setEnabledLocales(previous.toList()..sort());
-          await _selectionService.setEnabledAtcoCodes(
-            previousAtcoCodes.toList()..sort(),
-          );
-        }
-
-        // A retry starts from the requested selection even when the earlier
-        // attempt rolled it back after a failed network request.
-        await _selectionService.setEnabledLocales(next);
-        await _selectionService.setEnabledAtcoCodes(nextAtcoCodes);
-        try {
-          final failures = localesToRefresh.isEmpty
-              ? <String>[]
-              : await initializeTransitData(
-                  onProgress: onProgress,
-                  forceRefresh: forceRefresh,
-                  onlyLocales: localesToRefresh.toList(),
-                );
-          if (failures.isNotEmpty) {
-            await restorePreviousSelection();
-            return failures;
-          }
-          for (final locale in localesToRemove) {
-            await GtfsDatabase.forLocale(locale).resetDatabase();
-          }
-          return failures;
-        } catch (_) {
-          await restorePreviousSelection();
-          rethrow;
-        }
-      }
-
+    if (addedLocales.isNotEmpty || ukRegionsChanged) {
       await navigator.push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => LoadingScreen(
-            operation: applySelectedData,
+          builder: (_) => const LoadingScreen(
+            operation: initializeTransitData,
             returnToPrevious: true,
             showBottomNavigation: true,
           ),
@@ -333,11 +287,8 @@ class _EnabledLocalesSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final localeCodes =
-        providersByLocale.keys.where((code) => code != 'uk').toList()..sort();
-    final allAtcoCodes = _atcoByRegion.values
-        .expand((areas) => areas.map((area) => area.code))
-        .toSet();
+    final localeCodes = providersByLocale.keys.toList()..sort();
+    final allUkRegions = _ukRegions.map(_ukRegionKey).toSet();
     return AppShell(
       title: AppStrings.text('settings.enabled_locales'),
       selectedTab: 2,
@@ -373,20 +324,30 @@ class _EnabledLocalesSettingsScreenState
                           }),
                   ),
                 ExpansionTile(
-                  key: const PageStorageKey<String>('enabled-uk-atco-areas'),
+                  key: const PageStorageKey<String>('enabled-uk-regions'),
                   leading: Checkbox(
                     tristate: true,
-                    value: _checkboxState(allAtcoCodes),
+                    value: _checkboxState(allUkRegions),
                     onChanged: _saving
                         ? null
-                        : (_) => _toggleAtcoCodes(allAtcoCodes),
+                        : (_) => _toggleUkRegions(allUkRegions),
                   ),
                   title: Text(
                     AppStrings.text('settings.locale.united_kingdom'),
                   ),
                   children: [
-                    for (final region in _atcoByRegion.keys.toList()..sort())
-                      _buildAtcoRegion(region, _atcoByRegion[region]!),
+                    for (final region in _ukRegions)
+                      CheckboxListTile(
+                        value: _selectedUkRegions.contains(
+                          _ukRegionKey(region),
+                        ),
+                        title: Text(region),
+                        onChanged: _saving
+                            ? null
+                            : (enabled) => _setUkRegions({
+                                _ukRegionKey(region),
+                              }, enabled == true),
+                      ),
                   ],
                 ),
               ],
@@ -394,55 +355,27 @@ class _EnabledLocalesSettingsScreenState
     );
   }
 
-  /// Builds a region row whose checkbox controls every ATCO area beneath it.
-  Widget _buildAtcoRegion(
-    String region,
-    List<({String code, String name})> areas,
-  ) {
-    final codes = areas.map((area) => area.code).toSet();
-    return ExpansionTile(
-      key: PageStorageKey<String>('enabled-uk-atco-region-$region'),
-      leading: Checkbox(
-        tristate: true,
-        value: _checkboxState(codes),
-        onChanged: _saving ? null : (_) => _toggleAtcoCodes(codes),
-      ),
-      title: Text(region),
-      children: [
-        for (final area in areas)
-          CheckboxListTile(
-            value: _selectedAtcoCodes.contains(area.code),
-            title: Text(area.name),
-            subtitle: Text(area.code),
-            onChanged: _saving
-                ? null
-                : (enabled) => _setAtcoCodes({area.code}, enabled == true),
-          ),
-      ],
-    );
-  }
+  String _ukRegionKey(String region) =>
+      region.toLowerCase().replaceAll(RegExp(r'\s+'), '_');
 
-  /// Returns checked, unchecked, or mixed state for a parent checkbox.
-  bool? _checkboxState(Set<String> codes) {
-    final selectedCount = codes.intersection(_selectedAtcoCodes).length;
+  bool? _checkboxState(Set<String> regions) {
+    final selectedCount = regions.intersection(_selectedUkRegions).length;
     if (selectedCount == 0) return false;
-    if (selectedCount == codes.length) return true;
+    if (selectedCount == regions.length) return true;
     return null;
   }
 
-  /// Adds or removes the specified ATCO area codes from the pending selection.
-  void _setAtcoCodes(Set<String> codes, bool enabled) {
+  void _setUkRegions(Set<String> regions, bool enabled) {
     setState(() {
       if (enabled) {
-        _selectedAtcoCodes.addAll(codes);
+        _selectedUkRegions.addAll(regions);
       } else {
-        _selectedAtcoCodes.removeAll(codes);
+        _selectedUkRegions.removeAll(regions);
       }
     });
   }
 
-  /// Toggles a group of ATCO codes as one selection.
-  void _toggleAtcoCodes(Set<String> codes) {
-    _setAtcoCodes(codes, _checkboxState(codes) != true);
+  void _toggleUkRegions(Set<String> regions) {
+    _setUkRegions(regions, _checkboxState(regions) != true);
   }
 }

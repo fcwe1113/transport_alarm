@@ -8,7 +8,6 @@ class LocaleGtfsRegistry {
     "uk": [UkGtfsSyncProvider()],
   };
 
-  /// Returns every GTFS downloader registered for the requested locales.
   static List<GtfsSyncProvider> getProvidersForLocale(List<String> locales) {
     final List<GtfsSyncProvider> matchProviders = [];
     for (final locale in locales) {
