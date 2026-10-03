@@ -1,0 +1,610 @@
+{
+  "010": {
+    "name": "Bristol",
+    "region": "South West"
+  },
+  "017": {
+    "name": "South Gloucestershire",
+    "region": "South West"
+  },
+  "018": {
+    "name": "Bath & North East Sommerset",
+    "region": "South West"
+  },
+  "019": {
+    "name": "North Somerset",
+    "region": "South West"
+  },
+  "020": {
+    "name": "Bedford",
+    "region": "South East"
+  },
+  "021": {
+    "name": "Central Bedfordshire",
+    "region": "South East"
+  },
+  "029": {
+    "name": "Luton",
+    "region": "South East"
+  },
+  "030": {
+    "name": "West Berkshire",
+    "region": "South East"
+  },
+  "035": {
+    "name": "Wokingham",
+    "region": "South East"
+  },
+  "036": {
+    "name": "Windsor & Maidenhead",
+    "region": "South East"
+  },
+  "037": {
+    "name": "Slough",
+    "region": "South East"
+  },
+  "038": {
+    "name": "Bracknell Forest",
+    "region": "South East"
+  },
+  "039": {
+    "name": "Reading",
+    "region": "South East"
+  },
+  "040": {
+    "name": "Buckinghamshire",
+    "region": "South East"
+  },
+  "049": {
+    "name": "Milton Keynes",
+    "region": "South East"
+  },
+  "050": {
+    "name": "Cambridgeshire",
+    "region": "East Anglia"
+  },
+  "059": {
+    "name": "Peterborough",
+    "region": "East Midlands"
+  },
+  "060": {
+    "name": "Cheshire East",
+    "region": "North West"
+  },
+  "061": {
+    "name": "Cheshire Wed & Chester",
+    "region": "North West"
+  },
+  "068": {
+    "name": "Halton",
+    "region": "North West"
+  },
+  "069": {
+    "name": "Warrington",
+    "region": "North West"
+  },
+  "075": {
+    "name": "Hartlepool",
+    "region": "North East"
+  },
+  "076": {
+    "name": "Darlington",
+    "region": "North East"
+  },
+  "077": {
+    "name": "Stockton-on-Tees",
+    "region": "North East"
+  },
+  "078": {
+    "name": "Redcar & Cleveland",
+    "region": "North East"
+  },
+  "079": {
+    "name": "Middlesborough",
+    "region": "North East"
+  },
+  "080": {
+    "name": "Cornwall",
+    "region": "South West"
+  },
+  "090": {
+    "name": "Cumbria",
+    "region": "North West"
+  },
+  "100": {
+    "name": "Derbyshire",
+    "region": "East Midlands"
+  },
+  "109": {
+    "name": "Derby",
+    "region": "East Midlands"
+  },
+  "110": {
+    "name": "Devon",
+    "region": "South West"
+  },
+  "118": {
+    "name": "Plymouth",
+    "region": "South West"
+  },
+  "119": {
+    "name": "Torbay",
+    "region": "South West"
+  },
+  "120": {
+    "name": "Dorset",
+    "region": "South West"
+  },
+  "128": {
+    "name": "Poole",
+    "region": "South West"
+  },
+  "129": {
+    "name": "Bournemouth",
+    "region": "South West"
+  },
+  "130": {
+    "name": "Durham",
+    "region": "North East"
+  },
+  "140": {
+    "name": "East Sussex",
+    "region": "South East"
+  },
+  "149": {
+    "name": "Brighton and Hove",
+    "region": "South East"
+  },
+  "150": {
+    "name": "Essex",
+    "region": "South East"
+  },
+  "158": {
+    "name": "Southend-on-Sea",
+    "region": "South East"
+  },
+  "159": {
+    "name": "Thurrock",
+    "region": "South East"
+  },
+  "160": {
+    "name": "Glouchestershire",
+    "region": "South West"
+  },
+  "180": {
+    "name": "Greater Manchester",
+    "region": "North West"
+  },
+  "190": {
+    "name": "Hampshire",
+    "region": "South West"
+  },
+  "198": {
+    "name": "Southampton",
+    "region": "South West"
+  },
+  "199": {
+    "name": "Portsmouth",
+    "region": "South West"
+  },
+  "200": {
+    "name": "Worcestershire",
+    "region": "West Midlands"
+  },
+  "209": {
+    "name": "Herefordshire",
+    "region": "West Midlands"
+  },
+  "210": {
+    "name": "Hertfordshire",
+    "region": "South East"
+  },
+  "220": {
+    "name": "East Riding of Yorkshire",
+    "region": "Yorkshire"
+  },
+  "227": {
+    "name": "North Lincolnshire",
+    "region": "East Midlands"
+  },
+  "228": {
+    "name": "North East Lincolnshire",
+    "region": "East Midlands"
+  },
+  "229": {
+    "name": "Kingston upon Hull",
+    "region": "Yorkshire"
+  },
+  "230": {
+    "name": "Isle of Wight",
+    "region": "South East"
+  },
+  "240": {
+    "name": "Kent",
+    "region": "South East"
+  },
+  "249": {
+    "name": "Medway",
+    "region": "South East"
+  },
+  "250": {
+    "name": "Lancashire",
+    "region": "North West"
+  },
+  "258": {
+    "name": "Blacknburn with Darwen",
+    "region": "North West"
+  },
+  "259": {
+    "name": "Blackpool",
+    "region": "North West"
+  },
+  "260": {
+    "name": "Leicestershire",
+    "region": "East Midlands"
+  },
+  "268": {
+    "name": "Rutland",
+    "region": "East Midlands"
+  },
+  "269": {
+    "name": "Leicester",
+    "region": "East Midlands"
+  },
+  "270": {
+    "name": "Lincolnshire",
+    "region": "East Midlands"
+  },
+  "280": {
+    "name": "Merseyside",
+    "region": "North West"
+  },
+  "290": {
+    "name": "Norfolk",
+    "region": "East Anglia"
+  },
+  "300": {
+    "name": "West Northamptonshire",
+    "region": "East Midlands"
+  },
+  "305": {
+    "name": "North Northamptonshire",
+    "region": "East Midlands"
+  },
+  "310": {
+    "name": "Northumberland",
+    "region": "North East"
+  },
+  "320": {
+    "name": "North Yorkshire",
+    "region": "Yorkshire"
+  },
+  "329": {
+    "name": "York",
+    "region": "Yorkshire"
+  },
+  "330": {
+    "name": "Nottinghamshire",
+    "region": "East Midlands"
+  },
+  "339": {
+    "name": "Nottingham",
+    "region": "East Midlands"
+  },
+  "340": {
+    "name": "Oxfordshire",
+    "region": "South East"
+  },
+  "350": {
+    "name": "Shropshire",
+    "region": "West Midlands"
+  },
+  "359": {
+    "name": "Telford & Wrekin",
+    "region": "West Midlands"
+  },
+  "360": {
+    "name": "Somerset",
+    "region": "South West"
+  },
+  "370": {
+    "name": "South Yorkshire",
+    "region": "Yorkshire"
+  },
+  "380": {
+    "name": "Staffordshire",
+    "region": "West Midlands"
+  },
+  "389": {
+    "name": "Stoke-on-Trent",
+    "region": "West Midlands"
+  },
+  "390": {
+    "name": "Suffolk",
+    "region": "East Anglia"
+  },
+  "400": {
+    "name": "Surrey",
+    "region": "South East"
+  },
+  "410": {
+    "name": "Tyne & Wear",
+    "region": "North East"
+  },
+  "420": {
+    "name": "Warwickshire",
+    "region": "West Midlands"
+  },
+  "430": {
+    "name": "West Midlands",
+    "region": "West Midlands"
+  },
+  "440": {
+    "name": "West Sussex",
+    "region": "South East"
+  },
+  "450": {
+    "name": "West Yorkshire",
+    "region": "Yorkshire"
+  },
+  "460": {
+    "name": "Wiltshire",
+    "region": "South West"
+  },
+  "468": {
+    "name": "Swindon",
+    "region": "South West"
+  },
+  "490": {
+    "name": "Greater London",
+    "region": "London"
+  },
+  "511": {
+    "name": "Denbighshire",
+    "region": "Wales"
+  },
+  "512": {
+    "name": "Flintshire",
+    "region": "Wales"
+  },
+  "513": {
+    "name": "Conwy",
+    "region": "Wales"
+  },
+  "514": {
+    "name": "Wrexham",
+    "region": "Wales"
+  },
+  "521": {
+    "name": "Pembrokeshire",
+    "region": "Wales"
+  },
+  "522": {
+    "name": "Carmarthenshire",
+    "region": "Wales"
+  },
+  "523": {
+    "name": "Ceredigion",
+    "region": "Wales"
+  },
+  "531": {
+    "name": "Newport",
+    "region": "Wales"
+  },
+  "532": {
+    "name": "Blaenau Gwent",
+    "region": "Wales"
+  },
+  "533": {
+    "name": "Monmouthshire",
+    "region": "Wales"
+  },
+  "534": {
+    "name": "Torfaen",
+    "region": "Wales"
+  },
+  "540": {
+    "name": "Gwynedd",
+    "region": "Wales"
+  },
+  "541": {
+    "name": "Isle of Anglesey",
+    "region": "Wales"
+  },
+  "551": {
+    "name": "Bridgend",
+    "region": "Wales"
+  },
+  "552": {
+    "name": "Rhodda Cynon Taff",
+    "region": "Wales"
+  },
+  "553": {
+    "name": "Merthyr Tydfil",
+    "region": "Wales"
+  },
+  "554": {
+    "name": "Caerphilly",
+    "region": "Wales"
+  },
+  "561": {
+    "name": "Powys",
+    "region": "Wales"
+  },
+  "571": {
+    "name": "Cardiff",
+    "region": "Wales"
+  },
+  "572": {
+    "name": "Vale of Glamorgan",
+    "region": "Wales"
+  },
+  "581": {
+    "name": "Swansea",
+    "region": "Wales"
+  },
+  "582": {
+    "name": "Neath Port Talbot",
+    "region": "Wales"
+  },
+  "601": {
+    "name": "Western Isles",
+    "region": "Scotland"
+  },
+  "602": {
+    "name": "Orkney Islands",
+    "region": "Scotland"
+  },
+  "603": {
+    "name": "Shetland Islands",
+    "region": "Scotland"
+  },
+  "607": {
+    "name": "Argyll & Bute",
+    "region": "Scotland"
+  },
+  "608": {
+    "name": "West Dunbartonshire",
+    "region": "Scotland"
+  },
+  "609": {
+    "name": "Glasgow",
+    "region": "Scotland"
+  },
+  "611": {
+    "name": "East Dunbartonshire",
+    "region": "Scotland"
+  },
+  "612": {
+    "name": "East Renfrewshire",
+    "region": "Scotland"
+  },
+  "613": {
+    "name": "Inverclyde",
+    "region": "Scotland"
+  },
+  "614": {
+    "name": "Renfrewshire",
+    "region": "Scotland"
+  },
+  "615": {
+    "name": "South Lanarkshire",
+    "region": "Scotland"
+  },
+  "616": {
+    "name": "North Lanarkshire",
+    "region": "Scotland"
+  },
+  "617": {
+    "name": "North Ayrshire",
+    "region": "Scotland"
+  },
+  "618": {
+    "name": "East Ayrshire",
+    "region": "Scotland"
+  },
+  "619": {
+    "name": "South Ayrshire",
+    "region": "Scotland"
+  },
+  "620": {
+    "name": "Edinburgh",
+    "region": "Scotland"
+  },
+  "627": {
+    "name": "East Lothian",
+    "region": "Scotland"
+  },
+  "628": {
+    "name": "Midlothian",
+    "region": "Scotland"
+  },
+  "629": {
+    "name": "West Lothian",
+    "region": "Scotland"
+  },
+  "630": {
+    "name": "Aberdeenshire",
+    "region": "Scotland"
+  },
+  "638": {
+    "name": "Moray",
+    "region": "Scotland"
+  },
+  "639": {
+    "name": "Aberdeen",
+    "region": "Scotland"
+  },
+  "640": {
+    "name": "Dundee",
+    "region": "Scotland"
+  },
+  "648": {
+    "name": "Perth & Kinross",
+    "region": "Scotland"
+  },
+  "649": {
+    "name": "Angus",
+    "region": "Scotland"
+  },
+  "650": {
+    "name": "Fife",
+    "region": "Scotland"
+  },
+  "660": {
+    "name": "Stirling",
+    "region": "Scotland"
+  },
+  "668": {
+    "name": "Clackmannanshire",
+    "region": "Scotland"
+  },
+  "669": {
+    "name": "Falkirk",
+    "region": "Scotland"
+  },
+  "670": {
+    "name": "Highland",
+    "region": "Scotland"
+  },
+  "680": {
+    "name": "Dumfries & Galloway",
+    "region": "Scotland"
+  },
+  "690": {
+    "name": "Scottish Borders",
+    "region": "Scotland"
+  },
+  "700": {
+    "name": "Northern Ireland",
+    "region": "Northern Ireland"
+  },
+  "910": {
+    "name": "Rail (National)",
+    "region": "DfT"
+  },
+  "920": {
+    "name": "Airports (National)",
+    "region": "DfT"
+  },
+  "930": {
+    "name": "Ferry (National)",
+    "region": "DfT"
+  },
+  "940": {
+    "name": "Tram (National)",
+    "region": "DfT"
+  },
+  "945": {
+    "name": "Automated People Mover (National)",
+    "region": "DfT"
+  },
+  "970": {
+    "name": "Northern Ireland Rail",
+    "region": "Northern Ireland"
+  },
+  "999": {
+    "name": "Non-Passenger Stops",
+    "region": "None"
+  }
+}

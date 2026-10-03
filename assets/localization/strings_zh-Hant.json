@@ -184,18 +184,12 @@
   "transit.provider_fetch_route_stops": "更新{providerName}資料中 ({done}/{total})",
   "transit.provider_fetch_stop_details": "更新{providerName}車站中 ({done}/{total})",
   "transit.provider_setup_complete": "{providerName}更新完成",
-
-  "comment.DO_NOT_TRANSLATE_START": "MODES OF TRANSPORT:",
-  "comment.DO_NOT_TRANSLATE_1": "ADD YOUR MODE OF TRANSPORT HERE, IN THE FORMAT OF transportMode AND transportMode.title",
-  "comment.DO_NOT_TRANSLATE_2": "AND HAVE THE TransitProvider RETURN THAT ID FROM transportMode",
   "transport.mode.bus": "公車",
   "transport.mode.bus.title": "公車",
   "transport.mode.tram": "有軌電車",
   "transport.mode.tram.title": "有軌電車",
   "transport.mode.train": "火車",
   "transport.mode.train.title": "火車",
-  "comment.DO_NOT_TRANSLATE_END": "END OF COMMENT",
-
   "notification.transport_arriving_soon": "{transportModeTitle}即將抵達",
   "notification.next_transport_alarm": "下一個{transportModeTitle}鬧鐘",
   "notification.transport_arriving_now": "{transportModeTitle}即將抵達",
@@ -205,5 +199,6 @@
   "live_activity.transport_mode": "{transportModeTitle}",
   "settings.enabled_locales": "已啟用的地區",
   "settings.enabled_locales.subtitle": "選擇應用程式要使用的交通地區",
-  "settings.enabled_locales.required": "至少保留一個已啟用的地區。"
+  "settings.enabled_locales.required": "請至少選擇一個地區或英國範圍。",
+  "settings.locale.united_kingdom": "英國"
 }

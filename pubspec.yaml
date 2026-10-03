@@ -78,4 +78,5 @@ flutter:
   assets:
     - assets/icons/
     - assets/localization/
+    - lib/transit/locale/uk/atco.json
     - config/secrets.json

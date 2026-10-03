@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class LocaleSelectionService {
   static const _key = "enabled_locales";
+  static const _enabledAtcoCodesKey = "enabled_atco_codes";
   static const _appLanguageKey = "app_language_code";
 
   Future<String> getAppLanguageCode() async {
@@ -25,6 +26,16 @@ class LocaleSelectionService {
   Future<void> setEnabledLocales(List<String> codes) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_key, codes);
+  }
+
+  Future<List<String>> getEnabledAtcoCodes() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_enabledAtcoCodesKey) ?? [];
+  }
+
+  Future<void> setEnabledAtcoCodes(List<String> codes) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_enabledAtcoCodesKey, codes);
   }
 
   Future<bool> hasCompletedSetup() async {

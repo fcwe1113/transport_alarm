@@ -199,5 +199,6 @@
   "live_activity.transport_mode": "{transportModeTitle}",
   "settings.enabled_locales": "Regiones de transporte habilitadas",
   "settings.enabled_locales.subtitle": "Elija qué regiones de transporte desea usar",
-  "settings.enabled_locales.required": "Mantenga habilitada al menos una región."
+  "settings.enabled_locales.required": "Seleccione al menos una región o zona del Reino Unido.",
+  "settings.locale.united_kingdom": "Reino Unido"
 }
