@@ -6,12 +6,14 @@ class BatchCallItem<K, T> {
   final String endpointName;
   final String url;
   final T Function(String rawJson) parseRaw;
+  final bool forceRefresh;
 
   const BatchCallItem({
     required this.key,
     required this.endpointName,
     required this.url,
     required this.parseRaw,
+    this.forceRefresh = false,
   });
 }
 
@@ -24,18 +26,46 @@ class BatchCallResult<K, T> {
 
 class ApiCaller {
   static const _defaultMaxAge = Duration(days: 7);
+  static const requestTimeout = Duration(seconds: 20);
 
-  Future<bool> _isStale(String providerCode, String endpointName, Duration maxAge) async {
+  static Future<http.Response> get(Uri uri) =>
+      _request((client) => client.get(uri));
+
+  static Future<http.Response> head(Uri uri) =>
+      _request((client) => client.head(uri));
+
+  static Future<http.Response> _request(
+    Future<http.Response> Function(http.Client client) send,
+  ) async {
+    final client = http.Client();
+    try {
+      return await send(client).timeout(requestTimeout);
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<bool> _isStale(
+    String providerCode,
+    String endpointName,
+    Duration maxAge,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
-    final lastMillis = prefs.getInt("${providerCode}_${endpointName}_last_fetched");
+    final lastMillis = prefs.getInt(
+      "${providerCode}_${endpointName}_last_fetched",
+    );
     if (lastMillis == null) return true;
     final last = DateTime.fromMillisecondsSinceEpoch(lastMillis);
-    return DateTime.now().difference(last) > maxAge;
+    final age = DateTime.now().difference(last);
+    return age.isNegative || age > maxAge;
   }
 
   Future<void> _markFetched(String providerCode, String endpointName) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt("${providerCode}_${endpointName}_last_fetched", DateTime.now().millisecondsSinceEpoch);
+    await prefs.setInt(
+      "${providerCode}_${endpointName}_last_fetched",
+      DateTime.now().millisecondsSinceEpoch,
+    );
   }
 
   Future<T?> call<T>({
@@ -44,12 +74,13 @@ class ApiCaller {
     required String url,
     required T Function(String rawJson) parseRaw,
     bool forceRefresh = false,
-    Duration maxAge = _defaultMaxAge
+    Duration maxAge = _defaultMaxAge,
   }) async {
-    final stale = forceRefresh || await _isStale(providerCode, endpointName, maxAge);
+    final stale =
+        forceRefresh || await _isStale(providerCode, endpointName, maxAge);
     if (!stale) return null;
 
-    final response = await http.get(Uri.parse(url));
+    final response = await get(Uri.parse(url));
     if (response.statusCode != 200) {
       throw Exception("$endpointName fetch failed: ${response.statusCode}");
     }
@@ -59,7 +90,8 @@ class ApiCaller {
     return data;
   }
 
-  Future<BatchCallResult<K, T>> callBatch<K, T>({ // possible bug here in api reattempt code (from ios test run)
+  Future<BatchCallResult<K, T>> callBatch<K, T>({
+    // possible bug here in api reattempt code (from ios test run)
     required String providerCode,
     required List<BatchCallItem<K, T>> items,
     int batchSize = 20,
@@ -67,13 +99,17 @@ class ApiCaller {
     Duration retryDelay = const Duration(seconds: 5),
     bool forceRefresh = false,
     Duration maxAge = _defaultMaxAge,
-    void Function(int done, int total)? onProgress
+    void Function(int done, int total)? onProgress,
   }) async {
     final results = <K, T>{};
     var pending = List<BatchCallItem<K, T>>.from(items);
     var doneCount = 0;
 
-    for (var attempt = 1; attempt <= maxAttempts && pending.isNotEmpty; attempt++) {
+    for (
+      var attempt = 1;
+      attempt <= maxAttempts && pending.isNotEmpty;
+      attempt++
+    ) {
       if (attempt > 1) {
         onProgress?.call(doneCount, items.length);
         await Future.delayed(retryDelay);
@@ -84,21 +120,22 @@ class ApiCaller {
       for (var i = 0; i < pending.length; i += batchSize) {
         final batch = pending.skip(i).take(batchSize).toList();
 
-        final batchResults = await Future.wait(batch.map((item) async {
-          try {
-            final value = await call<T>(
-              providerCode: providerCode,
-              endpointName: item.endpointName,
-              url: item.url,
-              parseRaw: item.parseRaw,
-              forceRefresh: forceRefresh,
-              maxAge: maxAge
-            );
+        final batchResults = await Future.wait(
+          batch.map((item) async {
+            try {
+              final value = await call<T>(
+                providerCode: providerCode,
+                endpointName: item.endpointName,
+                url: item.url,
+                parseRaw: item.parseRaw,
+                forceRefresh: forceRefresh || item.forceRefresh,
+                maxAge: maxAge,
+              );
               return (item: item, value: value, failed: false);
             } catch (e) {
               return (item: item, value: null, failed: true);
             }
-          })
+          }),
         );
 
         for (final r in batchResults) {
@@ -117,10 +154,37 @@ class ApiCaller {
       }
       pending = failed;
     }
-    return BatchCallResult(results: results, failedKeys: pending.map((i) => i.key).toList());
+    return BatchCallResult(
+      results: results,
+      failedKeys: pending.map((i) => i.key).toList(),
+    );
   }
 
-  Future<bool> isEndpointStale(String providerCode, String endpointName, {Duration maxAge = _defaultMaxAge}){
+  Future<bool> isEndpointStale(
+    String providerCode,
+    String endpointName, {
+    Duration maxAge = _defaultMaxAge,
+  }) {
     return _isStale(providerCode, endpointName, maxAge);
+  }
+
+  /// Checks a set of known endpoint timestamps with one preferences read.
+  /// Missing timestamps count as stale, so newly added endpoints are fetched.
+  Future<bool> areAnyEndpointsStale(
+    String providerCode,
+    Iterable<String> endpointNames, {
+    Duration maxAge = _defaultMaxAge,
+  }) async {
+    final names = endpointNames.toSet();
+    if (names.isEmpty) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+    for (final name in names) {
+      final millis = prefs.getInt('${providerCode}_${name}_last_fetched');
+      if (millis == null) return true;
+      final age = now.difference(DateTime.fromMillisecondsSinceEpoch(millis));
+      if (age.isNegative || age > maxAge) return true;
+    }
+    return false;
   }
 }

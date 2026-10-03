@@ -17,58 +17,105 @@ abstract class GtfsSyncProvider {
 
 class GtfsSyncService {
   final String locale;
-  late final GtfsDatabase _db;
+  final GtfsDatabase _db;
 
-  GtfsSyncService({required this.locale}) {
-    _db = GtfsDatabase.forLocale(locale);
-  }
+  GtfsSyncService({required this.locale, GtfsDatabase? database})
+    : _db = database ?? GtfsDatabase.forLocale(locale);
 
-  Future<void> parseAndStoreGtfsArchive(File zipFile, ProgressCallback? onProgress) async {
+  Future<void> parseAndStoreGtfsArchive(
+    File zipFile,
+    ProgressCallback? onProgress,
+  ) async {
     onProgress?.call(AppStrings.text('transit.gtfs_updating'), null);
-    final requiredFiles = ["routes.txt", "trips.txt", "calendar.txt", "stop_times.txt", "stops.txt"]; // only read required files
+    final requiredFiles = [
+      "routes.txt",
+      "trips.txt",
+      "calendar.txt",
+      "stop_times.txt",
+      "stops.txt",
+    ]; // only read required files
     final inputStream = InputFileStream(zipFile.path);
-    final archive = ZipDecoder().decodeStream(inputStream);
-
-    final validFiles = archive.files.where((f) => requiredFiles.contains(p.basename(f.name))).toList();
-    final totalFiles = validFiles.length;
-    int processedCount = 0;
-
-    final tempDir = await AppGroupStorage.directory;
-
-    for (final file in validFiles) {
-      final fileName = p.basename(file.name);
-      final stepProgress = processedCount / totalFiles;
-      onProgress?.call(AppStrings.text('transit.gtfs_extracting', {'file': fileName, 'done': processedCount, 'total': totalFiles}), stepProgress);
-
-      final extractedPath = "${tempDir.path}/$fileName";
-      final outputStream = OutputFileStream(extractedPath);
-      file.writeContent(outputStream);
-      await outputStream.close();
-
-      onProgress?.call(AppStrings.text('transit.gtfs_parsing', {'file': fileName, 'done': processedCount, 'total': totalFiles}), stepProgress);
-
-      final extractedFile = File(extractedPath);
-      switch (fileName) {
-        case "routes.txt":
-          await streamParseAndInsert(extractedFile, _db.batchInsertRoutes);
-          break;
-        case "trips.txt":
-          await streamParseAndInsert(extractedFile, _db.batchInsertTrips);
-          break;
-        case "calendar.txt":
-          await streamParseAndInsert(extractedFile, _db.batchInsertCalendar);
-          break;
-        case "stops.txt":
-          await streamParseAndInsert(extractedFile, _db.batchInsertStops);
-          break;
-        case "stop_times.txt":
-          await streamParseAndInsert(extractedFile, _db.batchInsertStopTimes);
-          break;
+    try {
+      final archive = ZipDecoder().decodeStream(inputStream);
+      final validFiles = archive.files
+          .where((f) => requiredFiles.contains(p.basename(f.name)))
+          .toList();
+      final foundFiles = validFiles.map((f) => p.basename(f.name)).toSet();
+      final missingFiles = requiredFiles.where(
+        (name) => !foundFiles.contains(name),
+      );
+      if (missingFiles.isNotEmpty) {
+        throw FormatException(
+          'GTFS archive is missing required files: ${missingFiles.join(', ')}',
+        );
       }
-      processedCount++;
-    }
 
-    onProgress?.call(AppStrings.text('transit.gtfs_interpolating'), null);
-    await _db.interpolateMissingArrivalTimes(); // ran here because gtfs_stop_times and gtfs_trips needs to be populated before running
+      final totalFiles = validFiles.length;
+      var processedCount = 0;
+      final appDir = await AppGroupStorage.directory;
+      final extractionDir = await Directory(appDir.path)
+          .createTemp('gtfs_${locale}_');
+      try {
+        for (final file in validFiles) {
+          final fileName = p.basename(file.name);
+          final stepProgress = processedCount / totalFiles;
+          onProgress?.call(
+            AppStrings.text('transit.gtfs_extracting', {
+              'file': fileName,
+              'done': processedCount,
+              'total': totalFiles,
+            }),
+            stepProgress,
+          );
+
+          final extractedPath = p.join(extractionDir.path, fileName);
+          final outputStream = OutputFileStream(extractedPath);
+          file.writeContent(outputStream);
+          await outputStream.close();
+
+          onProgress?.call(
+            AppStrings.text('transit.gtfs_parsing', {
+              'file': fileName,
+              'done': processedCount,
+              'total': totalFiles,
+            }),
+            stepProgress,
+          );
+
+          final extractedFile = File(extractedPath);
+          switch (fileName) {
+            case "routes.txt":
+              await streamParseAndInsert(extractedFile, _db.batchInsertRoutes);
+              break;
+            case "trips.txt":
+              await streamParseAndInsert(extractedFile, _db.batchInsertTrips);
+              break;
+            case "calendar.txt":
+              await streamParseAndInsert(
+                extractedFile,
+                _db.batchInsertCalendar,
+              );
+              break;
+            case "stops.txt":
+              await streamParseAndInsert(extractedFile, _db.batchInsertStops);
+              break;
+            case "stop_times.txt":
+              await streamParseAndInsert(
+                extractedFile,
+                _db.batchInsertStopTimes,
+              );
+              break;
+          }
+          processedCount++;
+        }
+
+        onProgress?.call(AppStrings.text('transit.gtfs_interpolating'), null);
+        await _db.interpolateMissingArrivalTimes();
+      } finally {
+        await extractionDir.delete(recursive: true);
+      }
+    } finally {
+      inputStream.close();
+    }
   }
 }

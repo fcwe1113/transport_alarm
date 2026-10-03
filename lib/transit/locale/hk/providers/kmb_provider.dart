@@ -9,7 +9,6 @@ import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
 import '../../../models/transport_stop.dart';
 import '../../../progress_callback.dart';
@@ -19,9 +18,11 @@ import '../../../transit_provider.dart';
 /// includes all KMB related data and API handling
 ///
 /// KMB offers a full stop list and full route list API endpoint so we will be using that
-class KmbProvider extends TransitProvider { // implements means to follow the provided interface, not extending bc theres nothing to build upon
+class KmbProvider extends TransitProvider {
+  // implements means to follow the provided interface, not extending bc theres nothing to build upon
   final ApiCaller _apiCaller;
-  static const _stopsEndpointName = "stops"; // static meaning var belongs to class
+  static const _stopsEndpointName =
+      "stops"; // static meaning var belongs to class
   static const _stopsUrl = 'https://data.etabus.gov.hk/v1/transport/kmb/stop';
   static const _routesEndpointName = "routes";
   static const _routesUrl = "https://data.etabus.gov.hk/v1/transport/kmb/route";
@@ -45,94 +46,132 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
 
   @override
   RouteColourScheme coloursForRoute(TransportRoute route) {
-
     bool isAirportRoute(TransportRoute route) {
-      return route.routeNumber.startsWith("A") || route.routeNumber.startsWith("E");
+      return route.routeNumber.startsWith("A") ||
+          route.routeNumber.startsWith("E");
     }
-    
+
     bool isNightRoute(TransportRoute route) {
       return route.routeNumber.startsWith("N");
     }
 
     if (isNightRoute(route)) {
-      return const RouteColourScheme(iconColour: Color(0xFF090740), textColour: Colors.white);
+      return const RouteColourScheme(
+        iconColour: Color(0xFF090740),
+        textColour: Colors.white,
+      );
     }
 
     if (isAirportRoute(route)) {
-      return const RouteColourScheme(iconColour: Colors.orange, textColour: Colors.white);
+      return const RouteColourScheme(
+        iconColour: Colors.orange,
+        textColour: Colors.white,
+      );
     }
 
     return super.coloursForRoute(route);
   }
 
   @override
-  Future<RefreshResult> refresh({bool forceRefresh = false, ProgressCallback? onProgress}) async {
+  Future<RefreshResult> refresh({
+    bool forceRefresh = false,
+    ProgressCallback? onProgress,
+  }) async {
     final db = GtfsDatabase.forLocale("hk");
-    onProgress?.call(AppStrings.text('transit.provider_fetch_stops', {'providerName': providerName}), null);
+    final hasStops = await db.hasOperatorStops(providerCode);
+    final cachedRoutes = await db.getOperatorRoutes(providerCode);
+    onProgress?.call(
+      AppStrings.text('transit.provider_fetch_stops', {
+        'providerName': providerName,
+      }),
+      null,
+    );
     final freshStops = await _apiCaller.call<List<TransportStop>>(
-        providerCode: providerCode,
-        endpointName: _stopsEndpointName,
-        url: _stopsUrl,
-        parseRaw: _parseStopsRaw,
-        forceRefresh: forceRefresh
+      providerCode: providerCode,
+      endpointName: _stopsEndpointName,
+      url: _stopsUrl,
+      parseRaw: _parseStopsRaw,
+      forceRefresh: forceRefresh || !hasStops,
     );
     if (freshStops != null) {
       await db.upsertOperatorStops(freshStops);
     }
 
-    onProgress?.call(AppStrings.text('transit.provider_fetch_routes', {'providerName': providerName}), null);
+    onProgress?.call(
+      AppStrings.text('transit.provider_fetch_routes', {
+        'providerName': providerName,
+      }),
+      null,
+    );
     final freshRoutes = await _apiCaller.call<List<TransportRoute>>(
-        providerCode: providerCode,
-        endpointName: _routesEndpointName,
-        url: _routesUrl,
-        parseRaw: _parseRoutesRaw,
-        forceRefresh: forceRefresh
+      providerCode: providerCode,
+      endpointName: _routesEndpointName,
+      url: _routesUrl,
+      parseRaw: _parseRoutesRaw,
+      forceRefresh: forceRefresh || cachedRoutes.isEmpty,
     );
     if (freshRoutes != null) {
       await db.upsertOperatorRoutes(freshRoutes);
     }
-    
-    if (freshRoutes == null && !forceRefresh) {
-      onProgress?.call(AppStrings.text('transit.provider_up_to_date', {'providerName': providerName}), 1.0);
-      return const RefreshResult();
-    }
-    
-    final routesToLink = freshRoutes ?? await db.getOperatorRoutes(providerCode);
-    
-    final items = routesToLink.map((route) {
+
+    final routesToLink = freshRoutes ?? cachedRoutes;
+    final items = <BatchCallItem<TransportRoute, List<String>>>[];
+    for (final route in routesToLink) {
       final direction = route.bound == "O" ? "outbound" : "inbound";
-      return BatchCallItem<TransportRoute, List<String>>(
+      items.add(
+        BatchCallItem<TransportRoute, List<String>>(
           key: route,
           endpointName: "route_stop_${route.routeNumber}_${route.bound}_1",
-          url: 'https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route.routeNumber}/$direction/1',
-          parseRaw: _parseRouteStopIdsRaw
+          url:
+              'https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route.routeNumber}/$direction/1',
+          parseRaw: _parseRouteStopIdsRaw,
+          forceRefresh: !await db.hasRouteStops(route.id),
+        ),
       );
-    }).toList();
+    }
 
-    final batchResult = await _apiCaller.callBatch<TransportRoute, List<String>>(
-        providerCode: providerCode,
-        items: items,
-        forceRefresh: forceRefresh,
-        maxAge: const Duration(days: 7),
-        onProgress: (done, total) => onProgress?.call(AppStrings.text('transit.provider_fetch_route_stops', {'providerName': providerName, 'done': done, 'total': total}), total > 0 ? done / total : null)
-    );
+    final batchResult = await _apiCaller
+        .callBatch<TransportRoute, List<String>>(
+          providerCode: providerCode,
+          items: items,
+          forceRefresh: forceRefresh,
+          maxAge: const Duration(days: 7),
+          onProgress: (done, total) => onProgress?.call(
+            AppStrings.text('transit.provider_fetch_route_stops', {
+              'providerName': providerName,
+              'done': done,
+              'total': total,
+            }),
+            total > 0 ? done / total : null,
+          ),
+        );
 
     for (final entry in batchResult.results.entries) {
       final route = entry.key;
       final rawStopIds = entry.value;
-      final operatorStopIds = rawStopIds.map((id) => "$providerCode:$id").toList();
+      final operatorStopIds = rawStopIds
+          .map((id) => "$providerCode:$id")
+          .toList();
       await db.upsertRouteStops(route.id, operatorStopIds);
     }
 
-    onProgress?.call(AppStrings.text('transit.provider_setup_complete', {'providerName': providerName}), 1.0);
+    onProgress?.call(
+      AppStrings.text('transit.provider_setup_complete', {
+        'providerName': providerName,
+      }),
+      1.0,
+    );
 
-    return RefreshResult(failedItems: batchResult.failedKeys.map((r) => r.routeNumber).toList());
+    return RefreshResult(
+      failedItems: batchResult.failedKeys.map((r) => r.routeNumber).toList(),
+    );
   }
 
   @override
   Future<List<LiveEta>> fetchLiveEta(String rawStopId) async {
-    final url = 'https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/$rawStopId';
-    final response = await http.get(Uri.parse(url));
+    final url =
+        'https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/$rawStopId';
+    final response = await ApiCaller.get(Uri.parse(url));
 
     if (response.statusCode != 200) {
       throw Exception("Live ETA fetch failed: ${response.statusCode}");
@@ -140,39 +179,48 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
 
     final decoded = jsonDecode(response.body);
     final data = decoded["data"] as List;
-    
+
     return data.map((entry) {
       final etaString = entry["eta"] as String?;
       return LiveEta(
-          routeNumber: entry["route"] as String,
-          bound: entry["dir"] as String,
-          etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
-          remark: entry["rmk_en"] as String?
+        routeNumber: entry["route"] as String,
+        bound: entry["dir"] as String,
+        etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
+        remark: entry["rmk_en"] as String?,
       );
     }).toList();
   }
 
   @override
-  Future<List<LiveEta>> fetchLiveEtaForRoute(String rawStopId, String routeNumber, {String serviceType = "1"}) async {
-    final url = "https://data.etabus.gov.hk/v1/transport/kmb/eta/${rawStopId}/${routeNumber}/${serviceType}";
-    final response = await http.get(Uri.parse(url));
-    if (response.statusCode != 200) throw Exception("Live ETA fetch failed: ${response.statusCode}");
+  Future<List<LiveEta>> fetchLiveEtaForRoute(
+    String rawStopId,
+    String routeNumber, {
+    String serviceType = "1",
+  }) async {
+    final url =
+        "https://data.etabus.gov.hk/v1/transport/kmb/eta/${rawStopId}/${routeNumber}/${serviceType}";
+    final response = await ApiCaller.get(Uri.parse(url));
+    if (response.statusCode != 200)
+      throw Exception("Live ETA fetch failed: ${response.statusCode}");
 
     final decoded = jsonDecode(response.body);
     final data = decoded["data"] as List;
     return data.map((entry) {
       final etaString = entry["eta"] as String?;
       return LiveEta(
-          routeNumber: entry["route"] as String,
-          bound: entry["dir"] as String? ?? "",
-          etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
-          remark: entry["rmk_en"] as String?
+        routeNumber: entry["route"] as String,
+        bound: entry["dir"] as String? ?? "",
+        etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
+        remark: entry["rmk_en"] as String?,
       );
     }).toList();
   }
 
   @override
-  String? alarmEtaUrl({required String operatorStopId, required TransportRoute route}) {
+  String? alarmEtaUrl({
+    required String operatorStopId,
+    required TransportRoute route,
+  }) {
     final separator = operatorStopId.indexOf(":");
     if (separator < 0 || separator == operatorStopId.length - 1) return null;
     final rawStopId = operatorStopId.substring(separator + 1);
@@ -190,13 +238,22 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
   List<TransportStop> _parseStopsRaw(String rawJson) {
     final decoded = jsonDecode(rawJson);
     final List<dynamic> data = decoded["data"];
-    
-    return data.map((s) => TransportStop(
-        id: "$providerCode:${s["stop"]}",
-        names: {"en": s["name_en"] as String? ?? "", "zh-Hant": s["name_tc"] as String? ?? "", "zh-Hans": s["name_sc"] as String? ?? ""},
-        lat: double.tryParse(s["lat"].toString()),
-        lng: double.tryParse(s["long"].toString()),
-        providerCode: providerCode)).toList();
+
+    return data
+        .map(
+          (s) => TransportStop(
+            id: "$providerCode:${s["stop"]}",
+            names: {
+              "en": s["name_en"] as String? ?? "",
+              "zh-Hant": s["name_tc"] as String? ?? "",
+              "zh-Hans": s["name_sc"] as String? ?? "",
+            },
+            lat: double.tryParse(s["lat"].toString()),
+            lng: double.tryParse(s["long"].toString()),
+            providerCode: providerCode,
+          ),
+        )
+        .toList();
   }
 
   /// transforms route data into forms the app requires
@@ -215,9 +272,17 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
         names: {"en": routeNumber, "zh-Hant": routeNumber},
         routeNumber: routeNumber,
         bound: bound,
-        originText: {"en": r["orig_en"], "zh-Hant": r["orig_tc"], "zh-Hans": r["orig_sc"]},
-        destinationText: {"en": r["dest_en"], "zh-Hant": r["dest_tc"], "zh-Hans": r["dest_sc"]},
-        providerCode: providerCode
+        originText: {
+          "en": r["orig_en"],
+          "zh-Hant": r["orig_tc"],
+          "zh-Hans": r["orig_sc"],
+        },
+        destinationText: {
+          "en": r["dest_en"],
+          "zh-Hant": r["dest_tc"],
+          "zh-Hans": r["dest_sc"],
+        },
+        providerCode: providerCode,
       );
     }).toList();
   }
@@ -230,8 +295,27 @@ class KmbProvider extends TransitProvider { // implements means to follow the pr
 
   @override
   Future<bool> isStale() async {
-    final stopsStale = await _apiCaller.isEndpointStale(providerCode, _stopsEndpointName);
-    final routesStale = await _apiCaller.isEndpointStale(providerCode, _routesEndpointName);
-    return stopsStale || routesStale;
+    if (await _apiCaller.areAnyEndpointsStale(providerCode, [
+      _stopsEndpointName,
+      _routesEndpointName,
+    ])) {
+      return true;
+    }
+
+    final db = GtfsDatabase.forLocale('hk');
+    if (!await db.hasOperatorStops(providerCode) ||
+        !await db.hasOperatorRouteStops(providerCode)) {
+      return true;
+    }
+
+    final routes = await db.getOperatorRoutes(providerCode);
+    if (routes.isEmpty) return true;
+    for (final route in routes) {
+      if (!await db.hasRouteStops(route.id)) return true;
+    }
+    final routeStopEndpoints = routes.map(
+      (route) => 'route_stop_${route.routeNumber}_${route.bound}_1',
+    );
+    return _apiCaller.areAnyEndpointsStale(providerCode, routeStopEndpoints);
   }
 }
