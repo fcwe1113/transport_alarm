@@ -11,7 +11,6 @@ import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 
-
 /// the per alarm display on the alarm list screen
 /// basically the gui template for each given alarm
 class AlarmCard extends StatefulWidget {
@@ -62,7 +61,11 @@ class _AlarmCardState extends State<AlarmCard> {
         alarm.androidFallbackArrivalEpochSeconds == null;
     final arrivals = await resolveArrivals(
       gtfsStopId: alarm.gtfsStopId,
+      localeCode: alarm.localeCode,
       routeNumberFilter: alarm.routeNumbers,
+      routeProviderCodeFilter: alarm.routeApiConfigs
+          .map((route) => route.providerCode)
+          .toList(),
       minimumMinutesFromNow: waitingForFirstEligibleBus
           ? alarm.thresholdStates
                 .map((state) => state.minutesBeforeArrival)
@@ -78,10 +81,7 @@ class _AlarmCardState extends State<AlarmCard> {
         final estimate = eligible
             .reduce((a, b) => a.minutesFromNow <= b.minutesFromNow ? a : b)
             .minutesFromNow;
-        await AlarmStorageService().updateLastEstimate(
-          alarm.id,
-          estimate,
-        );
+        await AlarmStorageService().updateLastEstimate(alarm.id, estimate);
       }
     }
     return arrivals;
@@ -117,7 +117,7 @@ class _AlarmCardState extends State<AlarmCard> {
 
   @override
   Widget build(BuildContext context) {
-    final db = GtfsDatabase.forLocale("hk"); // todo fix locale hardcode
+    final db = GtfsDatabase.forLocale(widget.alarm.localeCode);
     final isActive = _withinActiveWindow;
     return Card(
       // groups up everything within visually
@@ -172,8 +172,11 @@ class _AlarmCardState extends State<AlarmCard> {
                           FutureBuilder(
                             future: db.getGtfsStopById(widget.alarm.gtfsStopId),
                             builder: (context, snapshot) {
-                              final name = snapshot.data?.displayNameFor(AppStrings.languageCode)
-                                  ?? AppStrings.text('alarm.loading_stops');
+                              final name =
+                                  snapshot.data?.displayNameFor(
+                                    AppStrings.languageCode,
+                                  ) ??
+                                  AppStrings.text('alarm.loading_stops');
                               return Text(
                                 name,
                                 style: TextStyle(
@@ -228,6 +231,7 @@ class _AlarmCardState extends State<AlarmCard> {
                 const SizedBox(height: 6),
                 RoutePillStrip(
                   gtfsStopId: widget.alarm.gtfsStopId,
+                  localeCode: widget.alarm.localeCode,
                   routeNumberFilter: widget.alarm.routeNumbers,
                 ),
                 const SizedBox(height: 6),
@@ -268,10 +272,13 @@ class _AlarmCardState extends State<AlarmCard> {
                             const SizedBox(height: 4),
                             Text(
                               previousEstimate == null
-                                  ? AppStrings.text('alarm_card.loading_arrivals')
-                                  : AppStrings.text('alarm_card.estimate_updating', {
-                                      'estimate': previousEstimate,
-                                    }),
+                                  ? AppStrings.text(
+                                      'alarm_card.loading_arrivals',
+                                    )
+                                  : AppStrings.text(
+                                      'alarm_card.estimate_updating',
+                                      {'estimate': previousEstimate},
+                                    ),
                               style: TextStyle(
                                 color: Colors.grey.shade600,
                                 fontSize: 13,
@@ -287,7 +294,9 @@ class _AlarmCardState extends State<AlarmCard> {
 
                       if (snapshot.hasError) {
                         // todo implement seamless background load
-                        contents = AppStrings.text('alarm_card.arrivals_failed');
+                        contents = AppStrings.text(
+                          'alarm_card.arrivals_failed',
+                        );
                       } else if (arrivals == null || arrivals.isEmpty) {
                         contents = AppStrings.text('alarm_card.no_arrivals');
                       } else {
@@ -329,7 +338,9 @@ class _AlarmCardState extends State<AlarmCard> {
   String _formatNextArrival(List<RouteArrival> arrivals) {
     final minutes = arrivals.first.minutesFromNow;
     return AppStrings.text(
-      minutes == 1 ? 'alarm_card.next_arrival.one' : 'alarm_card.next_arrival.other',
+      minutes == 1
+          ? 'alarm_card.next_arrival.one'
+          : 'alarm_card.next_arrival.other',
       {'minutes': minutes},
     );
   }

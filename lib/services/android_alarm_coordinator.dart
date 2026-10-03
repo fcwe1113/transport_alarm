@@ -18,6 +18,7 @@ import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:transport_alarm/transit/transport_mode.dart';
+import 'package:transport_alarm/transit/locale/uk/uk_time.dart';
 
 /// Coordinates Android's local wall-clock alarms and the Dart decision flow.
 class AndroidAlarmCoordinator {
@@ -111,7 +112,7 @@ class AndroidAlarmCoordinator {
         androidApiWarningActive: startsRepeat ? false : null,
         androidProgressStartEpochSeconds:
             alarm.androidProgressStartEpochSeconds ??
-                DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            DateTime.now().millisecondsSinceEpoch ~/ 1000,
       );
       await _storage.updateAlarm(reset);
       if (startsRepeat) {
@@ -313,6 +314,7 @@ class AndroidAlarmCoordinator {
   }) async {
     final now = DateTime.now();
     final liveDates = <DateTime>[];
+    final scheduledDates = <DateTime>{};
     var hasHealthyApi = false;
     var hasFailedApi = false;
 
@@ -321,16 +323,24 @@ class AndroidAlarmCoordinator {
         alarm.routeApiConfigs.map(_fetchRouteEta),
       );
       for (final result in results) {
-        hasHealthyApi = hasHealthyApi || result.healthy;
-        hasFailedApi = hasFailedApi || !result.healthy;
-        liveDates.addAll(result.arrivals);
+        final scheduleAllowed = !alarm.liveOnly || !result.usedSchedule;
+        hasHealthyApi = hasHealthyApi || (result.healthy && scheduleAllowed);
+        hasFailedApi = hasFailedApi || (!result.healthy && scheduleAllowed);
+        if (scheduleAllowed) {
+          liveDates.addAll(result.arrivals);
+          if (result.usedSchedule) scheduledDates.addAll(result.arrivals);
+        }
       }
     } else {
       // Compatibility for alarms saved before route-specific API URLs existed.
       try {
         final arrivals = await resolveArrivals(
           gtfsStopId: alarm.gtfsStopId,
+          localeCode: alarm.localeCode,
           routeNumberFilter: alarm.routeNumbers,
+          routeProviderCodeFilter: alarm.routeApiConfigs
+              .map((route) => route.providerCode)
+              .toList(),
           minimumMinutesFromNow: minimumArrivalSeconds == null
               ? null
               : minimumArrivalSeconds ~/ 60,
@@ -355,8 +365,17 @@ class AndroidAlarmCoordinator {
           date.difference(now).inSeconds >= minimumArrivalSeconds;
     }).toList()..sort();
     if (eligibleLive.isNotEmpty) {
+      final usedSchedule = scheduledDates.contains(eligibleLive.first);
       final saved = await _findAlarm(alarm.id);
-      if (saved?.androidFallbackArrivalEpochSeconds != null) {
+      if (usedSchedule && saved != null) {
+        await _storage.updateAlarm(
+          saved.copyWith(
+            androidFallbackArrivalEpochSeconds:
+                eligibleLive.first.millisecondsSinceEpoch ~/ 1000,
+          ),
+        );
+      } else if (!usedSchedule &&
+          saved?.androidFallbackArrivalEpochSeconds != null) {
         await _storage.updateAlarm(
           saved!.copyWith(clearAndroidFallbackArrival: true),
         );
@@ -364,7 +383,7 @@ class AndroidAlarmCoordinator {
       return ArrivalLookup(
         arrivalAt: eligibleLive.first,
         apiFailed: hasFailedApi,
-        usedSchedule: false,
+        usedSchedule: usedSchedule,
       );
     }
 
@@ -386,8 +405,21 @@ class AndroidAlarmCoordinator {
     }
 
     try {
+      final ukRouteIds = alarm.localeCode == 'uk'
+          ? alarm.routeApiConfigs
+                .map((config) => Uri.tryParse(config.apiUrl))
+                .where((uri) => uri?.scheme == 'gtfs')
+                .map((uri) => uri?.queryParameters['route_id'])
+                .whereType<String>()
+                .toSet()
+                .toList()
+          : null;
       final departures = await GtfsDatabase.forLocale(alarm.localeCode)
-          .getUpcomingDepartures(alarm.gtfsStopId, limit: 100);
+          .getUpcomingDepartures(
+            alarm.gtfsStopId,
+            limit: 100,
+            routeIds: ukRouteIds,
+          );
       final matching = departures.where((departure) {
         return alarm.routeNumbers.contains(departure.routeShortName) &&
             (minimumArrivalSeconds == null ||
@@ -427,6 +459,42 @@ class AndroidAlarmCoordinator {
   }
 
   Future<RouteEtaResult> _fetchRouteEta(AlarmRouteConfig config) async {
+    final uri = Uri.tryParse(config.apiUrl);
+    if (uri?.scheme == 'gtfs' && uri?.host == 'uk') {
+      final segments = uri!.pathSegments;
+      final routeId = uri.queryParameters['route_id'];
+      if (segments.isEmpty || routeId == null || routeId.isEmpty) {
+        return const RouteEtaResult(healthy: false);
+      }
+      final encodedStopId = segments[0];
+      final operatorStopId = encodedStopId.startsWith('uk:')
+          ? encodedStopId
+          : 'uk:$encodedStopId';
+      final routes = await GtfsDatabase.forLocale('uk')
+          .getRoutesForOperatorStop(operatorStopId);
+      if (!routes.any((route) => route.routeNumber == config.routeNumber)) {
+        return const RouteEtaResult(healthy: false);
+      }
+      final stopMapping = await GtfsDatabase.forLocale('uk')
+          .getGtfsStopIdForOperatorStop(operatorStopId);
+      if (stopMapping == null) return const RouteEtaResult(healthy: false);
+      final directionId = int.tryParse(
+        uri.queryParameters['direction_id'] ?? '',
+      );
+      final departures = await GtfsDatabase.forLocale('uk')
+          .getUpcomingDepartures(
+            stopMapping,
+            limit: 200,
+            routeIds: [routeId],
+            directionId: directionId,
+          );
+      final matching = departures
+          .map(
+            (departure) => UkTime.departureToDeviceLocal(departure.arrivalTime),
+          )
+          .toList();
+      return RouteEtaResult(arrivals: matching, usedSchedule: true);
+    }
     if (config.mode != TransportMode.bus) {
       return const RouteEtaResult(healthy: false);
     }
@@ -588,7 +656,7 @@ class AndroidAlarmCoordinator {
         ? now
         : DateTime.fromMillisecondsSinceEpoch(
             alarm.androidOccurrenceEndEpochSeconds! * 1000,
-    );
+          );
     var nextWindow = _nextOccurrence(alarm, occurrenceEnd);
     if (!nextWindow.end.isAfter(now)) {
       final activeWindow = _activeWindow(alarm, now);
@@ -599,8 +667,8 @@ class AndroidAlarmCoordinator {
               activeWindow.start.month,
               activeWindow.start.day,
             );
-      nextWindow = activeWindow != null &&
-              _repeatMatches(alarm.repeat, activeStartDate!)
+      nextWindow =
+          activeWindow != null && _repeatMatches(alarm.repeat, activeStartDate!)
           ? activeWindow
           : _nextOccurrence(alarm, now);
     }
@@ -698,7 +766,9 @@ class AndroidAlarmCoordinator {
     if (alarm.message.isNotEmpty) return alarm.message;
     final routes = alarm.routeNumbers.join(', ');
     if (stopName == null) {
-      return AppStrings.text('notification.routes_approaching', {'routes': routes});
+      return AppStrings.text('notification.routes_approaching', {
+        'routes': routes,
+      });
     }
     return AppStrings.text('notification.routes_stop_approaching', {
       'routes': routes,
@@ -828,8 +898,13 @@ class WindowOccurrence {
 class RouteEtaResult {
   final bool healthy;
   final List<DateTime> arrivals;
+  final bool usedSchedule;
 
-  const RouteEtaResult({this.healthy = false, this.arrivals = const []});
+  const RouteEtaResult({
+    this.healthy = false,
+    this.arrivals = const [],
+    this.usedSchedule = false,
+  });
 }
 
 class ArrivalLookup {

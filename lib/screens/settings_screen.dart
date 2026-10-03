@@ -10,6 +10,7 @@ import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
+import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 
 /// Settings landing page; language selection is implemented as a child page.
@@ -19,38 +20,14 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final options = <({IconData icon, String title})>[
-      (
-        icon: Icons.language,
-        title: 'settings.app_language',
-      ),
-      (
-        icon: Icons.public,
-        title: 'settings.enabled_locales',
-      ),
-      (
-        icon: Icons.public,
-        title: 'settings.transit_locale',
-      ),
-      (
-        icon: Icons.access_time,
-        title: 'settings.time_zone',
-      ),
-      (
-        icon: Icons.notifications_outlined,
-        title: 'settings.notifications',
-      ),
-      (
-        icon: Icons.info_outline,
-        title: 'settings.about',
-      ),
-      (
-        icon: Icons.download,
-        title: 'drawer.reload_data',
-      ),
-      (
-        icon: Icons.refresh,
-        title: 'drawer.refresh_data',
-      ),
+      (icon: Icons.language, title: 'settings.app_language'),
+      (icon: Icons.public, title: 'settings.enabled_locales'),
+      (icon: Icons.public, title: 'settings.transit_locale'),
+      (icon: Icons.access_time, title: 'settings.time_zone'),
+      (icon: Icons.notifications_outlined, title: 'settings.notifications'),
+      (icon: Icons.info_outline, title: 'settings.about'),
+      (icon: Icons.download, title: 'drawer.reload_data'),
+      (icon: Icons.refresh, title: 'drawer.refresh_data'),
     ];
 
     return AppShell(
@@ -276,29 +253,72 @@ class _EnabledLocalesSettingsScreenState
 
   Future<void> _saveSelection() async {
     if (_saving) return;
-    if (_selected.isEmpty && _selectedAtcoCodes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppStrings.text('settings.enabled_locales.required'))),
-      );
-      return;
-    }
-
     setState(() => _saving = true);
     final previous = (await _selectionService.getEnabledLocales()).toSet();
-    final next = _selected.toList()..sort();
-    final addedLocales = next.toSet().difference(previous);
+    final previousAtcoCodes = (await _selectionService.getEnabledAtcoCodes())
+        .toSet();
     final nextAtcoCodes = _selectedAtcoCodes.toList()..sort();
+    final nextSet = _selected.toSet();
+    if (nextAtcoCodes.isNotEmpty) {
+      nextSet.add('uk');
+    } else {
+      nextSet.remove('uk');
+    }
+    final next = nextSet.toList()..sort();
+    final localesToRefresh = nextSet.difference(previous).toSet();
+    if (!previousAtcoCodes.containsAll(nextAtcoCodes) ||
+        !nextAtcoCodes.toSet().containsAll(previousAtcoCodes)) {
+      if (nextSet.contains('uk')) localesToRefresh.add('uk');
+    }
+    final localesToRemove = previous.difference(nextSet);
     await _selectionService.setEnabledLocales(next);
     await _selectionService.setEnabledAtcoCodes(nextAtcoCodes);
     if (!mounted) return;
 
     final navigator = Navigator.of(context);
     navigator.pop();
-    if (addedLocales.isNotEmpty) {
+    if (localesToRefresh.isNotEmpty || localesToRemove.isNotEmpty) {
+      Future<List<String>> applySelectedData({
+        ProgressCallback? onProgress,
+        bool forceRefresh = false,
+      }) async {
+        Future<void> restorePreviousSelection() async {
+          await _selectionService.setEnabledLocales(previous.toList()..sort());
+          await _selectionService.setEnabledAtcoCodes(
+            previousAtcoCodes.toList()..sort(),
+          );
+        }
+
+        // A retry starts from the requested selection even when the earlier
+        // attempt rolled it back after a failed network request.
+        await _selectionService.setEnabledLocales(next);
+        await _selectionService.setEnabledAtcoCodes(nextAtcoCodes);
+        try {
+          final failures = localesToRefresh.isEmpty
+              ? <String>[]
+              : await initializeTransitData(
+                  onProgress: onProgress,
+                  forceRefresh: forceRefresh,
+                  onlyLocales: localesToRefresh.toList(),
+                );
+          if (failures.isNotEmpty) {
+            await restorePreviousSelection();
+            return failures;
+          }
+          for (final locale in localesToRemove) {
+            await GtfsDatabase.forLocale(locale).resetDatabase();
+          }
+          return failures;
+        } catch (_) {
+          await restorePreviousSelection();
+          rethrow;
+        }
+      }
+
       await navigator.push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => const LoadingScreen(
-            operation: initializeTransitData,
+          builder: (_) => LoadingScreen(
+            operation: applySelectedData,
             returnToPrevious: true,
             showBottomNavigation: true,
           ),
@@ -309,7 +329,8 @@ class _EnabledLocalesSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final localeCodes = providersByLocale.keys.toList()..sort();
+    final localeCodes =
+        providersByLocale.keys.where((code) => code != 'uk').toList()..sort();
     final allAtcoCodes = _atcoByRegion.values
         .expand((areas) => areas.map((area) => area.code))
         .toSet();
@@ -356,7 +377,9 @@ class _EnabledLocalesSettingsScreenState
                         ? null
                         : (_) => _toggleAtcoCodes(allAtcoCodes),
                   ),
-                  title: Text(AppStrings.text('settings.locale.united_kingdom')),
+                  title: Text(
+                    AppStrings.text('settings.locale.united_kingdom'),
+                  ),
                   children: [
                     for (final region in _atcoByRegion.keys.toList()..sort())
                       _buildAtcoRegion(region, _atcoByRegion[region]!),
@@ -377,9 +400,7 @@ class _EnabledLocalesSettingsScreenState
       leading: Checkbox(
         tristate: true,
         value: _checkboxState(codes),
-        onChanged: _saving
-            ? null
-            : (_) => _toggleAtcoCodes(codes),
+        onChanged: _saving ? null : (_) => _toggleAtcoCodes(codes),
       ),
       title: Text(region),
       children: [

@@ -4,6 +4,7 @@ class GtfsStop {
   final double lat;
   final double lng;
   final List<Map<String, String>> operatorNames;
+  final String localeCode;
 
   const GtfsStop({
     required this.id,
@@ -11,6 +12,7 @@ class GtfsStop {
     required this.lat,
     required this.lng,
     this.operatorNames = const [],
+    this.localeCode = 'hk',
   });
 
   String displayNameFor(String languageCode) => localizedNameFromOperators(
@@ -24,23 +26,31 @@ class GtfsStop {
     String languageCode, {
     required String fallbackName,
   }) {
-    final candidates = names
-        .map((localizedNames) {
-          final localized = localizedNames[languageCode]?.trim();
-          if (localized != null && localized.isNotEmpty) return localized;
-          return localizedNames['en']?.trim() ?? '';
-        })
-        .where((candidate) => candidate.isNotEmpty)
-        .map(cleanStopName)
-        .where((candidate) => candidate.isNotEmpty)
-        .toList()
-      ..sort((a, b) => b.length.compareTo(a.length));
+    final candidates =
+        names
+            .map((localizedNames) {
+              final localized = localizedNames[languageCode]?.trim();
+              if (localized != null && localized.isNotEmpty) return localized;
+              return localizedNames['en']?.trim() ?? '';
+            })
+            .where((candidate) => candidate.isNotEmpty)
+            .map(cleanStopName)
+            .where((candidate) => candidate.isNotEmpty)
+            .toList()
+          ..sort((a, b) => b.length.compareTo(a.length));
     return candidates.isEmpty ? fallbackName : candidates.first;
   }
 
   static List<String> extractNameFragments(String rawName) {
-    return rawName.split("|").expand((segment) => segment.split(RegExp(r"<BR>|/", caseSensitive: false)))
-        .map((f) => f.replaceAll(RegExp(r"^\[.*?\]\s*"), "").trim()).where((f) => f.isNotEmpty).toSet().toList();
+    return rawName
+        .split("|")
+        .expand(
+          (segment) => segment.split(RegExp(r"<BR>|/", caseSensitive: false)),
+        )
+        .map((f) => f.replaceAll(RegExp(r"^\[.*?\]\s*"), "").trim())
+        .where((f) => f.isNotEmpty)
+        .toSet()
+        .toList();
   }
 
   static String cleanStopName(String rawName) {

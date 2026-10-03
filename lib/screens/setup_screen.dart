@@ -22,26 +22,41 @@ class _SetupScreenState extends State<SetupScreen> {
       ),
       body: Column(
         children: [
-          Padding(padding: const EdgeInsets.all(16),
-            child: Text(AppStrings.text('setup.choose_region'),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              AppStrings.text('setup.choose_region'),
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
           Expanded(
-              child: ListView(
-                children: providersByLocale.keys.map((locale) {
-                  return CheckboxListTile(
+            child: ListView(
+              children: providersByLocale.keys
+                  .where((locale) => locale != 'uk')
+                  .map((locale) {
+                    return CheckboxListTile(
                       title: Text(localeConfigs[locale]?.displayName ?? locale),
                       value: _selected.contains(locale),
                       onChanged: (checked) {
                         setState(() {
-                          checked == true ? _selected.add(locale) : _selected.remove(locale);
+                          checked == true
+                              ? _selected.add(locale)
+                              : _selected.remove(locale);
                         });
-                      });
-                }).toList(),
-              ),)
-        ],),
-        floatingActionButton: _selected.isEmpty ? null : FloatingActionButton(onPressed: _confirmSelection, child: const Icon(Icons.check),),
+                      },
+                    );
+                  })
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: _selected.isEmpty
+          ? null
+          : FloatingActionButton(
+              onPressed: _confirmSelection,
+              child: const Icon(Icons.check),
+            ),
     );
   }
 
@@ -54,13 +69,23 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<bool?> _showWifiReminder() {
-    return showDialog(context: context, barrierDismissible: false, builder: (context) => AlertDialog(
-      title: Text(AppStrings.text('setup.heads_up')),
-      content: Text(AppStrings.text('setup.download_warning')),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('common.go_back'))),
-        TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('common.continue'))),
-      ],
-    ));
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('setup.heads_up')),
+        content: Text(AppStrings.text('setup.download_warning')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(AppStrings.text('common.go_back')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(AppStrings.text('common.continue')),
+          ),
+        ],
+      ),
+    );
   }
 }

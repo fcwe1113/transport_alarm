@@ -43,7 +43,7 @@ class GtfsDatabase {
     }
     late final File databaseFile;
     if (_explicitDatabasePath != null) {
-      databaseFile = File(_explicitDatabasePath!);
+      databaseFile = File(_explicitDatabasePath);
       await databaseFile.parent.create(recursive: true);
     } else {
       final dir = Directory('${(await AppGroupStorage.directory).path}/gtfs');
@@ -67,8 +67,9 @@ class GtfsDatabase {
   /// Builds a replacement in a separate SQLite file and installs it only after
   /// the caller has populated and validated the complete snapshot.
   Future<void> refreshAtomically(
-    Future<void> Function(GtfsDatabase stagingDatabase) populate,
-  ) async {
+    Future<void> Function(GtfsDatabase stagingDatabase) populate, {
+    Set<String> replaceProviderCodes = const {},
+  }) async {
     final previousRefresh = _refreshTails[locale] ?? Future<void>.value();
     final refreshFinished = Completer<void>();
     _refreshTails[locale] = refreshFinished.future;
@@ -99,7 +100,11 @@ class GtfsDatabase {
       // the new snapshot is being downloaded and built.
       barrier = Completer<void>();
       _replacementBarriers[locale] = barrier.future;
-      await _copyOperatorData(currentDb, await stagingDb.database);
+      await _copyOperatorData(
+        currentDb,
+        await stagingDb.database,
+        replaceProviderCodes: replaceProviderCodes,
+      );
       await _validateSnapshot(await stagingDb.database);
       await stagingDb.close();
 
@@ -148,7 +153,11 @@ class GtfsDatabase {
     }
   }
 
-  Future<void> _copyOperatorData(Database source, Database target) async {
+  Future<void> _copyOperatorData(
+    Database source,
+    Database target, {
+    Set<String> replaceProviderCodes = const {},
+  }) async {
     final validStopRows = await target.query(
       'gtfs_stops',
       columns: ['stop_id'],
@@ -157,12 +166,16 @@ class GtfsDatabase {
         .map((row) => row['stop_id'] as String)
         .toSet();
     await target.transaction((txn) async {
-      for (final table in [
-        'operator_stops',
-        'operator_routes',
-        'route_stops',
-      ]) {
-        final rows = await source.query(table);
+      for (final table in ['operator_stops', 'operator_routes']) {
+        final rows = await source.query(
+          table,
+          where: replaceProviderCodes.isEmpty
+              ? null
+              : 'provider_code NOT IN (${List.filled(replaceProviderCodes.length, '?').join(',')})',
+          whereArgs: replaceProviderCodes.isEmpty
+              ? null
+              : replaceProviderCodes.toList(),
+        );
         final batch = txn.batch();
         for (final row in rows) {
           batch.insert(
@@ -173,7 +186,27 @@ class GtfsDatabase {
         }
         await batch.commit(noResult: true);
       }
-      final mappings = await source.query('stop_mapping');
+      final routeStops = await source.rawQuery(
+        replaceProviderCodes.isEmpty
+            ? 'SELECT rs.* FROM route_stops rs'
+            : 'SELECT rs.* FROM route_stops rs INNER JOIN operator_routes r ON r.operator_route_id = rs.operator_route_id WHERE r.provider_code NOT IN (${List.filled(replaceProviderCodes.length, '?').join(',')})',
+        replaceProviderCodes.isEmpty ? null : replaceProviderCodes.toList(),
+      );
+      final routeBatch = txn.batch();
+      for (final row in routeStops) {
+        routeBatch.insert(
+          'route_stops',
+          row,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await routeBatch.commit(noResult: true);
+      final mappings = await source.rawQuery(
+        replaceProviderCodes.isEmpty
+            ? 'SELECT sm.* FROM stop_mapping sm'
+            : 'SELECT sm.* FROM stop_mapping sm INNER JOIN operator_stops os ON os.operator_stop_id = sm.operator_stop_id WHERE os.provider_code NOT IN (${List.filled(replaceProviderCodes.length, '?').join(',')})',
+        replaceProviderCodes.isEmpty ? null : replaceProviderCodes.toList(),
+      );
       final batch = txn.batch();
       for (final row in mappings) {
         if (validStopIds.contains(row['gtfs_stop_id'])) {
@@ -192,7 +225,6 @@ class GtfsDatabase {
     for (final table in [
       'gtfs_routes',
       'gtfs_trips',
-      'gtfs_calendar',
       'gtfs_stops',
       'gtfs_stop_times',
     ]) {
@@ -202,6 +234,16 @@ class GtfsDatabase {
         throw StateError('Refusing to install an empty GTFS table: $table');
       }
     }
+    final calendarCounts = await db.rawQuery('''
+      SELECT
+        (SELECT COUNT(*) FROM gtfs_calendar) +
+        (SELECT COUNT(*) FROM gtfs_calendar_dates) AS count
+    ''');
+    if ((calendarCounts.single['count'] as int?) == 0) {
+      throw StateError(
+        'Refusing to install a GTFS snapshot without service dates.',
+      );
+    }
   }
 
   Future<void> close() async {
@@ -210,20 +252,49 @@ class GtfsDatabase {
   }
 
   Future<Database> _initDB(String filePath) async {
-    return await openDatabase(filePath, version: 1, onCreate: _createDB);
+    return await openDatabase(
+      filePath,
+      version: 5,
+      onCreate: _createDB,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE gtfs_stops ADD COLUMN stop_code TEXT');
+        }
+        if (oldVersion < 3) {
+          await db.execute('''CREATE TABLE gtfs_calendar_dates (
+            service_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            exception_type INTEGER NOT NULL,
+            PRIMARY KEY (service_id, date)
+          )''');
+        }
+        if (oldVersion < 4) {
+          await db.execute(
+            'ALTER TABLE gtfs_trips ADD COLUMN trip_headsign TEXT',
+          );
+        }
+        if (oldVersion < 5) {
+          await db.execute(
+            'ALTER TABLE gtfs_routes ADD COLUMN route_long_name TEXT',
+          );
+        }
+      },
+    );
   }
 
   Future<void> _createDB(Database db, int version) async {
     await db.execute('''CREATE TABLE gtfs_routes (
     route_id TEXT PRIMARY KEY, 
-    route_short_name TEXT NOT NULL
+    route_short_name TEXT NOT NULL,
+    route_long_name TEXT
     )''');
 
     await db.execute('''CREATE TABLE gtfs_trips (
     trip_id TEXT PRIMARY KEY, 
     route_id TEXT NOT NULL, 
     service_id TEXT NOT NULL, 
-    direction_id INTEGER
+    direction_id INTEGER,
+    trip_headsign TEXT
     )''');
 
     await db.execute('''CREATE TABLE gtfs_calendar (
@@ -239,6 +310,13 @@ class GtfsDatabase {
     end_date TEXT
     )''');
 
+    await db.execute('''CREATE TABLE gtfs_calendar_dates (
+    service_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    exception_type INTEGER NOT NULL,
+    PRIMARY KEY (service_id, date)
+    )''');
+
     await db.execute('''CREATE TABLE gtfs_stop_times (
     trip_id TEXT NOT NULL, 
     arrival_time TEXT NOT NULL, 
@@ -251,7 +329,8 @@ class GtfsDatabase {
     stop_id TEXT PRIMARY KEY, 
     stop_name TEXT NOT NULL, 
     stop_lat REAL NOT NULL, 
-    stop_lon REAL NOT NULL
+    stop_lon REAL NOT NULL,
+    stop_code TEXT
     )''');
 
     await db.execute('''CREATE TABLE operator_stops (
@@ -312,7 +391,8 @@ class GtfsDatabase {
       for (var row in rows) {
         batch.insert("gtfs_routes", {
           "route_id": _val(row, 0),
-          "route_short_name": _val(row, 2),
+          "route_short_name": _val(row, 1),
+          "route_long_name": _val(row, 2),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -328,7 +408,8 @@ class GtfsDatabase {
           "route_id": _val(row, 0),
           "service_id": _val(row, 1),
           "trip_id": _val(row, 2),
-          "direction_id": int.tryParse(_val(row, 5)) ?? 0,
+          "direction_id": int.tryParse(_val(row, 3)) ?? 0,
+          "trip_headsign": _val(row, 4),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -357,6 +438,21 @@ class GtfsDatabase {
     });
   }
 
+  Future<void> batchInsertCalendarDates(List<List<dynamic>> rows) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final row in rows) {
+        batch.insert('gtfs_calendar_dates', {
+          'service_id': _val(row, 0),
+          'date': _val(row, 1),
+          'exception_type': int.tryParse(_val(row, 2)) ?? 0,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
   Future<void> batchInsertStops(List<List<dynamic>> rows) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -367,6 +463,7 @@ class GtfsDatabase {
           "stop_name": _val(row, 1),
           "stop_lat": double.tryParse(_val(row, 2)) ?? 0,
           "stop_lon": double.tryParse(_val(row, 3)) ?? 0,
+          "stop_code": _val(row, 4),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -387,6 +484,151 @@ class GtfsDatabase {
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
+    });
+  }
+
+  /// Removes UK feed records that are outside the selected ATCO areas and
+  /// creates the operator-facing records consumed by the app's existing UI.
+  Future<void> materializeUkOperatorData() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final stops = await txn.query('gtfs_stops');
+      final stopBatch = txn.batch();
+      for (final stop in stops) {
+        final stopId = stop['stop_id'] as String;
+        final operatorStopId = 'uk:$stopId';
+        stopBatch.insert('operator_stops', {
+          'operator_stop_id': operatorStopId,
+          'provider_code': 'uk',
+          'names': jsonEncode({'en': stop['stop_name'] ?? stopId}),
+          'lat': stop['stop_lat'],
+          'lng': stop['stop_lon'],
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        stopBatch.insert('stop_mapping', {
+          'operator_stop_id': operatorStopId,
+          'gtfs_stop_id': stopId,
+          'match_confidence': 1.0,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await stopBatch.commit(noResult: true);
+
+      final routeDirections = await txn.rawQuery('''
+        SELECT DISTINCT t.route_id, COALESCE(t.direction_id, 0) AS direction_id,
+               r.route_short_name, r.route_long_name, t.trip_headsign
+        FROM gtfs_trips t
+        INNER JOIN gtfs_routes r ON r.route_id = t.route_id
+        INNER JOIN gtfs_stop_times st ON st.trip_id = t.trip_id
+        ORDER BY t.route_id, direction_id
+      ''');
+      for (final routeDirection in routeDirections) {
+        final routeId = routeDirection['route_id'] as String;
+        final directionId = routeDirection['direction_id'] as int? ?? 0;
+        final operatorRouteId = 'uk:$routeId:$directionId';
+        final tripRows = await txn.query(
+          'gtfs_trips',
+          columns: ['trip_id'],
+          where: 'route_id = ? AND COALESCE(direction_id, 0) = ?',
+          whereArgs: [routeId, directionId],
+          limit: 1,
+        );
+        if (tripRows.isEmpty) continue;
+        final times = await txn.query(
+          'gtfs_stop_times',
+          where: 'trip_id = ?',
+          whereArgs: [tripRows.first['trip_id']],
+          orderBy: 'stop_sequence ASC',
+        );
+        if (times.isEmpty) continue;
+        final routeNumber =
+            (routeDirection['route_short_name'] as String?)
+                    ?.trim()
+                    .isNotEmpty ==
+                true
+            ? (routeDirection['route_short_name'] as String).trim()
+            : ((routeDirection['route_long_name'] as String?)
+                          ?.trim()
+                          .isNotEmpty ==
+                      true
+                  ? (routeDirection['route_long_name'] as String).trim()
+                  : routeId);
+        final originRow = await txn.query(
+          'gtfs_stops',
+          columns: ['stop_name'],
+          where: 'stop_id = ?',
+          whereArgs: [times.first['stop_id']],
+          limit: 1,
+        );
+        final destinationRow = await txn.query(
+          'gtfs_stops',
+          columns: ['stop_name'],
+          where: 'stop_id = ?',
+          whereArgs: [times.last['stop_id']],
+          limit: 1,
+        );
+        final origin = originRow.isEmpty
+            ? ''
+            : '${originRow.first['stop_name'] ?? ''}';
+        final fallbackDestination = destinationRow.isEmpty
+            ? ''
+            : '${destinationRow.first['stop_name'] ?? ''}';
+        final headsign =
+            (routeDirection['trip_headsign'] as String?)?.trim() ?? '';
+        final destination = headsign.isNotEmpty
+            ? headsign
+            : fallbackDestination;
+        await txn.insert('operator_routes', {
+          'operator_route_id': operatorRouteId,
+          'provider_code': 'uk',
+          'route_number': routeNumber,
+          'bound': '$directionId',
+          'names': jsonEncode({'en': routeNumber}),
+          'origin_text': jsonEncode({'en': origin}),
+          'destination_text': jsonEncode({'en': destination}),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        final routeStopBatch = txn.batch();
+        var sequence = 0;
+        for (final time in times) {
+          final stopId = time['stop_id'] as String;
+          routeStopBatch.insert('route_stops', {
+            'operator_route_id': operatorRouteId,
+            'operator_stop_id': 'uk:$stopId',
+            'stop_sequence': sequence++,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        await routeStopBatch.commit(noResult: true);
+      }
+    });
+  }
+
+  /// Drops schedule records that became unrelated after area filtering.
+  Future<void> removeUnreferencedGtfsRows() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.execute('''
+        DELETE FROM gtfs_trips
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gtfs_stop_times st WHERE st.trip_id = gtfs_trips.trip_id
+        )
+      ''');
+      await txn.execute('''
+        DELETE FROM gtfs_routes
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gtfs_trips t WHERE t.route_id = gtfs_routes.route_id
+        )
+      ''');
+      await txn.execute('''
+        DELETE FROM gtfs_calendar
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gtfs_trips t WHERE t.service_id = gtfs_calendar.service_id
+        )
+      ''');
+      await txn.execute('''
+        DELETE FROM gtfs_calendar_dates
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gtfs_trips t
+          WHERE t.service_id = gtfs_calendar_dates.service_id
+        )
+      ''');
     });
   }
 
@@ -694,7 +936,8 @@ class GtfsDatabase {
       SELECT
         (SELECT COUNT(*) FROM gtfs_routes) AS routes,
         (SELECT COUNT(*) FROM gtfs_trips) AS trips,
-        (SELECT COUNT(*) FROM gtfs_calendar) AS calendar,
+        ((SELECT COUNT(*) FROM gtfs_calendar) +
+         (SELECT COUNT(*) FROM gtfs_calendar_dates)) AS calendar,
         (SELECT COUNT(*) FROM gtfs_stops) AS stops,
         (SELECT COUNT(*) FROM gtfs_stop_times) AS stop_times
     ''');
@@ -721,7 +964,10 @@ class GtfsDatabase {
   Future<List<ScheduledDeparture>> getUpcomingDepartures(
     String stopId, {
     int limit = 5,
+    List<String>? routeIds,
+    int? directionId,
   }) async {
+    if (routeIds != null && routeIds.isEmpty) return const [];
     final db = await database;
     final now = localeConfigs[locale]!.nowInLocale();
 
@@ -736,33 +982,85 @@ class GtfsDatabase {
     ];
     final currentDayColumn = weekDays[now.weekday - 1];
 
-    final timeStr =
-        "${now.hour.toString().padLeft(2, "0")}:${now.minute.toString().padLeft(2, "0")}:${now.second.toString().padLeft(2, "0")}";
+    final currentServiceTime =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
     final dateStr =
         "${now.year}${now.month.toString().padLeft(2, "0")}${now.day.toString().padLeft(2, "0")}";
+    final routeFilter = routeIds == null
+        ? ''
+        : 'AND r.route_id IN (${List.filled(routeIds.length, '?').join(',')})';
+    final directionFilter = directionId == null
+        ? ''
+        : 'AND COALESCE(t.direction_id, 0) = ?';
 
     final List<Map<String, dynamic>> rows = await db.rawQuery(
       '''
-    SELECT r.route_short_name, st.arrival_time, t.direction_id
-    from gtfs_stop_times st
+    SELECT r.route_id, r.route_short_name, r.route_long_name,
+           st.arrival_time, t.direction_id
+    FROM gtfs_stop_times st
     INNER JOIN gtfs_trips t ON st.trip_id = t.trip_id
     INNER JOIN gtfs_routes r ON t.route_id = r.route_id
-    INNER JOIN gtfs_calendar c ON t.service_id = c.service_id
     WHERE st.stop_id = ?
-      AND st.arrival_time > ?
-      AND c.$currentDayColumn = 1
-      AND c.start_date <= ?
-      AND c.end_date >= ?
-    ORDER BY st.arrival_time ASC
+      AND CAST(substr(st.arrival_time, 1, 2) AS INTEGER) * 3600
+          + CAST(substr(st.arrival_time, 4, 2) AS INTEGER) * 60
+          + CAST(substr(st.arrival_time, 7, 2) AS INTEGER)
+          > CAST(substr(?, 1, 2) AS INTEGER) * 3600
+          + CAST(substr(?, 4, 2) AS INTEGER) * 60
+          + CAST(substr(?, 7, 2) AS INTEGER)
+      AND (
+        EXISTS (
+          SELECT 1 FROM gtfs_calendar c
+          WHERE c.service_id = t.service_id
+            AND c.$currentDayColumn = 1
+            AND c.start_date <= ?
+            AND c.end_date >= ?
+        )
+        OR EXISTS (
+          SELECT 1 FROM gtfs_calendar_dates cd
+          WHERE cd.service_id = t.service_id
+            AND cd.date = ?
+            AND cd.exception_type = 1
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM gtfs_calendar_dates cd
+        WHERE cd.service_id = t.service_id
+          AND cd.date = ?
+        AND cd.exception_type = 2
+      )
+      $routeFilter
+      $directionFilter
+    ORDER BY
+      CAST(substr(st.arrival_time, 1, 2) AS INTEGER) * 3600
+        + CAST(substr(st.arrival_time, 4, 2) AS INTEGER) * 60
+        + CAST(substr(st.arrival_time, 7, 2) AS INTEGER) ASC
     LIMIT ?
     ''',
-      [stopId, timeStr, dateStr, dateStr, limit],
+      [
+        stopId,
+        currentServiceTime,
+        currentServiceTime,
+        currentServiceTime,
+        dateStr,
+        dateStr,
+        dateStr,
+        dateStr,
+        ...?routeIds,
+        if (directionId != null) directionId,
+        limit,
+      ],
     );
 
     return rows
         .map(
           (row) => ScheduledDeparture(
-            routeShortName: row["route_short_name"] as String,
+            routeShortName:
+                (row["route_short_name"] as String?)?.isNotEmpty == true
+                ? row["route_short_name"] as String
+                : ((row['route_long_name'] as String?)?.isNotEmpty == true
+                      ? row['route_long_name'] as String
+                      : row['route_id'] as String),
+            routeId: row['route_id'] as String,
             arrivalTime: row["arrival_time"] as String,
             directionId: row["direction_id"] as int?,
             locale: locale,
@@ -808,6 +1106,7 @@ class GtfsDatabase {
         lat: row['stop_lat'] as double,
         lng: row['stop_lon'] as double,
         operatorNames: operatorNames,
+        localeCode: locale,
       );
     }).toList();
   }
@@ -848,6 +1147,42 @@ class GtfsDatabase {
         .toList();
   }
 
+  Future<List<TransportRoute>> getRoutesForOperatorStop(
+    String operatorStopId,
+  ) async {
+    final rows = await (await database).rawQuery(
+      '''
+      SELECT DISTINCT r.*
+      FROM operator_routes r
+      INNER JOIN route_stops rs ON rs.operator_route_id = r.operator_route_id
+      WHERE rs.operator_stop_id = ?
+        AND rs.stop_sequence < (
+          SELECT MAX(rs2.stop_sequence)
+          FROM route_stops rs2
+          WHERE rs2.operator_route_id = rs.operator_route_id
+        )
+    ''',
+      [operatorStopId],
+    );
+    return rows
+        .map(
+          (row) => TransportRoute(
+            id: row['operator_route_id'] as String,
+            names: Map<String, String>.from(jsonDecode(row['names'] as String)),
+            routeNumber: row['route_number'] as String,
+            bound: row['bound'] as String? ?? '',
+            originText: Map<String, String>.from(
+              jsonDecode(row['origin_text'] as String),
+            ),
+            destinationText: Map<String, String>.from(
+              jsonDecode(row['destination_text'] as String),
+            ),
+            providerCode: row['provider_code'] as String,
+          ),
+        )
+        .toList();
+  }
+
   Future<List<String>> getOperatorStopIds(
     String gtfsStopId, {
     String? providerCode,
@@ -869,11 +1204,23 @@ class GtfsDatabase {
     return rows.map((r) => r["operator_stop_id"] as String).toList();
   }
 
+  Future<String?> getGtfsStopIdForOperatorStop(String operatorStopId) async {
+    final rows = await (await database).query(
+      'stop_mapping',
+      columns: ['gtfs_stop_id'],
+      where: 'operator_stop_id = ?',
+      whereArgs: [operatorStopId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['gtfs_stop_id'] as String?;
+  }
+
   /// Resolves a selected route's operator stop once while creating the alarm.
   /// The resulting API URL is stored on the alarm for later push handling.
   Future<String?> getOperatorStopIdForRouteAtGtfsStop({
     required String operatorRouteId,
     required String gtfsStopId,
+    String? providerCode,
   }) async {
     final rows = await (await database).rawQuery(
       '''
@@ -881,10 +1228,15 @@ class GtfsDatabase {
     FROM route_stops rs
     INNER JOIN stop_mapping sm ON sm.operator_stop_id = rs.operator_stop_id
     WHERE rs.operator_route_id = ? AND sm.gtfs_stop_id = ?
+      AND (? IS NULL OR EXISTS (
+        SELECT 1 FROM operator_stops os
+        WHERE os.operator_stop_id = rs.operator_stop_id
+          AND os.provider_code = ?
+      ))
     ORDER BY rs.stop_sequence
     LIMIT 1
     ''',
-      [operatorRouteId, gtfsStopId],
+      [operatorRouteId, gtfsStopId, providerCode, providerCode],
     );
 
     return rows.isEmpty ? null : rows.first["operator_stop_id"] as String?;
@@ -926,6 +1278,7 @@ class GtfsDatabase {
       lat: row["stop_lat"] as double,
       lng: row["stop_lon"] as double,
       operatorNames: operatorNames,
+      localeCode: locale,
     );
   }
 
@@ -950,6 +1303,7 @@ class GtfsDatabase {
       await txn.delete("gtfs_routes");
       await txn.delete("gtfs_trips");
       await txn.delete("gtfs_calendar");
+      await txn.delete("gtfs_calendar_dates");
       await txn.delete("gtfs_stop_times");
     }));
   }
@@ -960,13 +1314,22 @@ class GtfsDatabase {
     }
     _databases.remove(locale);
     final dir = await AppGroupStorage.directory;
-    final file = File("${dir.path}/gtfs/$locale.db");
-    if (await file.exists()) {
-      await file.delete();
+    final databaseDir = Directory('${dir.path}/gtfs');
+    for (final entity
+        in databaseDir.existsSync()
+            ? databaseDir.listSync()
+            : const <FileSystemEntity>[]) {
+      if (entity is File &&
+          (entity.path.endsWith('/$locale.db') ||
+              entity.path.contains('/$locale.db.'))) {
+        await entity.delete();
+      }
     }
     final legacyFile = File('${dir.path}/gtfs/gtfs/$locale.db');
-    if (await legacyFile.exists()) {
-      await legacyFile.delete();
+    if (await legacyFile.exists()) await legacyFile.delete();
+    final legacyBackup = File('${dir.path}/gtfs/gtfs/$locale.db.backup');
+    if (await legacyBackup.exists()) {
+      await legacyBackup.delete();
     }
   }
 
