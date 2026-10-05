@@ -49,6 +49,16 @@ class LocaleSelectionService {
   //   await prefs.setStringList(_enabledUkRegionsKey, regions);
   // }
 
+  Future<List<String>> getEnabledUkRegions() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_enabledUkRegionsKey) ?? [];
+  }
+
+  Future<void> setEnabledUkRegions(List<String> regions) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_enabledUkRegionsKey, regions);
+  }
+
   Future<bool> hasCompletedSetup() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.containsKey(_key);
