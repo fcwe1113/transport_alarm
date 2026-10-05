@@ -1,3 +1,4 @@
+import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/provider_registry.dart';
 
 class ScheduledDeparture {
@@ -12,7 +13,7 @@ class ScheduledDeparture {
     final parts = arrivalTime.split(":");
     final hours = int.parse(parts[0]);
     final minutes = int.parse(parts[1]);
-    final now = localeConfigs[locale]!.nowInLocale(); // accounting for local gmt+8
+    final now = LocaleRegistry.getLocale(locale).config.nowInLocale(); // accounting for local gmt+8
     final serviceDayStart = DateTime.utc(now.year, now.month, now.day);
     final scheduledDateTime = serviceDayStart.add(Duration(hours: hours, minutes: minutes));
 

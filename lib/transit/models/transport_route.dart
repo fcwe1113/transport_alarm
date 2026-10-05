@@ -12,6 +12,7 @@ class TransportRoute {
   final Map<String, String> destinationText; // the destination showed normally
   final List<TransportStop> stops;
   final String providerCode;
+  final String locale;
 
   const TransportRoute({
     required this.id,
@@ -22,6 +23,7 @@ class TransportRoute {
     required this.destinationText,
     required this.providerCode,
     this.stops = const [],
+    required this.locale,
   });
 
   TransportStop get origin => stops.isNotEmpty ? stops.first : TransportStop.placeholder(id: "$providerCode:origin_$routeNumber$bound", name: originNameFor(AppStrings.languageCode), providerCode: providerCode);
@@ -40,7 +42,7 @@ class TransportRoute {
   }
 
   TransportRoute copyWith({List<TransportStop>? stops}) {
-    return TransportRoute(id: id, names: names, routeNumber: routeNumber, bound: bound, originText: originText, destinationText: destinationText, providerCode: providerCode, stops: stops ?? this.stops);
+    return TransportRoute(id: id, names: names, routeNumber: routeNumber, bound: bound, originText: originText, destinationText: destinationText, providerCode: providerCode, stops: stops ?? this.stops, locale: locale);
   }
 
   Map<String, dynamic> toJson() => {
@@ -53,7 +55,7 @@ class TransportRoute {
     "providerCode": providerCode,
   };
 
-  static TransportRoute fromJson(Map<String, dynamic> json) => TransportRoute(
+  static TransportRoute fromJson(Map<String, dynamic> json, String locale) => TransportRoute(
       id: json["id"],
       names: Map<String, String>.from(json["names"]),
       routeNumber: json["routeNumber"],
@@ -61,6 +63,7 @@ class TransportRoute {
       originText: Map<String, String>.from(json["originText"]),
       destinationText: Map<String, String>.from(json["destinationText"]),
       providerCode: json["providerCode"],
+      locale: locale,
   );
 
   static List<TransportRoute> dedupeByRouteNumber(List<TransportRoute> routes) {

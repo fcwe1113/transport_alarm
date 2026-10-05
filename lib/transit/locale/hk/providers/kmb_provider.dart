@@ -283,6 +283,7 @@ class KmbProvider extends TransitProvider {
           "zh-Hans": r["dest_sc"],
         },
         providerCode: providerCode,
+        locale: "hk",
       );
     }).toList();
   }

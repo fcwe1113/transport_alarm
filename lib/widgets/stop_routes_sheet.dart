@@ -8,6 +8,7 @@ import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
+import '../locale_registry.dart';
 import '../transit/models/transport_route.dart';
 import '../transit/models/gtfs_stop.dart';
 
@@ -127,7 +128,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 
   Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop) async {
-    final operatorStopIds = await GtfsDatabase.forLocale("hk").getOperatorStopIds(stop.id); // todo fix hardcode
+    final operatorStopIds = await LocaleRegistry.getLocale(stop.locale).db.getOperatorStopIds(stop.id);
 
     final idsByProvider = <String,List<String>>{};
     for (final operatorStopId in operatorStopIds) {
@@ -142,7 +143,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     for (final entry in idsByProvider.entries) {
       final providerCode = entry.key;
       final rawIds = entry.value;
-      final provider = availableProviders.where((p) => p.providerCode == providerCode).firstOrNull;
+      final provider = LocaleRegistry.getLocale(widget.stop.locale).transitProviders.where((p) => p.providerCode == providerCode).firstOrNull;
       if (provider == null) continue; // skip stops with no valid providers
       for (final rawId in rawIds) {
         try {
@@ -202,7 +203,7 @@ class _RoutePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = availableProviders.firstWhere((p) => p.providerCode == route.providerCode);
+    final provider = LocaleRegistry.getLocale(route.locale).transitProviders.firstWhere((p) => p.providerCode == route.providerCode);
     final colours = provider.coloursForRoute(route);
 
     return Container(

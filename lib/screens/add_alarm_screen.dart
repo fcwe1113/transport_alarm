@@ -21,6 +21,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
+import '../locale_registry.dart';
 import '../services/alarm_lifecycle_service.dart';
 
 class AddAlarmScreen extends StatefulWidget {
@@ -143,11 +144,11 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   String get _currentTransportMode {
     final selectedRoute = _selectedRoutes.firstOrNull;
     final providerCode = selectedRoute?.providerCode;
-    return availableProviders
+    return LocaleRegistry.getLocale(_selectedStop!.locale).transitProviders
             .where((provider) => provider.providerCode == providerCode)
             .firstOrNull
             ?.transportMode ??
-        availableProviders.firstOrNull?.transportMode ??
+        LocaleRegistry.getLocale(_selectedStop!.locale).transitProviders.firstOrNull?.transportMode ??
         TransportMode.bus;
   }
 
@@ -392,7 +393,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   }
 
   AlarmRouteConfig? _buildAlarmRouteConfig(TransportRoute route, String operatorStopId) {
-    final provider = availableProviders
+    final provider = LocaleRegistry.getLocale(_selectedStop!.locale).transitProviders
         .where((candidate) => candidate.providerCode == route.providerCode)
         .firstOrNull;
     if (provider == null) return null;

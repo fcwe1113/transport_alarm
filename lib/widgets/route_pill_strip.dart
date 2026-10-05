@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
@@ -69,7 +70,7 @@ class RoutePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = availableProviders.firstWhere((p) => p.providerCode == route.providerCode);
+    final provider = LocaleRegistry.getLocale(route.locale).transitProviders.firstWhere((p) => p.providerCode == route.providerCode);
     final colours = provider.coloursForRoute(route);
     return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8),

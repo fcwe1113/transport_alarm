@@ -3,6 +3,7 @@ import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 
+import '../../locale_registry.dart';
 import '../../provider_registry.dart';
 import '../models/gtfs_stop.dart';
 import '../models/live_eta.dart';
@@ -25,7 +26,7 @@ Future<List<RouteArrival>> resolveArrivals({
       ? (await _fetchLiveEtaForStop(gtfsStop!))
             .where((e) => e.etaTime != null)
             .toList()
-      : await _fetchLiveEtaForFilteredRoutes(gtfsStopId, routeNumberFilter);
+      : await _fetchLiveEtaForFilteredRoutes(gtfsStop!, routeNumberFilter);
   final scheduled = await db.getUpcomingDepartures(gtfsStopId, limit: 50);
 
   final routeGroups = <String, List<TransportRoute>>{};
@@ -96,7 +97,7 @@ Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop) async {
   for (final entry in idsByProvider.entries) {
     final providerCode = entry.key;
     final rawIds = entry.value;
-    final provider = availableProviders
+    final provider = LocaleRegistry.getLocale(stop.locale).transitProviders
         .where((p) => p.providerCode == providerCode)
         .firstOrNull;
     if (provider == null) continue; // skip stops with no valid providers
@@ -114,18 +115,18 @@ Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop) async {
 }
 
 Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
-  String gtfsStopId,
+  GtfsStop stop,
   List<String> routeNumbers,
 ) async {
-  final db = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
-  final operatorStops = await db.getOperatorStopIds(gtfsStopId);
+  final db = GtfsDatabase.forLocale(stop.locale); // todo remove locale hardcode
+  final operatorStops = await db.getOperatorStopIds(stop.id);
   final results = <LiveEta>[];
 
   for (final operatorStopId in operatorStops) {
     final parts = operatorStopId.split(":");
     final providerCode = parts[0];
     final rawId = parts[1];
-    final provider = availableProviders
+    final provider = LocaleRegistry.getLocale(stop.locale).transitProviders
         .where((p) => p.providerCode == providerCode)
         .firstOrNull;
     if (provider == null) continue; // skip stops with no valid providers

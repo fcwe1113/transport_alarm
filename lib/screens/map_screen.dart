@@ -3,14 +3,13 @@ import 'dart:math';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../widgets/app_shell.dart';
 import '../widgets/stop_routes_sheet.dart';
-
-// todo adapt this screen into future add new alarm process
 
 /// StatefulWidget wrapper for the map screen
 class MapScreen extends StatefulWidget { // statefulwidgets are widgets that can have modifiable internal data, they contain an immutable Widget and a mutable State object within
@@ -53,8 +52,11 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _loadMapData() async {
     try {
-      final db = GtfsDatabase.forLocale("hk"); // todo remove hardcoded locale
-      final stops = await db.getAllGtfsStops();
+      final locales = await LocaleSelectionService().getEnabledLocales();
+      final stops = <GtfsStop>[];
+      for (final locale in locales) {
+        stops.addAll(await GtfsDatabase.forLocale(locale).getAllGtfsStops());
+      }
 
       setState(() {
         _stops = stops;

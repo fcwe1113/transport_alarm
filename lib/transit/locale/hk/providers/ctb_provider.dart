@@ -314,6 +314,7 @@ class CtbProvider extends TransitProvider {
           "zh-Hans": r["dest_sc"] as String? ?? "",
         },
         providerCode: providerCode,
+        locale: "hk"
       );
     }).toList();
   }

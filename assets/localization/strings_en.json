@@ -174,7 +174,7 @@
   "transit.matching_stops": "Matching stops for {locale}...",
   "transit.setup_complete": "Setup complete",
   "transit.refresh_complete": "Refresh check complete",
-  "transit.gtfs_updating": "Updating GTFS data",
+  "transit.gtfs_updating": "Updating GTFS data...",
   "transit.gtfs_extracting": "Extracting {file}... {done}/{total}",
   "transit.gtfs_parsing": "Parsing {file}... {done}/{total}",
   "transit.gtfs_interpolating": "Interpolating schedule...",

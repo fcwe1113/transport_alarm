@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/models/scheduled_departure.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/geo_utils.dart';
@@ -636,6 +637,7 @@ class GtfsDatabase {
               jsonDecode(row["destination_text"] as String),
             ),
             providerCode: row["provider_code"] as String,
+            locale: locale
           ),
         )
         .toList();
@@ -723,7 +725,7 @@ class GtfsDatabase {
     int limit = 5,
   }) async {
     final db = await database;
-    final now = localeConfigs[locale]!.nowInLocale();
+    final now = LocaleRegistry.getLocale(locale).config.nowInLocale();
 
     final weekDays = [
       "monday",
@@ -808,6 +810,7 @@ class GtfsDatabase {
         lat: row['stop_lat'] as double,
         lng: row['stop_lon'] as double,
         operatorNames: operatorNames,
+        locale: locale,
       );
     }).toList();
   }
@@ -843,6 +846,7 @@ class GtfsDatabase {
               jsonDecode(row["destination_text"] as String),
             ),
             providerCode: row["provider_code"] as String,
+            locale: locale
           ),
         )
         .toList();
@@ -926,6 +930,7 @@ class GtfsDatabase {
       lat: row["stop_lat"] as double,
       lng: row["stop_lon"] as double,
       operatorNames: operatorNames,
+      locale: locale
     );
   }
 

@@ -1,5 +1,8 @@
+import 'package:timezone/timezone.dart';
+import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
+import 'package:transport_alarm/transit/locale/transit_locale.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/material.dart';
 
@@ -11,7 +14,7 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  final Set<String> _selected = {};
+  final Set<TransitLocale> _selected = {};
 
   @override
   Widget build(BuildContext context) {
@@ -29,9 +32,9 @@ class _SetupScreenState extends State<SetupScreen> {
           ),
           Expanded(
               child: ListView(
-                children: providersByLocale.keys.map((locale) {
+                children: LocaleRegistry.getSupportedLocales().map((locale) {
                   return CheckboxListTile(
-                      title: Text(localeConfigs[locale]?.displayName ?? locale),
+                      title: Text(locale.config.displayName),
                       value: _selected.contains(locale),
                       onChanged: (checked) {
                         setState(() {
@@ -49,7 +52,7 @@ class _SetupScreenState extends State<SetupScreen> {
     final shouldProceed = await _showWifiReminder();
     if (shouldProceed != true) return; // user clicked no on the popup
 
-    await LocaleSelectionService().setEnabledLocales(_selected.toList());
+    await LocaleSelectionService().setEnabledLocales(_selected.map((l) => l.config.displayName).toList());
     if (mounted) Navigator.pushReplacementNamed(context, "/loading");
   }
 

@@ -24,8 +24,9 @@ class GtfsSyncService {
 
   Future<void> parseAndStoreGtfsArchive(
     File zipFile,
-    ProgressCallback? onProgress,
-  ) async {
+    ProgressCallback? onProgress, {
+    bool interpolateMissingArrivalTimes = true,
+  }) async {
     onProgress?.call(AppStrings.text('transit.gtfs_updating'), null);
     final requiredFiles = [
       "routes.txt",
@@ -109,8 +110,10 @@ class GtfsSyncService {
           processedCount++;
         }
 
-        onProgress?.call(AppStrings.text('transit.gtfs_interpolating'), null);
-        await _db.interpolateMissingArrivalTimes();
+        if (interpolateMissingArrivalTimes) {
+          onProgress?.call(AppStrings.text('transit.gtfs_interpolating'), null);
+          await _db.interpolateMissingArrivalTimes();
+        }
       } finally {
         await extractionDir.delete(recursive: true);
       }
