@@ -54,7 +54,7 @@ class _MapScreenState extends State<MapScreen> {
     try {
       final locales = await LocaleSelectionService().getEnabledLocales();
       final stops = <GtfsStop>[];
-      for (final locale in locales) {
+      for (final locale in locales.keys) {
         stops.addAll(await GtfsDatabase.forLocale(locale).getAllGtfsStops());
       }
 

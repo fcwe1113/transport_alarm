@@ -13,7 +13,7 @@ Future<List<String>> initializeTransitData({
   final allFailures = <String>[];
   final selectionService = LocaleSelectionService();
   final locales = await selectionService.getEnabledLocales();
-  for (final locale in LocaleRegistry.getLocales(locales)) {
+  for (final locale in LocaleRegistry.getLocales(locales.keys.toList())) {
     for (final gtfsProvider in locale.gtfsProviders) {
       try {
         await gtfsProvider.syncFeed(onProgress: onProgress);
@@ -61,7 +61,7 @@ Future<List<String>> refreshStaleProviders({
   final selectionService = LocaleSelectionService();
   final locales = await selectionService.getEnabledLocales();
 
-  for (final locale in LocaleRegistry.getLocales(locales)) {
+  for (final locale in LocaleRegistry.getLocales(locales.keys.toList())) {
     bool changed = false;
     for (final gtfsProvider in locale.gtfsProviders) {
       try {

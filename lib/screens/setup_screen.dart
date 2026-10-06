@@ -1,8 +1,5 @@
-import 'package:timezone/timezone.dart';
 import 'package:transport_alarm/locale_registry.dart';
-import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
-import 'package:transport_alarm/transit/locale/transit_locale.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/material.dart';
 
@@ -14,10 +11,18 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  final Set<TransitLocale> _selected = {};
+  final _selectionService = LocaleSelectionService();
+  late final Future<Map<String, String>> _draftReady;
+
+  @override
+  void initState() {
+    super.initState();
+    _draftReady = _selectionService.beginLocaleSelectionDraft();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final locales = LocaleRegistry.getSupportedLocales()..sort();
     return Scaffold(
       appBar: AppBar(
         title: Text(AppStrings.text('setup.title')),
@@ -31,20 +36,32 @@ class _SetupScreenState extends State<SetupScreen> {
             ),
           ),
           Expanded(
-              child: ListView(
-                children: LocaleRegistry.getSupportedLocales().map((locale) {
-                  return CheckboxListTile(
-                      title: Text(locale.config.displayName),
-                      value: _selected.contains(locale),
-                      onChanged: (checked) {
-                        setState(() {
-                          checked == true ? _selected.add(locale) : _selected.remove(locale);
-                        });
-                      });
-                }).toList(),
-              ),)
+            child: FutureBuilder<Map<String, String>>(
+              future: _draftReady,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text(snapshot.error.toString()));
+                }
+                return ListView(
+                  children: locales.map((locale) => locale.menuEntry).toList(),
+                );
+              },
+            ),
+          ),
         ],),
-        floatingActionButton: _selected.isEmpty ? null : FloatingActionButton(onPressed: _confirmSelection, child: const Icon(Icons.check),),
+        floatingActionButton: ValueListenableBuilder<Map<String, String>>(
+          valueListenable:
+              LocaleSelectionService.localeSelectionDraftListenable,
+          builder: (context, draft, _) => draft.isEmpty
+              ? const SizedBox.shrink()
+              : FloatingActionButton(
+                  onPressed: _confirmSelection,
+                  child: const Icon(Icons.check),
+                ),
+        ),
     );
   }
 
@@ -52,7 +69,7 @@ class _SetupScreenState extends State<SetupScreen> {
     final shouldProceed = await _showWifiReminder();
     if (shouldProceed != true) return; // user clicked no on the popup
 
-    await LocaleSelectionService().setEnabledLocales(_selected.map((l) => l.config.displayName).toList());
+    await _selectionService.commitLocaleSelectionDraft();
     if (mounted) Navigator.pushReplacementNamed(context, "/loading");
   }
 

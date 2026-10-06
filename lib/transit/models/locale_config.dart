@@ -2,7 +2,7 @@ import 'package:transport_alarm/services/timezone_service.dart';
 
 class LocaleConfig {
   final String code;
-  final String displayName;
+  final Map<String, String> displayName;
   final String timeZoneIdentifier;
 
   const LocaleConfig({

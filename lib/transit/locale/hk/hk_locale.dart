@@ -11,14 +11,14 @@ import 'package:transport_alarm/transit/transit_provider.dart';
 import '../transit_locale.dart';
 import 'hk_gtfs_sync_provider.dart';
 
-class HkLocale implements TransitLocale {
+class HkLocale extends TransitLocale {
 
   final apiCaller = ApiCaller();
 
   @override
   LocaleConfig config = LocaleConfig(
   code: 'hk',
-  displayName: 'Hong Kong',
+  displayName: {"en": 'Hong Kong'},
   timeZoneIdentifier: 'Asia/Hong_Kong',
   );
 
@@ -30,9 +30,6 @@ class HkLocale implements TransitLocale {
 
   @override
   late List<TransitProvider> transitProviders = [KmbProvider(apiCaller), CtbProvider(apiCaller)];
-
-  @override
-  GtfsDatabase db = GtfsDatabase.forLocale("hk");
 
   @override
   bool matchingRequired = true;
@@ -60,29 +57,26 @@ class _LocaleCheckboxMenuEntryState extends State<_LocaleCheckboxMenuEntry> {
   }
 
   Future<void> _loadSelection() async {
-    final enabledLocales = await _selectionService.getEnabledLocales();
+    final enabledLocales = await _selectionService.getLocaleSelectionDraft();
     if (!mounted) return;
     setState(() {
-      _selected = enabledLocales.contains(widget.config.code);
+      _selected = enabledLocales.containsKey(widget.config.code);
       _loaded = true;
     });
   }
 
-  Future<void> _setSelected(bool selected) async {
+  void _setSelected(bool selected) {
     setState(() => _selected = selected);
-    final enabledLocales = (await _selectionService.getEnabledLocales()).toSet();
-    if (selected) {
-      enabledLocales.add(widget.config.code);
-    } else {
-      enabledLocales.remove(widget.config.code);
-    }
-    await _selectionService.setEnabledLocales(enabledLocales.toList()..sort());
+    _selectionService.updateLocaleSelectionDraftEntry(
+      widget.config.code,
+      selected ? "" : null,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return CheckboxListTile(
-      title: Text(widget.config.displayName),
+      title: Text(widget.config.displayName["en"]!),
       value: _selected,
       onChanged: _loaded ? (checked) => _setSelected(checked == true) : null,
     );

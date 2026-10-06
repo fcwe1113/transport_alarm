@@ -22,24 +22,8 @@ class UkGtfsSyncProvider implements GtfsSyncProvider {
   static const Duration ttlThreshold = Duration(days: 7);
   static const String _installedRegionsKey = 'gtfs_uk_installed_regions';
 
-  // Keep this in sync with the hardcoded region names in Settings.
-  static const Set<String> _supportedRegions = {
-    'east_midlands',
-    'east_anglia',
-    'london',
-    'north_east',
-    'north_west',
-    'scotland',
-    'south_east',
-    'south_west',
-    'wales',
-    'west_midlands',
-    'yorkshire',
-  };
-
-  Future<List<String>> _selectedRegions() async {
-    final selected = await LocaleSelectionService().getEnabledUkRegions();
-    return selected.where(_supportedRegions.contains).toSet().toList()..sort();
+  Future<List<String>?> _selectedRegions() async { // todo may run while null
+    return (await LocaleSelectionService().getEnabledLocales())[locale]?.split(",").toList();
   }
 
   String _regionUrl(String region) => '$feedUrl$region';
@@ -50,7 +34,7 @@ class UkGtfsSyncProvider implements GtfsSyncProvider {
   @override
   Future<bool> checkIsStale() async {
     final regions = await _selectedRegions();
-    if (regions.isEmpty) return false;
+    if (regions!.isEmpty) return false;
 
     final database = GtfsDatabase.forLocale(locale);
     if (!await database.hasUsableGtfsData()) return true;
@@ -78,7 +62,7 @@ class UkGtfsSyncProvider implements GtfsSyncProvider {
   @override
   Future<void> syncFeed({ProgressCallback? onProgress}) async {
     final regions = await _selectedRegions();
-    if (regions.isEmpty) return;
+    if (regions!.isEmpty) return;
 
     final storageDirectory = await AppGroupStorage.directory;
     final db = GtfsDatabase.forLocale(locale);
