@@ -8,6 +8,38 @@ Future<void> streamParseAndInsert(
   Future<void> Function(List<List<dynamic>> batch) insertBatch, {
   int batchSize = 2000,
   bool Function(List<dynamic> header, List<dynamic> row)? filter,
+  List<dynamic> Function(List<dynamic> header, List<dynamic> row)? transformRow,
+}) => _streamParseAndInsert(
+  csvFile,
+  (header, batch) => insertBatch(batch),
+  batchSize: batchSize,
+  filter: filter,
+  transformRow: transformRow,
+);
+
+Future<void> streamParseAndInsertWithHeader(
+  File csvFile,
+  Future<void> Function(List<dynamic> header, List<List<dynamic>> batch)
+  insertBatch, {
+  int batchSize = 2000,
+  bool Function(List<dynamic> header, List<dynamic> row)? filter,
+  List<dynamic> Function(List<dynamic> header, List<dynamic> row)? transformRow,
+}) => _streamParseAndInsert(
+  csvFile,
+  insertBatch,
+  batchSize: batchSize,
+  filter: filter,
+  transformRow: transformRow,
+);
+
+Future<void> _streamParseAndInsert(
+  File csvFile,
+  Future<void> Function(List<dynamic> header, List<List<dynamic>> batch)
+  insertBatch, {
+  required int batchSize,
+  required bool Function(List<dynamic> header, List<dynamic> row)? filter,
+  required List<dynamic> Function(List<dynamic> header, List<dynamic> row)?
+  transformRow,
 }) async {
   final lines = csvFile
       .openRead()
@@ -28,16 +60,16 @@ Future<void> streamParseAndInsert(
       continue;
     }
     if (filter != null && !filter(header!, row)) continue;
-    batch.add(row);
+    batch.add(transformRow == null ? row : transformRow(header!, row));
 
     if (batch.length >= batchSize) {
-      await insertBatch(batch);
+      await insertBatch(header!, batch);
       batch = [];
     }
   }
 
   if (batch.isNotEmpty) {
-    await insertBatch(batch);
+    await insertBatch(header!, batch);
   }
   if (!headerRead) {
     throw FormatException('GTFS CSV is empty: ${csvFile.path}');

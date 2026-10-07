@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
@@ -148,6 +149,7 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
             await syncService.parseAndStoreGtfsArchive(
               zipFile,
               onProgress,
+              interpolateMissingArrivalTimes: LocaleRegistry.getLocale(locale).matchingRequired,
               stopFilter: (header, row) {
                 stopIdColumn ??= header.indexOf('stop_id');
                 if (stopIdColumn! < 0) {

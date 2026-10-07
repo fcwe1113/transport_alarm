@@ -210,14 +210,33 @@ class GtfsDatabase {
   }
 
   Future<Database> _initDB(String filePath) async {
-    return await openDatabase(filePath, version: 1, onCreate: _createDB);
+    return await openDatabase(
+      filePath,
+      version: 2,
+      onCreate: _createDB,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createCalendarDatesTable(db);
+          await _createAgenciesTable(db);
+          await db.execute(
+            "ALTER TABLE gtfs_routes ADD COLUMN agency_id TEXT NOT NULL DEFAULT ''",
+          );
+          await db.execute(
+            "ALTER TABLE gtfs_routes ADD COLUMN agency_name TEXT NOT NULL DEFAULT ''",
+          );
+        }
+      },
+    );
   }
 
   Future<void> _createDB(Database db, int version) async {
     await db.execute('''CREATE TABLE gtfs_routes (
     route_id TEXT PRIMARY KEY, 
-    route_short_name TEXT NOT NULL
+    route_short_name TEXT NOT NULL,
+    agency_id TEXT NOT NULL DEFAULT '',
+    agency_name TEXT NOT NULL DEFAULT ''
     )''');
+    await _createAgenciesTable(db);
 
     await db.execute('''CREATE TABLE gtfs_trips (
     trip_id TEXT PRIMARY KEY, 
@@ -238,6 +257,7 @@ class GtfsDatabase {
     start_date TEXT, 
     end_date TEXT
     )''');
+    await _createCalendarDatesTable(db);
 
     await db.execute('''CREATE TABLE gtfs_stop_times (
     trip_id TEXT NOT NULL, 
@@ -302,88 +322,251 @@ class GtfsDatabase {
     );
   }
 
+  Future<void> _createCalendarDatesTable(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE gtfs_calendar_dates (
+      service_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      exception_type INTEGER NOT NULL,
+      PRIMARY KEY (service_id, date)
+    )''');
+  }
+
+  Future<void> _createAgenciesTable(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE gtfs_agencies (
+      agency_id TEXT PRIMARY KEY,
+      agency_name TEXT NOT NULL
+    )''');
+  }
+
   String _val(List<dynamic> row, int index) =>
       row.length > index ? row[index].toString() : "";
 
-  Future<void> batchInsertRoutes(List<List<dynamic>> rows) async {
+  Future<void> batchInsertRoutes(List<dynamic> header, List<List<dynamic>> rows) async {
+    int columnIndex(String name, {bool required = true}) {
+      final index = header.indexOf(name);
+      if (index < 0 && required) {
+        throw FormatException('GTFS routes.txt is missing the $name column.');
+      }
+      return index;
+    }
+
+    final routeIdIndex = columnIndex('route_id');
+    final routeNameIndex = columnIndex('route_short_name');
+
+    String value(List<dynamic> row, int index) =>
+        index >= 0 && row.length > index ? row[index].toString() : '';
+
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (var row in rows) {
         batch.insert("gtfs_routes", {
-          "route_id": _val(row, 0),
-          "route_short_name": _val(row, 2),
+          "route_id": value(row, routeIdIndex),
+          "route_short_name": value(row, routeNameIndex),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
     });
   }
 
-  Future<void> batchInsertTrips(List<List<dynamic>> rows) async {
+  Future<void> batchInsertAgencies(List<dynamic> header, List<List<dynamic>> rows) async {
+    int columnIndex(String name, {bool required = true}) {
+      final index = header.indexOf(name);
+      if (index < 0 && required) {
+        throw FormatException('GTFS agency.txt is missing the $name column.');
+      }
+      return index;
+    }
+
+    final agencyIdIndex = columnIndex('agency_id');
+    final agencyNameIndex = columnIndex('agency_name');
+
+    String value(List<dynamic> row, int index) =>
+        index >= 0 && row.length > index ? row[index].toString() : '';
+
+    final db = await database;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final row in rows) {
+        batch.insert('gtfs_agencies', {
+          'agency_id': value(row, agencyIdIndex),
+          'agency_name': value(row, agencyNameIndex),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<void> batchInsertTrips(List<dynamic> header, List<List<dynamic>> rows) async {
+    int columnIndex(String name, {bool required = true}) {
+      final index = header.indexOf(name);
+      if (index < 0 && required) {
+        throw FormatException('GTFS trips.txt is missing the $name column.');
+      }
+      return index;
+    }
+
+    final routeIdIndex = columnIndex('route_id');
+    final serviceIdIndex = columnIndex('service_id');
+    final tripIdIndex = columnIndex('trip_id');
+    final directionIdIndex = columnIndex('direction_id', required: false);
+
+    String value(List<dynamic> row, int index) =>
+        index >= 0 && row.length > index ? row[index].toString() : '';
+
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (var row in rows) {
         batch.insert("gtfs_trips", {
-          "route_id": _val(row, 0),
-          "service_id": _val(row, 1),
-          "trip_id": _val(row, 2),
-          "direction_id": int.tryParse(_val(row, 5)) ?? 0,
+          "route_id": value(row, routeIdIndex),
+          "service_id": value(row, serviceIdIndex),
+          "trip_id": value(row, tripIdIndex),
+          "direction_id": int.tryParse(value(row, directionIdIndex)) ?? 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
     });
   }
 
-  Future<void> batchInsertCalendar(List<List<dynamic>> rows) async {
+  Future<void> batchInsertCalendar(List<dynamic> header, List<List<dynamic>> rows) async {
+    int columnIndex(String name, {bool required = true}) {
+      final index = header.indexOf(name);
+      if (index < 0 && required) {
+        throw FormatException('GTFS calendar.txt is missing the $name column.');
+      }
+      return index;
+    }
+
+    final serviceIdIndex = columnIndex('service_id');
+    final monIndex = columnIndex('monday', required: false);
+    final tueIndex = columnIndex('tuesday', required: false);
+    final wedIndex = columnIndex('wednesday', required: false);
+    final thuIndex = columnIndex('thursday', required: false);
+    final friIndex = columnIndex('friday', required: false);
+    final satIndex = columnIndex('saturday', required: false);
+    final sunIndex = columnIndex('sunday', required: false);
+    final startDateIndex = columnIndex('start_date');
+    final endDateIndex = columnIndex('end_date');
+
+    String value(List<dynamic> row, int index) =>
+        index >= 0 && row.length > index ? row[index].toString() : '';
+
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (var row in rows) {
         batch.insert("gtfs_calendar", {
-          "service_id": _val(row, 0),
-          "monday": int.tryParse(_val(row, 1)) ?? 0,
-          "tuesday": int.tryParse(_val(row, 2)) ?? 0,
-          "wednesday": int.tryParse(_val(row, 3)) ?? 0,
-          "thursday": int.tryParse(_val(row, 4)) ?? 0,
-          "friday": int.tryParse(_val(row, 5)) ?? 0,
-          "saturday": int.tryParse(_val(row, 6)) ?? 0,
-          "sunday": int.tryParse(_val(row, 7)) ?? 0,
-          "start_date": _val(row, 8),
-          "end_date": _val(row, 9),
+          "service_id": value(row, serviceIdIndex),
+          "monday": int.tryParse(value(row, monIndex)) ?? 0,
+          "tuesday": int.tryParse(value(row, tueIndex)) ?? 0,
+          "wednesday": int.tryParse(value(row, wedIndex)) ?? 0,
+          "thursday": int.tryParse(value(row, thuIndex)) ?? 0,
+          "friday": int.tryParse(value(row, friIndex)) ?? 0,
+          "saturday": int.tryParse(value(row, satIndex)) ?? 0,
+          "sunday": int.tryParse(value(row, sunIndex)) ?? 0,
+          "start_date": value(row, startDateIndex),
+          "end_date": value(row, endDateIndex),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
     });
   }
 
-  Future<void> batchInsertStops(List<List<dynamic>> rows) async {
+  Future<void> batchInsertCalendarDates(List<dynamic> header, List<List<dynamic>> rows) async {
+    int columnIndex(String name, {bool required = true}) {
+      final index = header.indexOf(name);
+      if (index < 0 && required) {
+        throw FormatException('GTFS calendar_dates.txt is missing the $name column.');
+      }
+      return index;
+    }
+
+    final serviceIdIndex = columnIndex('service_id');
+    final dateIndex = columnIndex('date');
+    final exceptionTypeIndex = columnIndex('exception_type', required: false);
+
+    String value(List<dynamic> row, int index) =>
+        index >= 0 && row.length > index ? row[index].toString() : '';
+
+    final db = await database;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final row in rows) {
+        batch.insert('gtfs_calendar_dates', {
+          'service_id': value(row, serviceIdIndex),
+          'date': value(row, dateIndex),
+          'exception_type': int.tryParse(value(row, exceptionTypeIndex)) ?? 0,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<void> batchInsertStops(
+    List<dynamic> header,
+    List<List<dynamic>> rows,
+  ) async {
+    int columnIndex(String name, {bool required = true}) {
+      final index = header.indexOf(name);
+      if (index < 0 && required) {
+        throw FormatException('GTFS stops.txt is missing the $name column.');
+      }
+      return index;
+    }
+
+    final stopIdIndex = columnIndex('stop_id');
+    final stopNameIndex = columnIndex('stop_name');
+    final stopLatIndex = columnIndex('stop_lat', required: false);
+    final stopLonIndex = columnIndex('stop_lon', required: false);
+
+    String value(List<dynamic> row, int index) =>
+        index >= 0 && row.length > index ? row[index].toString() : '';
+
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (var row in rows) {
         batch.insert("gtfs_stops", {
-          "stop_id": _val(row, 0),
-          "stop_name": _val(row, 1), // todo make dynamic col grabber
-          "stop_lat": double.tryParse(_val(row, 2)) ?? 0,
-          "stop_lon": double.tryParse(_val(row, 3)) ?? 0,
+          "stop_id": value(row, stopIdIndex),
+          "stop_name": value(row, stopNameIndex),
+          "stop_lat": double.tryParse(value(row, stopLatIndex)) ?? 0,
+          "stop_lon": double.tryParse(value(row, stopLonIndex)) ?? 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
     });
   }
 
-  Future<void> batchInsertStopTimes(List<List<dynamic>> rows) async {
+  Future<void> batchInsertStopTimes(List<dynamic> header, List<List<dynamic>> rows) async {
+
+    int columnIndex(String name, {bool required = true}) {
+      final index = header.indexOf(name);
+      if (index < 0 && required) {
+        throw FormatException('GTFS stop_times.txt is missing the $name column.');
+      }
+      return index;
+    }
+
+    final tripIdIndex = columnIndex('trip_id');
+    final arrivalTimeIndex = columnIndex('arrival_time');
+    final departureTimeIndex = columnIndex('departure_time');
+    final stopIdIndex = columnIndex('stop_id');
+    final stopSeqIndex = columnIndex('stop_sequence', required: false);
+
+    String value(List<dynamic> row, int index) =>
+        index >= 0 && row.length > index ? row[index].toString() : '';
+
     final db = await database;
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (var row in rows) {
         batch.insert("gtfs_stop_times", {
-          "trip_id": _val(row, 0),
-          "arrival_time": _val(row, 1),
-          "departure_time": _val(row, 2),
-          "stop_id": _val(row, 3),
-          "stop_sequence": int.tryParse(_val(row, 4)) ?? 0,
+          "trip_id": value(row, tripIdIndex),
+          "arrival_time": value(row, arrivalTimeIndex),
+          "departure_time": value(row, departureTimeIndex),
+          "stop_id": value(row, stopIdIndex),
+          "stop_sequence": int.tryParse(value(row, stopSeqIndex)) ?? 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
@@ -636,7 +819,7 @@ class GtfsDatabase {
               jsonDecode(row["destination_text"] as String),
             ),
             providerCode: row["provider_code"] as String,
-            locale: locale
+            locale: locale,
           ),
         )
         .toList();
@@ -845,7 +1028,7 @@ class GtfsDatabase {
               jsonDecode(row["destination_text"] as String),
             ),
             providerCode: row["provider_code"] as String,
-            locale: locale
+            locale: locale,
           ),
         )
         .toList();
@@ -929,7 +1112,7 @@ class GtfsDatabase {
       lat: row["stop_lat"] as double,
       lng: row["stop_lon"] as double,
       operatorNames: operatorNames,
-      locale: locale
+      locale: locale,
     );
   }
 
@@ -1041,17 +1224,17 @@ class GtfsDatabase {
         );
         if (times.isEmpty) continue;
         final routeNumber =
-        (routeDirection['route_short_name'] as String?)
-            ?.trim()
-            .isNotEmpty ==
-            true
+            (routeDirection['route_short_name'] as String?)
+                    ?.trim()
+                    .isNotEmpty ==
+                true
             ? (routeDirection['route_short_name'] as String).trim()
             : ((routeDirection['route_long_name'] as String?)
-            ?.trim()
-            .isNotEmpty ==
-            true
-            ? (routeDirection['route_long_name'] as String).trim()
-            : routeId);
+                          ?.trim()
+                          .isNotEmpty ==
+                      true
+                  ? (routeDirection['route_long_name'] as String).trim()
+                  : routeId);
         final originRow = await txn.query(
           'gtfs_stops',
           columns: ['stop_name'],
