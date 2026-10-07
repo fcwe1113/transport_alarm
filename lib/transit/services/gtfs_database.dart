@@ -338,8 +338,8 @@ class GtfsDatabase {
     )''');
   }
 
-  String _val(List<dynamic> row, int index) =>
-      row.length > index ? row[index].toString() : "";
+  // String _val(List<dynamic> row, int index) =>
+  //     row.length > index ? row[index].toString() : "";
 
   Future<void> batchInsertRoutes(List<dynamic> header, List<List<dynamic>> rows) async {
     int columnIndex(String name, {bool required = true}) {
@@ -352,6 +352,7 @@ class GtfsDatabase {
 
     final routeIdIndex = columnIndex('route_id');
     final routeNameIndex = columnIndex('route_short_name');
+    final agencyIdIndex = columnIndex("agency_id");
 
     String value(List<dynamic> row, int index) =>
         index >= 0 && row.length > index ? row[index].toString() : '';
@@ -363,6 +364,7 @@ class GtfsDatabase {
         batch.insert("gtfs_routes", {
           "route_id": value(row, routeIdIndex),
           "route_short_name": value(row, routeNameIndex),
+          "agency_id": value(row, agencyIdIndex),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);

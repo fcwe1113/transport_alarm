@@ -37,6 +37,8 @@ class GtfsSyncService {
       'trips.txt',
       'calendar.txt',
       'stop_times.txt',
+      "agency.txt",
+      "calendar_dates.txt"
     ];
     final inputStream = InputFileStream(zipFile.path);
     try {
@@ -196,8 +198,6 @@ class GtfsSyncService {
     await parseWithHeader(
       'agency.txt',
       _db.batchInsertAgencies,
-      filter: (header, row) =>
-          includedRouteIds.contains(_csvField(header, row, 'route_id')),
     );
 
     await parseWithHeader(
@@ -289,33 +289,33 @@ class GtfsSyncService {
     ];
   };
 
-  Future<void> _insertRoutes(File file, Map<String, String> agencyNames) async {
-    await streamParseAndInsertWithHeader(
-      file,
-      _db.batchInsertRoutes,
-      transformRow: _routeRowTransform(agencyNames),
-    );
-  }
+  // Future<void> _insertRoutes(File file, Map<String, String> agencyNames) async {
+  //   await streamParseAndInsertWithHeader(
+  //     file,
+  //     _db.batchInsertRoutes,
+  //     transformRow: _routeRowTransform(agencyNames),
+  //   );
+  // }
 
-  Future<void> _insertFile(String name, File file) async {
-    switch (name) {
-      case 'routes.txt':
-        await streamParseAndInsertWithHeader(file, _db.batchInsertRoutes);
-        break;
-      case 'trips.txt':
-        await streamParseAndInsertWithHeader(file, _db.batchInsertTrips);
-        break;
-      case 'calendar.txt':
-        await streamParseAndInsertWithHeader(file, _db.batchInsertCalendar);
-        break;
-      case 'stops.txt':
-        await streamParseAndInsertWithHeader(file, _db.batchInsertStops);
-        break;
-      case 'stop_times.txt':
-        await streamParseAndInsertWithHeader(file, _db.batchInsertStopTimes);
-        break;
-    }
-  }
+  // Future<void> _insertFile(String name, File file) async {
+  //   switch (name) {
+  //     case 'routes.txt':
+  //       await streamParseAndInsertWithHeader(file, _db.batchInsertRoutes);
+  //       break;
+  //     case 'trips.txt':
+  //       await streamParseAndInsertWithHeader(file, _db.batchInsertTrips);
+  //       break;
+  //     case 'calendar.txt':
+  //       await streamParseAndInsertWithHeader(file, _db.batchInsertCalendar);
+  //       break;
+  //     case 'stops.txt':
+  //       await streamParseAndInsertWithHeader(file, _db.batchInsertStops);
+  //       break;
+  //     case 'stop_times.txt':
+  //       await streamParseAndInsertWithHeader(file, _db.batchInsertStopTimes);
+  //       break;
+  //   }
+  // }
 
   Future<void> _reportParsing(
     ProgressCallback? onProgress,
