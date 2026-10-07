@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/models/scheduled_departure.dart';
-import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/geo_utils.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
@@ -365,7 +364,7 @@ class GtfsDatabase {
       for (var row in rows) {
         batch.insert("gtfs_stops", {
           "stop_id": _val(row, 0),
-          "stop_name": _val(row, 1),
+          "stop_name": _val(row, 1), // todo make dynamic col grabber
           "stop_lat": double.tryParse(_val(row, 2)) ?? 0,
           "stop_lon": double.tryParse(_val(row, 3)) ?? 0,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -947,6 +946,167 @@ class GtfsDatabase {
       [operatorStopId],
     );
     return rows.map((row) => row["route_number"] as String).toList();
+  }
+
+  /// Drops schedule records that became unrelated after area filtering.
+  Future<void> removeUnreferencedGtfsRows() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.execute('''
+        DELETE FROM gtfs_trips
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gtfs_stop_times st WHERE st.trip_id = gtfs_trips.trip_id
+        )
+      ''');
+      await txn.execute('''
+        DELETE FROM gtfs_routes
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gtfs_trips t WHERE t.route_id = gtfs_routes.route_id
+        )
+      ''');
+      await txn.execute('''
+        DELETE FROM gtfs_calendar
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gtfs_trips t WHERE t.service_id = gtfs_calendar.service_id
+        )
+      ''');
+      await txn.execute('''
+        DELETE FROM gtfs_calendar_dates
+        WHERE NOT EXISTS (
+          SELECT 1 FROM gtfs_trips t
+          WHERE t.service_id = gtfs_calendar_dates.service_id
+        )
+      ''');
+    });
+  }
+
+  /// Removes UK feed records that are outside the selected ATCO areas and
+  /// creates the operator-facing records consumed by the app's existing UI.
+  Future<void> materializeGbOperatorData() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final stops = await txn.query('gtfs_stops');
+      var stopBatch = txn.batch();
+      var processedStops = 0;
+      for (final stop in stops) {
+        final stopId = stop['stop_id'] as String;
+        final operatorStopId = 'uk:$stopId';
+        stopBatch.insert('operator_stops', {
+          'operator_stop_id': operatorStopId,
+          'provider_code': 'uk',
+          'names': jsonEncode({'en': stop['stop_name'] ?? stopId}),
+          'lat': stop['stop_lat'],
+          'lng': stop['stop_lon'],
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        stopBatch.insert('stop_mapping', {
+          'operator_stop_id': operatorStopId,
+          'gtfs_stop_id': stopId,
+          'match_confidence': 1.0,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+        processedStops++;
+        if (processedStops % 500 == 0) {
+          await stopBatch.commit(noResult: true);
+          stopBatch = txn.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
+          // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
+        }
+      }
+      await stopBatch.commit(noResult: true);
+
+      final routeDirections = await txn.rawQuery('''
+        SELECT DISTINCT t.route_id, COALESCE(t.direction_id, 0) AS direction_id,
+               r.route_short_name, r.route_long_name, t.trip_headsign
+        FROM gtfs_trips t
+        INNER JOIN gtfs_routes r ON r.route_id = t.route_id
+        INNER JOIN gtfs_stop_times st ON st.trip_id = t.trip_id
+        ORDER BY t.route_id, direction_id
+      ''');
+      for (final routeDirection in routeDirections) {
+        final routeId = routeDirection['route_id'] as String;
+        final directionId = routeDirection['direction_id'] as int? ?? 0;
+        final operatorRouteId = 'uk:$routeId:$directionId';
+        final tripRows = await txn.query(
+          'gtfs_trips',
+          columns: ['trip_id'],
+          where: 'route_id = ? AND COALESCE(direction_id, 0) = ?',
+          whereArgs: [routeId, directionId],
+          limit: 1,
+        );
+        if (tripRows.isEmpty) continue;
+        final times = await txn.query(
+          'gtfs_stop_times',
+          where: 'trip_id = ?',
+          whereArgs: [tripRows.first['trip_id']],
+          orderBy: 'stop_sequence ASC',
+        );
+        if (times.isEmpty) continue;
+        final routeNumber =
+        (routeDirection['route_short_name'] as String?)
+            ?.trim()
+            .isNotEmpty ==
+            true
+            ? (routeDirection['route_short_name'] as String).trim()
+            : ((routeDirection['route_long_name'] as String?)
+            ?.trim()
+            .isNotEmpty ==
+            true
+            ? (routeDirection['route_long_name'] as String).trim()
+            : routeId);
+        final originRow = await txn.query(
+          'gtfs_stops',
+          columns: ['stop_name'],
+          where: 'stop_id = ?',
+          whereArgs: [times.first['stop_id']],
+          limit: 1,
+        );
+        final destinationRow = await txn.query(
+          'gtfs_stops',
+          columns: ['stop_name'],
+          where: 'stop_id = ?',
+          whereArgs: [times.last['stop_id']],
+          limit: 1,
+        );
+        final origin = originRow.isEmpty
+            ? ''
+            : '${originRow.first['stop_name'] ?? ''}';
+        final fallbackDestination = destinationRow.isEmpty
+            ? ''
+            : '${destinationRow.first['stop_name'] ?? ''}';
+        final headsign =
+            (routeDirection['trip_headsign'] as String?)?.trim() ?? '';
+        final destination = headsign.isNotEmpty
+            ? headsign
+            : fallbackDestination;
+        await txn.insert('operator_routes', {
+          'operator_route_id': operatorRouteId,
+          'provider_code': 'uk',
+          'route_number': routeNumber,
+          'bound': '$directionId',
+          'names': jsonEncode({'en': routeNumber}),
+          'origin_text': jsonEncode({'en': origin}),
+          'destination_text': jsonEncode({'en': destination}),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        var routeStopBatch = txn.batch();
+        var sequence = 0;
+        var processedRouteStops = 0;
+        for (final time in times) {
+          final stopId = time['stop_id'] as String;
+          routeStopBatch.insert('route_stops', {
+            'operator_route_id': operatorRouteId,
+            'operator_stop_id': 'uk:$stopId',
+            'stop_sequence': sequence++,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+          processedRouteStops++;
+          if (processedRouteStops % 500 == 0) {
+            await routeStopBatch.commit(noResult: true);
+            routeStopBatch = txn.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
+            // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
+          }
+        }
+        await routeStopBatch.commit(noResult: true);
+      }
+    });
   }
 
   Future<void> clearAllTables() async {

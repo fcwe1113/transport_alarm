@@ -4,7 +4,6 @@ import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 
 import '../../locale_registry.dart';
-import '../../provider_registry.dart';
 import '../models/gtfs_stop.dart';
 import '../models/live_eta.dart';
 

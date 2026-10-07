@@ -1,5 +1,4 @@
 import 'package:transport_alarm/locale_registry.dart';
-import 'package:transport_alarm/provider_registry.dart';
 
 class ScheduledDeparture {
   final String routeShortName;

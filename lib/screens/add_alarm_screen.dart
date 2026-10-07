@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/models/alarm_route_config.dart';
-import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';

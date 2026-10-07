@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:transport_alarm/models/scheduled_departure.dart';
-import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';

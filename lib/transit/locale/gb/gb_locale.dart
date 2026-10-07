@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:transport_alarm/transit/locale/uk/uk_gtfs_sync_provider.dart';
+import 'package:transport_alarm/transit/locale/gb/gb_gtfs_sync_provider.dart';
 
 import '../../../l10n/app_strings.dart';
 import '../../models/locale_config.dart';
@@ -13,7 +13,7 @@ import '../../services/locale_selection_service.dart';
 import '../../transit_provider.dart';
 import '../transit_locale.dart';
 
-class UkLocale extends TransitLocale {
+class GbLocale extends TransitLocale {
   final apiCaller = ApiCaller();
 
   @override
@@ -24,7 +24,7 @@ class UkLocale extends TransitLocale {
   );
 
   @override
-  List<GtfsSyncProvider> gtfsProviders = [UkGtfsSyncProvider()];
+  List<GtfsSyncProvider> gtfsProviders = [GbGtfsSyncProvider()];
 
   @override
   late Widget menuEntry = _AtcoListMenuEntry(config: config);
@@ -59,7 +59,7 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
   }
 
   Future<void> _loadAtco() async {
-    final atcoAreas = jsonDecode(await rootBundle.loadString("lib/transit/locale/uk/atco.json")) as Map<String, dynamic>;
+    final atcoAreas = jsonDecode(await rootBundle.loadString("lib/transit/locale/gb/atco.json")) as Map<String, dynamic>;
     final byRegion = <String, List<({String code, String name})>>{};
     for (final entry in atcoAreas.entries) {
       final area = Map<String, dynamic>.from(entry.value as Map);
@@ -143,7 +143,7 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
           CheckboxListTile(
             value: _selected.contains(area.code),
             title: Text(area.name),
-            subtitle: Text(area.code),
+            // subtitle: Text(area.code),
             onChanged: _saving
                 ? null
                 : (enabled) => _setAtcoCodes({area.code}, enabled == true),

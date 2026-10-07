@@ -26,14 +26,15 @@ class GtfsSyncService {
     File zipFile,
     ProgressCallback? onProgress, {
     bool interpolateMissingArrivalTimes = true,
+    bool Function(List<dynamic> header, List<dynamic> row)? stopFilter,
   }) async {
     onProgress?.call(AppStrings.text('transit.gtfs_updating'), null);
     final requiredFiles = [
+      "stops.txt",
       "routes.txt",
       "trips.txt",
       "calendar.txt",
       "stop_times.txt",
-      "stops.txt",
     ]; // only read required files
     final inputStream = InputFileStream(zipFile.path);
     try {
@@ -98,7 +99,11 @@ class GtfsSyncService {
               );
               break;
             case "stops.txt":
-              await streamParseAndInsert(extractedFile, _db.batchInsertStops);
+              await streamParseAndInsert(
+                extractedFile,
+                _db.batchInsertStops,
+                filter: stopFilter,
+              );
               break;
             case "stop_times.txt":
               await streamParseAndInsert(

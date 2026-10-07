@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:transport_alarm/locale_registry.dart';
 
 import '../../l10n/app_strings.dart';
-import '../../provider_registry.dart';
 import '../../transit/services/locale_selection_service.dart';
 import '../../transit_bootstrap.dart';
 import '../../widgets/app_shell.dart';

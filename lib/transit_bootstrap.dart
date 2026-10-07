@@ -1,4 +1,3 @@
-import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
@@ -13,7 +12,7 @@ Future<List<String>> initializeTransitData({
   final allFailures = <String>[];
   final selectionService = LocaleSelectionService();
   final locales = await selectionService.getEnabledLocales();
-  for (final locale in LocaleRegistry.getLocales(locales.keys.toList())) {
+  for (final locale in LocaleRegistry.getLocales(locales.keys.toList())) { // todo uk locale did not show up here
     for (final gtfsProvider in locale.gtfsProviders) {
       try {
         await gtfsProvider.syncFeed(onProgress: onProgress);

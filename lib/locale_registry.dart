@@ -1,14 +1,11 @@
-import 'package:transport_alarm/transit/locale/hk/hk_gtfs_sync_provider.dart';
 import 'package:transport_alarm/transit/locale/hk/hk_locale.dart';
 import 'package:transport_alarm/transit/locale/transit_locale.dart';
-import 'package:transport_alarm/transit/locale/uk/uk_gtfs_sync_provider.dart';
-import 'package:transport_alarm/transit/locale/uk/uk_locale.dart';
-import 'package:transport_alarm/transit/services/gtfs_sync_service.dart';
+import 'package:transport_alarm/transit/locale/gb/gb_locale.dart';
 
 class LocaleRegistry {
   static final Map<String, TransitLocale> _supportedLocales = {
     "hk": HkLocale(),
-    "uk": UkLocale(),
+    "gb": GbLocale(),
   };
 
   static List<TransitLocale> getLocales(List<String> locales) {

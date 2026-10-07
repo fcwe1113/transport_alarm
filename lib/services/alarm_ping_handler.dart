@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
-import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/alarm_engine.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';

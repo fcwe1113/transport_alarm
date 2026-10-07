@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:transport_alarm/locale_registry.dart';
-import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
