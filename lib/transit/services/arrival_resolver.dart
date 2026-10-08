@@ -8,12 +8,12 @@ import '../models/gtfs_stop.dart';
 import '../models/live_eta.dart';
 
 Future<List<RouteArrival>> resolveArrivals({
-  // todo change eta api to using stop_id and route_id instead of batching the entire stop
   required String gtfsStopId,
   List<String>? routeNumberFilter,
   int? minimumMinutesFromNow,
+  required String locale,
 }) async {
-  final db = GtfsDatabase.forLocale("hk"); // todo fix locale hardcode
+  final db = GtfsDatabase.forLocale(locale);
   final allRoutes = await db.getRoutesForGtfsStop(gtfsStopId);
   final routes = routeNumberFilter == null
       ? allRoutes
@@ -22,7 +22,7 @@ Future<List<RouteArrival>> resolveArrivals({
             .toList();
   final gtfsStop = await db.getGtfsStopById(gtfsStopId);
   final liveEtas = routeNumberFilter == null
-      ? (await _fetchLiveEtaForStop(gtfsStop!))
+      ? (await _fetchLiveEtaForStop(gtfsStop!, locale))
             .where((e) => e.etaTime != null)
             .toList()
       : await _fetchLiveEtaForFilteredRoutes(gtfsStop!, routeNumberFilter);
@@ -79,9 +79,8 @@ Future<List<RouteArrival>> resolveArrivals({
   return arrivals;
 }
 
-Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop) async {
-  final operatorStopIds = await GtfsDatabase.forLocale("hk")
-      .getOperatorStopIds(stop.id); // todo fix hardcode
+Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop, String locale) async {
+  final operatorStopIds = await GtfsDatabase.forLocale(locale).getOperatorStopIds(stop.id);
 
   final idsByProvider = <String, List<String>>{};
   for (final operatorStopId in operatorStopIds) {
@@ -117,7 +116,7 @@ Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
   GtfsStop stop,
   List<String> routeNumbers,
 ) async {
-  final db = GtfsDatabase.forLocale(stop.locale); // todo remove locale hardcode
+  final db = GtfsDatabase.forLocale(stop.locale);
   final operatorStops = await db.getOperatorStopIds(stop.id);
   final results = <LiveEta>[];
 

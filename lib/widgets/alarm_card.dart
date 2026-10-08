@@ -68,6 +68,7 @@ class _AlarmCardState extends State<AlarmCard> {
                 .map((state) => state.minutesBeforeArrival)
                 .reduce((a, b) => a > b ? a : b)
           : null,
+      locale: alarm.localeCode
     );
     _lastArrivals = arrivals;
     if (Platform.isIOS) {

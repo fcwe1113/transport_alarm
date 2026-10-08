@@ -334,6 +334,7 @@ class AndroidAlarmCoordinator {
           minimumMinutesFromNow: minimumArrivalSeconds == null
               ? null
               : minimumArrivalSeconds ~/ 60,
+          locale: alarm.localeCode
         );
         liveDates.addAll(
           arrivals

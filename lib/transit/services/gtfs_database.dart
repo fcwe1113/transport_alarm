@@ -234,7 +234,6 @@ class GtfsDatabase {
     route_id TEXT PRIMARY KEY, 
     route_short_name TEXT NOT NULL,
     agency_id TEXT NOT NULL DEFAULT '',
-    agency_name TEXT NOT NULL DEFAULT ''
     )''');
     await _createAgenciesTable(db);
 

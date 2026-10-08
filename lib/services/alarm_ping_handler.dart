@@ -269,6 +269,7 @@ class AlarmPingHandler {
       gtfsStopId: alarm.gtfsStopId,
       routeNumberFilter: alarm.routeNumbers,
       minimumMinutesFromNow: minimumArrivalMinutes,
+      locale: alarm.localeCode
     );
     final eligible = alarm.liveOnly
         ? arrivals.where((a) => a.isLive)

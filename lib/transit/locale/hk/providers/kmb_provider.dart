@@ -21,8 +21,7 @@ import '../../../transit_provider.dart';
 class KmbProvider extends TransitProvider {
   // implements means to follow the provided interface, not extending bc theres nothing to build upon
   final ApiCaller _apiCaller;
-  static const _stopsEndpointName =
-      "stops"; // static meaning var belongs to class
+  static const _stopsEndpointName = "stops";
   static const _stopsUrl = 'https://data.etabus.gov.hk/v1/transport/kmb/stop';
   static const _routesEndpointName = "routes";
   static const _routesUrl = "https://data.etabus.gov.hk/v1/transport/kmb/route";
@@ -34,9 +33,6 @@ class KmbProvider extends TransitProvider {
 
   @override
   String get providerName => "KMB";
-
-  // @override
-  // String get IconAsset => "assets/icons/kmb.png";
 
   @override
   Color get defaultIconColor => const Color(0xDAFF291C);
