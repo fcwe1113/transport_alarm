@@ -7,7 +7,6 @@ import 'package:transport_alarm/transit/locale/gb/gb_gtfs_sync_provider.dart';
 import '../../../l10n/app_strings.dart';
 import '../../models/locale_config.dart';
 import '../../services/api_caller.dart';
-import '../../services/gtfs_database.dart';
 import '../../services/gtfs_sync_service.dart';
 import '../../services/locale_selection_service.dart';
 import '../../transit_provider.dart';

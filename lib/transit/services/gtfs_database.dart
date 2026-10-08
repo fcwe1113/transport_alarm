@@ -334,7 +334,8 @@ class GtfsDatabase {
   Future<void> _createAgenciesTable(DatabaseExecutor db) async {
     await db.execute('''CREATE TABLE gtfs_agencies (
       agency_id TEXT PRIMARY KEY,
-      agency_name TEXT NOT NULL
+      agency_name TEXT NOT NULL,
+      agency_noc TEXT
     )''');
   }
 
@@ -382,6 +383,7 @@ class GtfsDatabase {
 
     final agencyIdIndex = columnIndex('agency_id');
     final agencyNameIndex = columnIndex('agency_name');
+    final agencyNoc = columnIndex("agency_noc", required: false);
 
     String value(List<dynamic> row, int index) =>
         index >= 0 && row.length > index ? row[index].toString() : '';
@@ -393,6 +395,7 @@ class GtfsDatabase {
         batch.insert('gtfs_agencies', {
           'agency_id': value(row, agencyIdIndex),
           'agency_name': value(row, agencyNameIndex),
+          "agency_noc": value(row, agencyNoc),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
