@@ -18,6 +18,7 @@ class GtfsDatabase {
   static final Map<String, Database?> _databases = {};
   static final Map<String, Future<void>> _replacementBarriers = {};
   static final Map<String, Future<void>> _refreshTails = {};
+  static final Map<String, String> _deferredStagingPaths = {};
   final String locale;
   final String? _explicitDatabasePath;
 
@@ -67,8 +68,9 @@ class GtfsDatabase {
   /// Builds a replacement in a separate SQLite file and installs it only after
   /// the caller has populated and validated the complete snapshot.
   Future<void> refreshAtomically(
-    Future<void> Function(GtfsDatabase stagingDatabase) populate,
-  ) async {
+    Future<void> Function(GtfsDatabase stagingDatabase) populate, {
+    bool deferCommit = false,
+  }) async {
     final previousRefresh = _refreshTails[locale] ?? Future<void>.value();
     final refreshFinished = Completer<void>();
     _refreshTails[locale] = refreshFinished.future;
@@ -77,6 +79,8 @@ class GtfsDatabase {
     Completer<void>? barrier;
     GtfsDatabase? stagingDb;
     File? stagingFile;
+    var preserveStagingFile = false;
+    var populateSucceeded = false;
     try {
       final currentDb = await database;
       final appDir = await AppGroupStorage.directory;
@@ -84,15 +88,28 @@ class GtfsDatabase {
       await dbDir.create(recursive: true);
       final activeFile = File('${dbDir.path}/$locale.db');
       final backupFile = File('${dbDir.path}/$locale.db.backup');
-      stagingFile = File(
-        '${dbDir.path}/$locale.db.staging.${DateTime.now().microsecondsSinceEpoch}',
-      );
+      final deferredPath = _deferredStagingPaths[locale];
+      stagingFile = deferredPath != null && await File(deferredPath).exists()
+          ? File(deferredPath)
+          : File(
+              '${dbDir.path}/$locale.db.staging.${DateTime.now().microsecondsSinceEpoch}',
+            );
+      _deferredStagingPaths[locale] = stagingFile.path;
       stagingDb = GtfsDatabase._atPath(locale, stagingFile.path);
 
-      // Start with a fresh schema. Carry forward operator data so a timetable
-      // refresh cannot temporarily erase the app's independently fetched data.
+      // Create the staging schema for the first archive, or reopen the partial
+      // snapshot left by an earlier archive. Carry operator data forward only
+      // after the complete timetable snapshot has been populated.
       await stagingDb.database;
       await populate(stagingDb);
+      populateSucceeded = true;
+
+      // Keep this partial snapshot available for the next regional archive.
+      // The active database is replaced only when the final region is ready.
+      if (deferCommit) {
+        preserveStagingFile = true;
+        return;
+      }
 
       // Pause new database lookups while the auxiliary data is copied and the
       // active file is swapped. The existing timetable remains readable while
@@ -110,6 +127,7 @@ class GtfsDatabase {
       if (await activeFile.exists()) await activeFile.rename(backupFile.path);
       try {
         await stagingFile.rename(activeFile.path);
+        _deferredStagingPaths.remove(locale);
         final installed = await _initDB(activeFile.path);
         _databases[locale] = installed;
         await _validateSnapshot(installed);
@@ -132,8 +150,12 @@ class GtfsDatabase {
     } finally {
       try {
         if (stagingDb != null) await stagingDb.close();
-        if (stagingFile != null && await stagingFile.exists()) {
-          await stagingFile.delete();
+        if (stagingFile != null &&
+            !(preserveStagingFile && populateSucceeded)) {
+          if (_deferredStagingPaths[locale] == stagingFile.path) {
+            _deferredStagingPaths.remove(locale);
+          }
+          if (await stagingFile.exists()) await stagingFile.delete();
         }
       } finally {
         if (barrier != null) {
@@ -221,9 +243,9 @@ class GtfsDatabase {
           await db.execute(
             "ALTER TABLE gtfs_routes ADD COLUMN agency_id TEXT NOT NULL DEFAULT ''",
           );
-          await db.execute(
-            "ALTER TABLE gtfs_routes ADD COLUMN agency_name TEXT NOT NULL DEFAULT ''",
-          );
+          // await db.execute(
+          //   "ALTER TABLE gtfs_routes ADD COLUMN agency_name TEXT NOT NULL DEFAULT ''",
+          // );
         }
       },
     );
@@ -233,7 +255,7 @@ class GtfsDatabase {
     await db.execute('''CREATE TABLE gtfs_routes (
     route_id TEXT PRIMARY KEY, 
     route_short_name TEXT NOT NULL,
-    agency_id TEXT NOT NULL DEFAULT '',
+    agency_id TEXT NOT NULL DEFAULT ''
     )''');
     await _createAgenciesTable(db);
 
@@ -341,7 +363,10 @@ class GtfsDatabase {
   // String _val(List<dynamic> row, int index) =>
   //     row.length > index ? row[index].toString() : "";
 
-  Future<void> batchInsertRoutes(List<dynamic> header, List<List<dynamic>> rows) async {
+  Future<void> batchInsertRoutes(
+    List<dynamic> header,
+    List<List<dynamic>> rows,
+  ) async {
     int columnIndex(String name, {bool required = true}) {
       final index = header.indexOf(name);
       if (index < 0 && required) {
@@ -371,7 +396,10 @@ class GtfsDatabase {
     });
   }
 
-  Future<void> batchInsertAgencies(List<dynamic> header, List<List<dynamic>> rows) async {
+  Future<void> batchInsertAgencies(
+    List<dynamic> header,
+    List<List<dynamic>> rows,
+  ) async {
     int columnIndex(String name, {bool required = true}) {
       final index = header.indexOf(name);
       if (index < 0 && required) {
@@ -401,7 +429,10 @@ class GtfsDatabase {
     });
   }
 
-  Future<void> batchInsertTrips(List<dynamic> header, List<List<dynamic>> rows) async {
+  Future<void> batchInsertTrips(
+    List<dynamic> header,
+    List<List<dynamic>> rows,
+  ) async {
     int columnIndex(String name, {bool required = true}) {
       final index = header.indexOf(name);
       if (index < 0 && required) {
@@ -433,7 +464,10 @@ class GtfsDatabase {
     });
   }
 
-  Future<void> batchInsertCalendar(List<dynamic> header, List<List<dynamic>> rows) async {
+  Future<void> batchInsertCalendar(
+    List<dynamic> header,
+    List<List<dynamic>> rows,
+  ) async {
     int columnIndex(String name, {bool required = true}) {
       final index = header.indexOf(name);
       if (index < 0 && required) {
@@ -477,11 +511,16 @@ class GtfsDatabase {
     });
   }
 
-  Future<void> batchInsertCalendarDates(List<dynamic> header, List<List<dynamic>> rows) async {
+  Future<void> batchInsertCalendarDates(
+    List<dynamic> header,
+    List<List<dynamic>> rows,
+  ) async {
     int columnIndex(String name, {bool required = true}) {
       final index = header.indexOf(name);
       if (index < 0 && required) {
-        throw FormatException('GTFS calendar_dates.txt is missing the $name column.');
+        throw FormatException(
+          'GTFS calendar_dates.txt is missing the $name column.',
+        );
       }
       return index;
     }
@@ -542,12 +581,16 @@ class GtfsDatabase {
     });
   }
 
-  Future<void> batchInsertStopTimes(List<dynamic> header, List<List<dynamic>> rows) async {
-
+  Future<void> batchInsertStopTimes(
+    List<dynamic> header,
+    List<List<dynamic>> rows,
+  ) async {
     int columnIndex(String name, {bool required = true}) {
       final index = header.indexOf(name);
       if (index < 0 && required) {
-        throw FormatException('GTFS stop_times.txt is missing the $name column.');
+        throw FormatException(
+          'GTFS stop_times.txt is missing the $name column.',
+        );
       }
       return index;
     }
@@ -960,15 +1003,22 @@ class GtfsDatabase {
   }
 
   Future<List<GtfsStop>> getAllGtfsStops({String? languageCode}) async {
-    if (LocaleRegistry.getLocale(locale).gtfsOnly){ // todo may need to adapt for multilang names
-      final rows = await (await database).rawQuery('''SELECT * FROM gtfs_stops''');
-      return rows.map((s) => GtfsStop(
-          id: s["stop_id"].toString(),
-          name: s["stop_name"].toString(),
-          lat: double.parse(s["stop_lat"].toString()),
-          lng: double.parse(s["stop_lon"].toString()),
-          locale: locale)
-      ).toList();
+    if (LocaleRegistry.getLocale(locale).gtfsOnly) {
+      // todo may need to adapt for multilang names
+      final rows = await (await database).rawQuery(
+        '''SELECT * FROM gtfs_stops''',
+      );
+      return rows
+          .map(
+            (s) => GtfsStop(
+              id: s["stop_id"].toString(),
+              name: s["stop_name"].toString(),
+              lat: double.parse(s["stop_lat"].toString()),
+              lng: double.parse(s["stop_lon"].toString()),
+              locale: locale,
+            ),
+          )
+          .toList();
     } else {
       // query to only include stops with mapped routes
       final rows = await (await database).rawQuery('''
@@ -985,7 +1035,7 @@ class GtfsDatabase {
       for (final operatorRow in operatorNameRows) {
         final stopId = operatorRow['gtfs_stop_id'] as String;
         final rawNames =
-        jsonDecode(operatorRow['names'] as String) as Map<String, dynamic>;
+            jsonDecode(operatorRow['names'] as String) as Map<String, dynamic>;
         namesByGtfsStop
             .putIfAbsent(stopId, () => [])
             .add(rawNames.map((key, value) => MapEntry(key, value as String)));
@@ -1014,8 +1064,10 @@ class GtfsDatabase {
 
   Future<List<TransportRoute>> getRoutesForGtfsStop(String gtfsStopId) async {
     // todo check query on circular routes
-    if (LocaleRegistry.getLocale(locale).gtfsOnly){ // todo adapt for multilingual names
-      final rows = await (await database).rawQuery('''
+    if (LocaleRegistry.getLocale(locale).gtfsOnly) {
+      // todo adapt for multilingual names
+      final rows = await (await database).rawQuery(
+        '''
       WITH matching_trips AS (
         SELECT DISTINCT trip_id
         FROM gtfs_stop_times
@@ -1038,20 +1090,34 @@ class GtfsDatabase {
       INNER JOIN trip_ends te ON te.trip_id = gt.trip_id
       LEFT JOIN gtfs_stops first_stop ON first_stop.stop_id = te.first_stop_id
       LEFT JOIN gtfs_stops last_stop ON last_stop.stop_id = te.last_stop_id;
-      ''', [gtfsStopId]);
+      ''',
+        [gtfsStopId],
+      );
 
-      return rows.map((row) => TransportRoute(
-          id: row["route_id"].toString(), // route_id
-          names: {"en": row["route_short_name"].toString()}, // route_short_name
-          routeNumber: row["route_short_name"].toString(), // append agency name before number, same as names
-          bound: row["direction_id"].toString(), // direction_id from gtfs_trips
-          originText: {"en": row["first_stop_name"].toString()}, // resolve from stop_id where seq = 0 from gtfs_stop_times
-          destinationText: {"en": row["last_stop_name"].toString()}, // resolve from stop_id where seq = max
-          providerCode: LocaleRegistry.getLocale(locale).transitProviders[0].providerCode,
-          locale: locale,
-          agency: row["agency_name"].toString()
-      )).toList();
-
+      return rows
+          .map(
+            (row) => TransportRoute(
+              id: row["route_id"].toString(), // route_id
+              names: {
+                "en": row["route_short_name"].toString(),
+              }, // route_short_name
+              routeNumber: row["route_short_name"].toString(), // append agency name before number, same as names
+              bound: row["direction_id"]
+                  .toString(), // direction_id from gtfs_trips
+              originText: {
+                "en": row["first_stop_name"].toString(),
+              }, // resolve from stop_id where seq = 0 from gtfs_stop_times
+              destinationText: {
+                "en": row["last_stop_name"].toString(),
+              }, // resolve from stop_id where seq = max
+              providerCode: LocaleRegistry.getLocale(locale)
+                  .transitProviders[0]
+                  .providerCode,
+              locale: locale,
+              agency: row["agency_name"].toString(),
+            ),
+          )
+          .toList();
     } else {
       final rows = await (await database).rawQuery(
         '''
@@ -1068,17 +1134,26 @@ class GtfsDatabase {
         [gtfsStopId],
       );
 
-      return rows.map((row) => TransportRoute(
-        id: row["operator_route_id"] as String,
-        names: Map<String, String>.from(jsonDecode(row["names"] as String)),
-        routeNumber: row["route_number"] as String,
-        bound: row["bound"] as String,
-        originText: Map<String, String>.from(jsonDecode(row["origin_text"] as String),),
-        destinationText: Map<String, String>.from(jsonDecode(row["destination_text"] as String),),
-        providerCode: row["provider_code"] as String,
-        locale: locale,
-      ),
-      ).toList();
+      return rows
+          .map(
+            (row) => TransportRoute(
+              id: row["operator_route_id"] as String,
+              names: Map<String, String>.from(
+                jsonDecode(row["names"] as String),
+              ),
+              routeNumber: row["route_number"] as String,
+              bound: row["bound"] as String,
+              originText: Map<String, String>.from(
+                jsonDecode(row["origin_text"] as String),
+              ),
+              destinationText: Map<String, String>.from(
+                jsonDecode(row["destination_text"] as String),
+              ),
+              providerCode: row["provider_code"] as String,
+              locale: locale,
+            ),
+          )
+          .toList();
     }
   }
 
@@ -1086,8 +1161,10 @@ class GtfsDatabase {
     String gtfsStopId, {
     String? providerCode,
   }) async {
-    if (LocaleRegistry.getLocale(locale).gtfsOnly){
-      return ["${LocaleRegistry.getLocale(locale).transitProviders[0].providerCode}:$gtfsStopId"];
+    if (LocaleRegistry.getLocale(locale).gtfsOnly) {
+      return [
+        "${LocaleRegistry.getLocale(locale).transitProviders[0].providerCode}:$gtfsStopId",
+      ];
     } else {
       final where = providerCode != null
           ? "sm.gtfs_stop_id = ? AND os.provider_code = ?"

@@ -19,8 +19,7 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
 
   /// The selected region key is appended to this base URL.
   @override
-  final String feedUrl =
-      'https://data.bus-data.dft.gov.uk/api/v1/dataset/';
+  final String feedUrl = 'https://data.bus-data.dft.gov.uk/api/v1/dataset/';
 
   static const String _regionDownloadBaseUrl =
       'https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file';
@@ -38,8 +37,11 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
     return key.trim();
   }
 
-  Future<List<String>?> _selectedRegions() async { // todo may run while null
-    return (await LocaleSelectionService().getEnabledLocales())[locale]?.split(",").toList();
+  Future<List<String>?> _selectedRegions() async {
+    // todo may run while null
+    return (await LocaleSelectionService().getEnabledLocales())[locale]
+        ?.split(",")
+        .toList();
   }
 
   String _preferenceKey(String region, String suffix) =>
@@ -49,7 +51,10 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
   @override
   Future<bool> checkIsStale() async {
     if (!await GtfsDatabase.forLocale(locale).hasUsableGtfsData()) return true;
-    final selectedAreas = (await LocaleSelectionService().getEnabledLocales())[locale]?.split(",").toSet();
+    final selectedAreas =
+        (await LocaleSelectionService().getEnabledLocales())[locale]
+            ?.split(",")
+            .toSet();
     if (selectedAreas!.isEmpty) return true;
     final prefs = await SharedPreferences.getInstance();
     final selectionSignature = (selectedAreas.toList()..sort()).join(',');
@@ -69,7 +74,10 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
   /// Downloads only datasets returned for selected areas and atomically installs them.
   @override
   Future<void> syncFeed({ProgressCallback? onProgress}) async {
-    final selectedAreas = (await LocaleSelectionService().getEnabledLocales())[locale]?.split(",").toSet();
+    final selectedAreas =
+        (await LocaleSelectionService().getEnabledLocales())[locale]
+            ?.split(",")
+            .toSet();
     if (selectedAreas!.isEmpty) {
       throw StateError(
         'Select at least one UK ATCO area before downloading data.',
@@ -78,11 +86,13 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
 
     // get list of enables regions
     // get region zip
-      // filter stops by atco code
-      // import everything else by "if it touches an included stop"
-      // continue of every region
+    // filter stops by atco code
+    // import everything else by "if it touches an included stop"
+    // continue of every region
 
-    final atcoCodes = jsonDecode(await rootBundle.loadString("lib/transit/locale/gb/atco.json")) as Map<String, dynamic>;
+    final atcoCodes = jsonDecode(
+      await rootBundle.loadString("lib/transit/locale/gb/atco.json"),
+    ) as Map<String, dynamic>;
     final requiredRegions = <String>{};
     for (final atcoCode in selectedAreas) {
       final entry = atcoCodes[atcoCode];
@@ -107,10 +117,11 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
     try {
       // Download each region in order. The archive processing belongs inside
       // this loop so it completes before the next region is downloaded.
-      for (final region in requiredRegions) {
-        final regionKey = region
-            .toLowerCase()
-            .replaceAll(RegExp(r'\s+'), '_');
+      final regions = requiredRegions.toList();
+      for (var regionIndex = 0; regionIndex < regions.length; regionIndex++) {
+        final region = regions[regionIndex];
+        final isLastRegion = regionIndex == regions.length - 1;
+        final regionKey = region.toLowerCase().replaceAll(RegExp(r'\s+'), '_');
         final uri = Uri.parse('$_regionDownloadBaseUrl/$regionKey/');
         final zipFile = File('${workDirectory.path}/$regionKey.zip');
         final response = await client
@@ -149,7 +160,8 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
             await syncService.parseAndStoreGtfsArchive(
               zipFile,
               onProgress,
-              interpolateMissingArrivalTimes: LocaleRegistry.getLocale(locale).matchingRequired,
+              interpolateMissingArrivalTimes: LocaleRegistry.getLocale(locale)
+                  .matchingRequired,
               stopFilter: (header, row) {
                 stopIdColumn ??= header.indexOf('stop_id');
                 if (stopIdColumn! < 0) {
@@ -165,7 +177,7 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
                 );
               },
             );
-          });
+          }, deferCommit: !isLastRegion);
         } finally {
           if (await zipFile.exists()) await zipFile.delete();
         }
