@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:transport_alarm/transit/locale/gb/gb_gtfs_sync_provider.dart';
+import 'package:transport_alarm/transit/locale/gb/providers/gb_bods_provider.dart';
 
 import '../../../l10n/app_strings.dart';
 import '../../models/locale_config.dart';
@@ -13,7 +14,7 @@ import '../../transit_provider.dart';
 import '../transit_locale.dart';
 
 class GbLocale extends TransitLocale {
-  final apiCaller = ApiCaller();
+  final _apiCaller = ApiCaller();
 
   @override
   LocaleConfig config = LocaleConfig(
@@ -29,10 +30,13 @@ class GbLocale extends TransitLocale {
   late Widget menuEntry = _AtcoListMenuEntry(config: config);
 
   @override
-  late List<TransitProvider> transitProviders = []; // todo fill
+  late List<TransitProvider> transitProviders = [GbBodsProvider(_apiCaller)];
 
   @override
   bool matchingRequired = false;
+
+  @override
+  bool get gtfsOnly => true;
 }
 
 class _AtcoListMenuEntry extends StatefulWidget {

@@ -52,7 +52,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 
   Widget _buildPickerContent(BuildContext context) {
-    final db = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
+    final db = GtfsDatabase.forLocale(widget.stop.locale);
     return SafeArea(child: Container(
       height: MediaQuery.of(context).size.height * 0.5,
       padding: const EdgeInsets.all(16),
@@ -71,7 +71,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 
   Widget _buildFullContent(BuildContext context) {
-    final db = GtfsDatabase.forLocale("hk"); // todo remove hardcode
+    final db = GtfsDatabase.forLocale(widget.stop.locale);
     return SafeArea(child: Container(
       height: MediaQuery.of(context).size.height * 0.5,
       padding: const EdgeInsets.all(16),
@@ -158,7 +158,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 
   Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop) async {
-    final db = GtfsDatabase.forLocale("hk");
+    final db = GtfsDatabase.forLocale(stop.locale);
 
     final results = await Future.wait([db.getRoutesForGtfsStop(stop.id), _fetchLiveEtaForStop(stop), db.getUpcomingDepartures(stop.id, limit: 50)]);
 

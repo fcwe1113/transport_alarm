@@ -13,6 +13,7 @@ abstract class TransitLocale implements Comparable<TransitLocale> {
   late Widget menuEntry;
   late GtfsDatabase db = GtfsDatabase.forLocale(config.code);
   late bool matchingRequired;
+  late bool gtfsOnly;
 
   @override
   int compareTo(TransitLocale other) {

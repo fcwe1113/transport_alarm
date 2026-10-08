@@ -960,51 +960,101 @@ class GtfsDatabase {
   }
 
   Future<List<GtfsStop>> getAllGtfsStops({String? languageCode}) async {
-    // query to only include stops with mapped routes
-    final rows = await (await database).rawQuery('''
+    if (LocaleRegistry.getLocale(locale).gtfsOnly){ // todo may need to adapt for multilang names
+      final rows = await (await database).rawQuery('''SELECT * FROM gtfs_stops''');
+      return rows.map((s) => GtfsStop(
+          id: s["stop_id"].toString(),
+          name: s["stop_name"].toString(),
+          lat: double.parse(s["stop_lat"].toString()),
+          lng: double.parse(s["stop_lon"].toString()),
+          locale: locale)
+      ).toList();
+    } else {
+      // query to only include stops with mapped routes
+      final rows = await (await database).rawQuery('''
     SELECT DISTINCT s.*
     FROM gtfs_stops s
     INNER JOIN stop_mapping sm on sm.gtfs_stop_id = s.stop_id
     ''');
-    final operatorNameRows = await (await database).rawQuery('''
+      final operatorNameRows = await (await database).rawQuery('''
     SELECT sm.gtfs_stop_id, os.names
     FROM stop_mapping sm
     INNER JOIN operator_stops os ON os.operator_stop_id = sm.operator_stop_id
     ''');
-    final namesByGtfsStop = <String, List<Map<String, String>>>{};
-    for (final operatorRow in operatorNameRows) {
-      final stopId = operatorRow['gtfs_stop_id'] as String;
-      final rawNames =
-          jsonDecode(operatorRow['names'] as String) as Map<String, dynamic>;
-      namesByGtfsStop
-          .putIfAbsent(stopId, () => [])
-          .add(rawNames.map((key, value) => MapEntry(key, value as String)));
+      final namesByGtfsStop = <String, List<Map<String, String>>>{};
+      for (final operatorRow in operatorNameRows) {
+        final stopId = operatorRow['gtfs_stop_id'] as String;
+        final rawNames =
+        jsonDecode(operatorRow['names'] as String) as Map<String, dynamic>;
+        namesByGtfsStop
+            .putIfAbsent(stopId, () => [])
+            .add(rawNames.map((key, value) => MapEntry(key, value as String)));
+      }
+      final selectedLanguage = languageCode ?? AppStrings.languageCode;
+      return rows.map((row) {
+        final stopId = row['stop_id'] as String;
+        final fallbackName = GtfsStop.cleanStopName(row['stop_name'] as String);
+        final operatorNames =
+            namesByGtfsStop[stopId] ?? const <Map<String, String>>[];
+        return GtfsStop(
+          id: stopId,
+          name: GtfsStop.localizedNameFromOperators(
+            operatorNames,
+            selectedLanguage,
+            fallbackName: fallbackName,
+          ),
+          lat: row['stop_lat'] as double,
+          lng: row['stop_lon'] as double,
+          operatorNames: operatorNames,
+          locale: locale,
+        );
+      }).toList();
     }
-    final selectedLanguage = languageCode ?? AppStrings.languageCode;
-    return rows.map((row) {
-      final stopId = row['stop_id'] as String;
-      final fallbackName = GtfsStop.cleanStopName(row['stop_name'] as String);
-      final operatorNames =
-          namesByGtfsStop[stopId] ?? const <Map<String, String>>[];
-      return GtfsStop(
-        id: stopId,
-        name: GtfsStop.localizedNameFromOperators(
-          operatorNames,
-          selectedLanguage,
-          fallbackName: fallbackName,
-        ),
-        lat: row['stop_lat'] as double,
-        lng: row['stop_lon'] as double,
-        operatorNames: operatorNames,
-        locale: locale,
-      );
-    }).toList();
   }
 
   Future<List<TransportRoute>> getRoutesForGtfsStop(String gtfsStopId) async {
     // todo check query on circular routes
-    final rows = await (await database).rawQuery(
-      '''
+    if (LocaleRegistry.getLocale(locale).gtfsOnly){ // todo adapt for multilingual names
+      final rows = await (await database).rawQuery('''
+      WITH matching_trips AS (
+        SELECT DISTINCT trip_id
+        FROM gtfs_stop_times
+        WHERE stop_id = ?
+      ), trip_ends AS (
+        SELECT st.trip_id, MAX(CASE WHEN st.stop_sequence = 0 THEN st.stop_id END) AS first_stop_id,
+        MAX(CASE WHEN st.stop_sequence = (
+          SELECT MAX(st2.stop_sequence)
+          FROM gtfs_stop_times st2
+          WHERE st2.trip_id = st.trip_id
+        ) THEN st.stop_id END) AS last_stop_id
+        FROM gtfs_stop_times st
+        INNER JOIN matching_trips mt ON mt.trip_id = st.trip_id
+        GROUP BY st.trip_id
+      )
+      SELECT gr.route_id, gr.route_short_name, ga.agency_name, gt.direction_id, first_stop.stop_name AS first_stop_name, last_stop.stop_name AS last_stop_name
+      FROM gtfs_routes gr
+      INNER JOIN gtfs_trips gt ON gt.route_id = gr.route_id
+      INNER JOIN gtfs_agencies ga ON ga.agency_id = gr.agency_id
+      INNER JOIN trip_ends te ON te.trip_id = gt.trip_id
+      LEFT JOIN gtfs_stops first_stop ON first_stop.stop_id = te.first_stop_id
+      LEFT JOIN gtfs_stops last_stop ON last_stop.stop_id = te.last_stop_id;
+      ''', [gtfsStopId]);
+
+      return rows.map((row) => TransportRoute(
+          id: row["route_id"].toString(), // route_id
+          names: {"en": row["route_short_name"].toString()}, // route_short_name
+          routeNumber: row["route_short_name"].toString(), // append agency name before number, same as names
+          bound: row["direction_id"].toString(), // direction_id from gtfs_trips
+          originText: {"en": row["first_stop_name"].toString()}, // resolve from stop_id where seq = 0 from gtfs_stop_times
+          destinationText: {"en": row["last_stop_name"].toString()}, // resolve from stop_id where seq = max
+          providerCode: LocaleRegistry.getLocale(locale).transitProviders[0].providerCode,
+          locale: locale,
+          agency: row["agency_name"].toString()
+      )).toList();
+
+    } else {
+      final rows = await (await database).rawQuery(
+        '''
     SELECT DISTINCT r.*
     FROM operator_routes r
     INNER JOIN route_stops rs ON rs.operator_route_id = r.operator_route_id
@@ -1015,48 +1065,46 @@ class GtfsDatabase {
       WHERE rs2.operator_route_id = rs.operator_route_id
     )
     ''',
-      [gtfsStopId],
-    );
+        [gtfsStopId],
+      );
 
-    return rows
-        .map(
-          (row) => TransportRoute(
-            id: row["operator_route_id"] as String,
-            names: Map<String, String>.from(jsonDecode(row["names"] as String)),
-            routeNumber: row["route_number"] as String,
-            bound: row["bound"] as String,
-            originText: Map<String, String>.from(
-              jsonDecode(row["origin_text"] as String),
-            ),
-            destinationText: Map<String, String>.from(
-              jsonDecode(row["destination_text"] as String),
-            ),
-            providerCode: row["provider_code"] as String,
-            locale: locale,
-          ),
-        )
-        .toList();
+      return rows.map((row) => TransportRoute(
+        id: row["operator_route_id"] as String,
+        names: Map<String, String>.from(jsonDecode(row["names"] as String)),
+        routeNumber: row["route_number"] as String,
+        bound: row["bound"] as String,
+        originText: Map<String, String>.from(jsonDecode(row["origin_text"] as String),),
+        destinationText: Map<String, String>.from(jsonDecode(row["destination_text"] as String),),
+        providerCode: row["provider_code"] as String,
+        locale: locale,
+      ),
+      ).toList();
+    }
   }
 
   Future<List<String>> getOperatorStopIds(
     String gtfsStopId, {
     String? providerCode,
   }) async {
-    final where = providerCode != null
-        ? "sm.gtfs_stop_id = ? AND os.provider_code = ?"
-        : "sm.gtfs_stop_id = ?";
-    final whereArgs = providerCode != null
-        ? [gtfsStopId, providerCode]
-        : [gtfsStopId];
+    if (LocaleRegistry.getLocale(locale).gtfsOnly){
+      return ["${LocaleRegistry.getLocale(locale).transitProviders[0].providerCode}:$gtfsStopId"];
+    } else {
+      final where = providerCode != null
+          ? "sm.gtfs_stop_id = ? AND os.provider_code = ?"
+          : "sm.gtfs_stop_id = ?";
+      final whereArgs = providerCode != null
+          ? [gtfsStopId, providerCode]
+          : [gtfsStopId];
 
-    final rows = await (await database).rawQuery('''
+      final rows = await (await database).rawQuery('''
     SELECT sm.operator_stop_id
     FROM stop_mapping sm
     INNER JOIN operator_stops os ON os.operator_stop_id = sm.operator_stop_id
     WHERE $where
     ''', whereArgs);
 
-    return rows.map((r) => r["operator_stop_id"] as String).toList();
+      return rows.map((r) => r["operator_stop_id"] as String).toList();
+    }
   }
 
   /// Resolves a selected route's operator stop once while creating the alarm.

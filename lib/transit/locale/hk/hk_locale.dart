@@ -33,6 +33,9 @@ class HkLocale extends TransitLocale {
 
   @override
   bool matchingRequired = true;
+
+  @override
+  bool get gtfsOnly => false;
 }
 
 class _LocaleCheckboxMenuEntry extends StatefulWidget {
