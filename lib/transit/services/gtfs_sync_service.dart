@@ -1,12 +1,13 @@
 import 'dart:io';
 
-import 'package:archive/archive_io.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/csv_stream_parser.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
+import 'package:flutter_archive/flutter_archive.dart' as FlutterArchive;
 
 abstract class GtfsSyncProvider {
   String get locale;
@@ -38,20 +39,43 @@ class GtfsSyncService {
       'calendar.txt',
       'stop_times.txt',
       "agency.txt",
-      "calendar_dates.txt"
+      "calendar_dates.txt",
     ];
-    final inputStream = InputFileStream(zipFile.path);
+    final appDir = await AppGroupStorage.directory;
+    final extractionDir = await Directory(appDir.path)
+        .createTemp('gtfs_${locale}_');
     try {
-      final archive = ZipDecoder().decodeStream(inputStream);
-      final relevantFiles = archive.files.where((file) {
-        final name = p.basename(file.name);
-        return requiredFiles.contains(name) ||
-            name == 'agency.txt' ||
-            (stopFilter != null && name == 'calendar_dates.txt');
-      }).toList();
-      final foundFiles = relevantFiles
-          .map((file) => p.basename(file.name))
-          .toSet();
+      await FlutterArchive.ZipFile.extractToDirectory(
+        zipFile: zipFile,
+        destinationDir: extractionDir,
+        onExtracting: (zipEntry, progress) {
+          onProgress?.call(
+            AppStrings.text('transit.gtfs_extracting', {
+              'file': p.basename(zipEntry.name),
+              'done': 0,
+              'total': 0,
+            }),
+            progress / 100,
+          );
+          return FlutterArchive.ZipFileOperation.includeItem;
+        },
+      );
+
+      // Build the importer map from the files already extracted to disk.
+      // Avoid decoding/extracting the same ZIP entries a second time.
+      final extractedFiles = <String, File>{};
+      await for (final entity in extractionDir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (entity is! File) continue;
+        final fileName = p.basename(entity.path);
+        if (requiredFiles.contains(fileName)) {
+          extractedFiles.putIfAbsent(fileName, () => entity);
+        }
+      }
+
+      final foundFiles = extractedFiles.keys.toSet();
       final missingFiles = requiredFiles.where(
         (name) => !foundFiles.contains(name),
       );
@@ -61,93 +85,95 @@ class GtfsSyncService {
         );
       }
 
-      final appDir = await AppGroupStorage.directory;
-      final extractionDir = await Directory(appDir.path)
-          .createTemp('gtfs_${locale}_');
-      try {
-        final extractedFiles = <String, File>{};
-        var processedCount = 0;
-        for (final archiveFile in relevantFiles) {
-          final fileName = p.basename(archiveFile.name);
-          final progress = processedCount / relevantFiles.length;
-          onProgress?.call(
-            AppStrings.text('transit.gtfs_extracting', {
-              'file': fileName,
-              'done': processedCount,
-              'total': relevantFiles.length,
-            }),
-            progress,
-          );
+      await _importFiles(
+        extractedFiles,
+        stopFilter,
+        onProgress,
+        extractedFiles.length,
+      );
 
-          final extractedPath = p.join(extractionDir.path, fileName);
-          final output = OutputFileStream(extractedPath);
-          archiveFile.writeContent(output);
-          await output.close();
-          extractedFiles[fileName] = File(extractedPath);
-          processedCount++;
-        }
-
-        await _importFiles(
-          extractedFiles,
-          stopFilter,
-          onProgress,
-          processedCount,
-        );
-
-        if (interpolateMissingArrivalTimes) {
-          onProgress?.call(AppStrings.text('transit.gtfs_interpolating'), null);
-          await _db.interpolateMissingArrivalTimes();
-        }
-      } finally {
-        await extractionDir.delete(recursive: true);
+      if (interpolateMissingArrivalTimes) {
+        onProgress?.call(AppStrings.text('transit.gtfs_interpolating'), null);
+        await _db.interpolateMissingArrivalTimes();
       }
     } finally {
-      inputStream.close();
+      if (await extractionDir.exists()) {
+        await extractionDir.delete(recursive: true);
+      }
     }
   }
 
-  /// Imports filtered files in dependency order, collecting IDs as each
-  /// relationship is resolved so unrelated GTFS rows are never inserted.
+  /// Imports filtered files in dependency order, tracking relationship IDs in
+  /// disk-backed indexes so unrelated GTFS rows are never inserted.
   Future<void> _importFiles(
     Map<String, File> files,
     bool Function(List<dynamic> header, List<dynamic> row)? stopFilter,
     ProgressCallback? onProgress,
     int totalFiles,
   ) async {
-    final allowAllStops = stopFilter ?? (header, row) => true;
-    final includedStopIds = <String>{};
-    final includedTripIds = <String>{};
-    final includedRouteIds = <String>{};
-    final includedServiceIds = <String>{};
-    var parsedCount = 0;
+    final indexes = <_TemporaryIndex>[];
+    try {
+      final includedStopIds = await _TemporaryIndex.create('stop_id');
+      indexes.add(includedStopIds);
+      final includedTripIds = await _TemporaryIndex.create('trip_id');
+      indexes.add(includedTripIds);
+      final includedRouteIds = await _TemporaryIndex.create('route_id');
+      indexes.add(includedRouteIds);
+      final includedServiceIds = await _TemporaryIndex.create('service_id');
+      indexes.add(includedServiceIds);
+      await _importFilesWithTempIdIndex(
+        files,
+        stopFilter,
+        onProgress,
+        totalFiles,
+        includedStopIds,
+        includedTripIds,
+        includedRouteIds,
+        includedServiceIds,
+      );
+    } catch (e) {
+      print("import files with temp id index error: ${e.toString()}");
+      rethrow;
+    } finally {
+      for (final index in indexes.reversed) {
+        await index.dispose();
+      }
+    }
+  }
 
-    // Future<void> parse(
-    //   String fileName,
-    //   Future<void> Function(List<List<dynamic>>) insertBatch, {
-    //   bool Function(List<dynamic>, List<dynamic>)? filter,
-    //   List<dynamic> Function(List<dynamic>, List<dynamic>)? transformRow,
-    // }) async {
-    //   final file = files[fileName];
-    //   if (file == null) return;
-    //   await _reportParsing(onProgress, fileName, totalFiles, parsedCount);
-    //   await streamParseAndInsert(
-    //     file,
-    //     insertBatch,
-    //     filter: filter,
-    //     transformRow: transformRow,
-    //   );
-    //   parsedCount++;
-    // }
+  Future<void> _importFilesWithTempIdIndex(
+    Map<String, File> files,
+    bool Function(List<dynamic> header, List<dynamic> row)? stopFilter,
+    ProgressCallback? onProgress,
+    int totalFiles,
+    _TemporaryIndex includedStopIds,
+    _TemporaryIndex includedTripIds,
+    _TemporaryIndex includedRouteIds,
+    _TemporaryIndex includedServiceIds,
+  ) async {
+    final allowAllStops = stopFilter ?? (header, row) => true;
+    var parsedCount = 0;
 
     Future<void> parseWithHeader(
       String fileName,
       Future<void> Function(List<dynamic>, List<List<dynamic>>) insertBatch, {
       bool Function(List<dynamic>, List<dynamic>)? filter,
+      Future<List<List<dynamic>>> Function(List<dynamic>, List<List<dynamic>>)?
+      filterBatch,
+      Future<void> Function(List<dynamic>, List<List<dynamic>>)? afterBatch,
     }) async {
       final file = files[fileName];
       if (file == null) return;
       await _reportParsing(onProgress, fileName, totalFiles, parsedCount);
-      await streamParseAndInsertWithHeader(file, insertBatch, filter: filter);
+      await streamParseAndInsertWithHeader(
+        file,
+        (header, rows) async {
+          await insertBatch(header, rows);
+          await afterBatch?.call(header, rows);
+        },
+        filter: filter,
+        filterBatch: filterBatch,
+      );
       parsedCount++;
     }
 
@@ -159,66 +185,112 @@ class GtfsSyncService {
       filter: (header, row) {
         final stopId = _csvField(header, row, 'stop_id');
         if (stopId.isEmpty || !allowAllStops(header, row)) return false;
-        includedStopIds.add(stopId);
         return true;
       },
+      afterBatch: includedStopIds.insertRows,
     );
 
     // Stop times establish which trips serve at least one included stop.
     await parseWithHeader(
       'stop_times.txt',
       _db.batchInsertStopTimes,
-      filter: (header, row) {
-        final stopId = _csvField(header, row, 'stop_id');
-        if (!includedStopIds.contains(stopId)) return false;
-        final tripId = _csvField(header, row, 'trip_id');
-        if (tripId.isEmpty) return false;
-        includedTripIds.add(tripId);
-        return true;
+      filterBatch: (header, rows) async {
+        final stopIds = rows
+            .map((row) => _csvField(header, row, 'stop_id'))
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        final selectedStopIds = await includedStopIds.findExisting(stopIds);
+        return rows.where((row) {
+          final tripId = _csvField(header, row, 'trip_id');
+          final stopId = _csvField(header, row, 'stop_id');
+          return tripId.isNotEmpty && selectedStopIds.contains(stopId);
+        }).toList();
       },
+      afterBatch: includedTripIds.insertRows,
     );
 
     // Retain only trips found in the selected stops' stop times, collecting
-    // the route and service IDs needed by the remaining tables.
+    // the route and service IDs needed by the remaining tables. Membership is
+    // checked in the disk-backed trip ID index instead of a growing Dart set.
     await parseWithHeader(
       'trips.txt',
       _db.batchInsertTrips,
-      filter: (header, row) {
-        final tripId = _csvField(header, row, 'trip_id');
-        if (!includedTripIds.contains(tripId)) return false;
-        final routeId = _csvField(header, row, 'route_id');
-        final serviceId = _csvField(header, row, 'service_id');
-        if (routeId.isEmpty || serviceId.isEmpty) return false;
-        includedRouteIds.add(routeId);
-        includedServiceIds.add(serviceId);
-        return true;
+      filterBatch: (header, rows) async {
+        final candidateIds = rows
+            .map((row) => _csvField(header, row, 'trip_id'))
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        final includedIds = await includedTripIds.findExisting(candidateIds);
+        final selectedRows = <List<dynamic>>[];
+        for (final row in rows) {
+          final tripId = _csvField(header, row, 'trip_id');
+          if (!includedIds.contains(tripId)) continue;
+          final routeId = _csvField(header, row, 'route_id');
+          final serviceId = _csvField(header, row, 'service_id');
+          if (routeId.isEmpty || serviceId.isEmpty) continue;
+          selectedRows.add(row);
+        }
+        return selectedRows;
+      },
+      afterBatch: (header, rows) async {
+        await includedRouteIds.insertRows(header, rows);
+        await includedServiceIds.insertRows(header, rows);
       },
     );
 
-    await parseWithHeader(
-      'agency.txt',
-      _db.batchInsertAgencies,
-    );
+    await parseWithHeader('agency.txt', _db.batchInsertAgencies);
 
     await parseWithHeader(
       'routes.txt',
       _db.batchInsertRoutes,
-      filter: (header, row) =>
-          includedRouteIds.contains(_csvField(header, row, 'route_id')),
+      filterBatch: (header, rows) async {
+        final ids = rows
+            .map((row) => _csvField(header, row, 'route_id'))
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        final includedIds = await includedRouteIds.findExisting(ids);
+        return rows
+            .where(
+              (row) => includedIds.contains(_csvField(header, row, 'route_id')),
+            )
+            .toList();
+      },
     );
 
     await parseWithHeader(
       'calendar.txt',
       _db.batchInsertCalendar,
-      filter: (header, row) =>
-          includedServiceIds.contains(_csvField(header, row, 'service_id')),
+      filterBatch: (header, rows) async {
+        final ids = rows
+            .map((row) => _csvField(header, row, 'service_id'))
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        final includedIds = await includedServiceIds.findExisting(ids);
+        return rows
+            .where(
+              (row) =>
+                  includedIds.contains(_csvField(header, row, 'service_id')),
+            )
+            .toList();
+      },
     );
 
     await parseWithHeader(
       'calendar_dates.txt',
       _db.batchInsertCalendarDates,
-      filter: (header, row) =>
-          includedServiceIds.contains(_csvField(header, row, 'service_id')),
+      filterBatch: (header, rows) async {
+        final ids = rows
+            .map((row) => _csvField(header, row, 'service_id'))
+            .where((id) => id.isNotEmpty)
+            .toSet();
+        final includedIds = await includedServiceIds.findExisting(ids);
+        return rows
+            .where(
+              (row) =>
+                  includedIds.contains(_csvField(header, row, 'service_id')),
+            )
+            .toList();
+      },
     );
   }
 
@@ -289,34 +361,6 @@ class GtfsSyncService {
     ];
   };
 
-  // Future<void> _insertRoutes(File file, Map<String, String> agencyNames) async {
-  //   await streamParseAndInsertWithHeader(
-  //     file,
-  //     _db.batchInsertRoutes,
-  //     transformRow: _routeRowTransform(agencyNames),
-  //   );
-  // }
-
-  // Future<void> _insertFile(String name, File file) async {
-  //   switch (name) {
-  //     case 'routes.txt':
-  //       await streamParseAndInsertWithHeader(file, _db.batchInsertRoutes);
-  //       break;
-  //     case 'trips.txt':
-  //       await streamParseAndInsertWithHeader(file, _db.batchInsertTrips);
-  //       break;
-  //     case 'calendar.txt':
-  //       await streamParseAndInsertWithHeader(file, _db.batchInsertCalendar);
-  //       break;
-  //     case 'stops.txt':
-  //       await streamParseAndInsertWithHeader(file, _db.batchInsertStops);
-  //       break;
-  //     case 'stop_times.txt':
-  //       await streamParseAndInsertWithHeader(file, _db.batchInsertStopTimes);
-  //       break;
-  //   }
-  // }
-
   Future<void> _reportParsing(
     ProgressCallback? onProgress,
     String fileName,
@@ -331,5 +375,91 @@ class GtfsSyncService {
       }),
       totalFiles == 0 ? null : done / totalFiles,
     );
+  }
+}
+
+/// Stores one GTFS identifier set in a temporary SQLite file, avoiding large
+/// in-memory Dart sets while filtering dependent GTFS files.
+class _TemporaryIndex {
+  final Directory _directory;
+  final Database _database;
+  final String fieldName;
+
+  _TemporaryIndex._(this._directory, this._database, this.fieldName);
+
+  static Future<_TemporaryIndex> create(String name) async {
+    final directory = await Directory.systemTemp.createTemp('gtfs_id_index_');
+    try {
+      final database = await openDatabase(
+        p.join(directory.path, '$name.db'),
+        version: 1,
+        onCreate: (db, version) async {
+          await db.execute('CREATE TABLE included_ids (id TEXT PRIMARY KEY)');
+        },
+      );
+      return _TemporaryIndex._(directory, database, name);
+    } catch (_) {
+      await directory.delete(recursive: true);
+      rethrow;
+    }
+  }
+
+  /// Adds one batch of IDs from the corresponding already-filtered GTFS file.
+  Future<void> insertRows(
+    List<dynamic> header,
+    List<List<dynamic>> rows,
+  ) async {
+    final idColumn = header.indexOf(fieldName);
+    if (idColumn < 0) {
+      throw FormatException('Input file is missing $fieldName.');
+    }
+    final uniqueIds = <String>{};
+    for (final row in rows) {
+      if (row.length <= idColumn) continue;
+      final id = row[idColumn].toString().trim();
+      if (id.isEmpty) continue;
+      uniqueIds.add(id);
+    }
+
+    var batch = _database.batch();
+    var processedCount = 0;
+    for (final id in uniqueIds) {
+      batch.insert('included_ids', {
+        'id': id,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      processedCount++;
+      if (processedCount % 500 == 0) {
+        await batch.commit(noResult: true);
+        batch = _database.batch();
+      }
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Looks up candidate IDs in small chunks to stay below SQLite bind limits.
+  Future<Set<String>> findExisting(Iterable<String> candidateIds) async {
+    final ids = candidateIds.toSet().toList(growable: false);
+    final matches = <String>{};
+    const queryChunkSize = 500;
+    for (var offset = 0; offset < ids.length; offset += queryChunkSize) {
+      final end = (offset + queryChunkSize).clamp(0, ids.length);
+      final chunk = ids.sublist(offset, end);
+      final placeholders = List.filled(chunk.length, '?').join(',');
+      final rows = await _database.rawQuery(
+        'SELECT id FROM included_ids WHERE id IN ($placeholders)',
+        chunk,
+      );
+      matches.addAll(rows.map((row) => row['id'] as String));
+    }
+    return matches;
+  }
+
+  /// Closes and removes the temporary index after this archive is imported.
+  Future<void> dispose() async {
+    await _database.close();
+    if (await _directory.exists()) {
+      await _directory.delete(recursive: true);
+    }
   }
 }

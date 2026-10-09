@@ -37,13 +37,6 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
     return key.trim();
   }
 
-  Future<List<String>?> _selectedRegions() async {
-    // todo may run while null
-    return (await LocaleSelectionService().getEnabledLocales())[locale]
-        ?.split(",")
-        .toList();
-  }
-
   String _preferenceKey(String region, String suffix) =>
       'gtfs_${locale}_${region}_$suffix';
 
@@ -73,7 +66,7 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
 
   /// Downloads only datasets returned for selected areas and atomically installs them.
   @override
-  Future<void> syncFeed({ProgressCallback? onProgress}) async {
+  Future<void> syncFeed({ProgressCallback? onProgress}) async { // todo adapt temp db for data import to prevent oom crash
     final selectedAreas =
         (await LocaleSelectionService().getEnabledLocales())[locale]
             ?.split(",")
