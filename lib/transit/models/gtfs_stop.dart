@@ -1,9 +1,12 @@
+import 'package:transport_alarm/locale_registry.dart';
+
 class GtfsStop {
   final String id;
   final String name;
   final double lat;
   final double lng;
   final List<Map<String, String>> operatorNames;
+  final String locale;
 
   const GtfsStop({
     required this.id,
@@ -11,13 +14,20 @@ class GtfsStop {
     required this.lat,
     required this.lng,
     this.operatorNames = const [],
+    required this.locale,
   });
 
-  String displayNameFor(String languageCode) => localizedNameFromOperators(
-    operatorNames,
-    languageCode,
-    fallbackName: name,
-  );
+  String displayNameFor(String languageCode) {
+    if (LocaleRegistry.getLocale(locale).gtfsOnly) {
+      return name; // todo check functionality
+    } else {
+      return localizedNameFromOperators(
+        operatorNames,
+        languageCode,
+        fallbackName: name,
+      );
+    }
+  }
 
   static String localizedNameFromOperators(
     Iterable<Map<String, String>> names,

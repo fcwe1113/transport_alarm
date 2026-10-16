@@ -334,6 +334,7 @@ class AndroidAlarmCoordinator {
           minimumMinutesFromNow: minimumArrivalSeconds == null
               ? null
               : minimumArrivalSeconds ~/ 60,
+          locale: alarm.localeCode
         );
         liveDates.addAll(
           arrivals
@@ -389,7 +390,7 @@ class AndroidAlarmCoordinator {
       final departures = await GtfsDatabase.forLocale(alarm.localeCode)
           .getUpcomingDepartures(alarm.gtfsStopId, limit: 100);
       final matching = departures.where((departure) {
-        return alarm.routeNumbers.contains(departure.routeShortName) &&
+        return alarm.routeNumbers.keys.contains(departure.routeShortName) &&
             (minimumArrivalSeconds == null ||
                 departure.minutesFromNow * 60 >= minimumArrivalSeconds);
       }).toList()..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
@@ -696,7 +697,7 @@ class AndroidAlarmCoordinator {
 
   String _ringBody(TransportAlarm alarm, String? stopName) {
     if (alarm.message.isNotEmpty) return alarm.message;
-    final routes = alarm.routeNumbers.join(', ');
+    final routes = alarm.routeNumbers.keys.join(', ');
     if (stopName == null) {
       return AppStrings.text('notification.routes_approaching', {'routes': routes});
     }

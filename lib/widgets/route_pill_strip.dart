@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:transport_alarm/provider_registry.dart';
+import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
@@ -9,9 +9,10 @@ import 'package:transport_alarm/l10n/app_strings.dart';
 
 class RoutePillStrip extends StatefulWidget{
   final String gtfsStopId;
-  final List<String>? routeNumberFilter;
+  final Map<String, Map<String, String>>? routeNumberFilter;
+  final String locale;
 
-  const RoutePillStrip ({super.key, required this.gtfsStopId, this.routeNumberFilter});
+  const RoutePillStrip ({super.key, required this.gtfsStopId, this.routeNumberFilter, required this.locale});
 
   @override
   State<RoutePillStrip> createState() => _RoutePillStripState();
@@ -42,9 +43,9 @@ class _RoutePillStripState extends State<RoutePillStrip> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder(future: GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(widget.gtfsStopId), builder: (context, snapshot) {
+    return FutureBuilder(future: GtfsDatabase.forLocale(widget.locale).getRoutesForGtfsStop(widget.gtfsStopId), builder: (context, snapshot) {
       final allRoutes = snapshot.data ?? [];
-      final filtered = widget.routeNumberFilter == null ?  allRoutes : allRoutes.where((r) => widget.routeNumberFilter!.contains(r.routeNumber)).toList();
+      final filtered = widget.routeNumberFilter == null ?  allRoutes : allRoutes.where((r) => widget.routeNumberFilter!.keys.contains(r.routeNumber)).toList();
       final routes = TransportRoute.dedupeByRouteNumber(filtered);
 
       if (routes.isEmpty) return const SizedBox.shrink();
@@ -69,7 +70,7 @@ class RoutePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = availableProviders.firstWhere((p) => p.providerCode == route.providerCode);
+    final provider = LocaleRegistry.getLocale(route.locale).transitProviders.firstWhere((p) => p.providerCode == route.providerCode);
     final colours = provider.coloursForRoute(route);
     return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8),

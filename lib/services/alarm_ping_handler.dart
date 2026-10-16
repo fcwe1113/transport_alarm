@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
-import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/services/alarm_engine.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
@@ -256,7 +255,7 @@ class AlarmPingHandler {
           scheduled
               .where(
                 (departure) =>
-                    alarm.routeNumbers.contains(departure.routeShortName) &&
+                    alarm.routeNumbers.keys.contains(departure.routeShortName) &&
                     (minimumArrivalMinutes == null ||
                         departure.minutesFromNow >= minimumArrivalMinutes),
               )
@@ -270,6 +269,7 @@ class AlarmPingHandler {
       gtfsStopId: alarm.gtfsStopId,
       routeNumberFilter: alarm.routeNumbers,
       minimumMinutesFromNow: minimumArrivalMinutes,
+      locale: alarm.localeCode
     );
     final eligible = alarm.liveOnly
         ? arrivals.where((a) => a.isLive)

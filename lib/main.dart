@@ -12,15 +12,18 @@ import 'package:transport_alarm/l10n/app_language_state.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
+import 'package:transport_alarm/transit/locale/gb/providers/gb_bods_provider.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-Future<void> main() async { // dart entry point
+Future<void> main() async {
+  // dart entry point
 
   WidgetsFlutterBinding.ensureInitialized();
+  await GbBodsProvider.loadApiKey();
   await AppGroupStorage.migrateLegacyDocuments();
   final selectionService = LocaleSelectionService();
   final appLanguageCode = await selectionService.getAppLanguageCode();
@@ -28,9 +31,9 @@ Future<void> main() async { // dart entry point
   appLanguageCodeNotifier.value = appLanguageCode;
   if (defaultTargetPlatform == TargetPlatform.iOS) {
     await AppGroupStorage.setAppLanguageCode(appLanguageCode);
-  }
-  if (defaultTargetPlatform == TargetPlatform.iOS) {
-    final String jsonString = await rootBundle.loadString("config/secrets.json");
+    final String jsonString = await rootBundle.loadString(
+      "config/secrets.json",
+    );
     final Map<String, dynamic> secrets = jsonDecode(jsonString);
     final String apiKey = secrets["MAPS_API_KEY"];
     if (apiKey.isNotEmpty) {
@@ -55,14 +58,16 @@ Future<void> main() async { // dart entry point
     await NotificationService.init();
   }
 
-  final setupDone = await selectionService.hasCompletedSetup(); // check if user did setup before
+  final setupDone = await selectionService
+      .hasCompletedSetup(); // check if user did setup before
 
-  runApp(MyApp(
-    initialRoute: setupDone ? "/" : "/setup",
-  )); // app entry point, working with flutter from this point on
+  runApp(
+    MyApp(initialRoute: setupDone ? "/" : "/setup"),
+  ); // app entry point, working with flutter from this point on
 }
 
-class MyApp extends StatelessWidget { // statelesswidget only has constant internal data
+class MyApp extends StatelessWidget {
+  // statelesswidget only has constant internal data
   final String initialRoute;
   final String? appLanguageCode;
   const MyApp({super.key, required this.initialRoute, this.appLanguageCode});
@@ -73,48 +78,31 @@ class MyApp extends StatelessWidget { // statelesswidget only has constant inter
     return ValueListenableBuilder<String>(
       valueListenable: appLanguageCodeNotifier,
       builder: (context, languageCode, _) => MaterialApp(
-      navigatorKey: appNavigatorKey,
-      title: AppStrings.text('app.title'),
-      locale: localeForAppLanguage(languageCode),
-      supportedLocales: const [
-        Locale('en'),
-        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
-        Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
-        Locale('ja'),
-        Locale('fr'),
-        Locale('es'),
-        Locale('de'),
-        Locale('nl'),
-        Locale('it'),
-        Locale('pl'),
-        Locale('ko'),
-        Locale('uk'),
-      ],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
-      ),
-      initialRoute: initialRoute, // indicate which route to show on boot
-      onGenerateRoute: _generateRoute,
+        navigatorKey: appNavigatorKey,
+        title: AppStrings.text('app.title'),
+        locale: localeForAppLanguage(languageCode),
+        supportedLocales: const [
+          Locale('en'),
+          Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+          Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+          Locale('ja'),
+          Locale('fr'),
+          Locale('es'),
+          Locale('de'),
+          Locale('nl'),
+          Locale('it'),
+          Locale('pl'),
+          Locale('ko'),
+          Locale('uk'),
+        ],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        theme: ThemeData(colorScheme: .fromSeed(seedColor: Colors.deepPurple)),
+        initialRoute: initialRoute, // indicate which route to show on boot
+        onGenerateRoute: _generateRoute,
       ),
     );
   }

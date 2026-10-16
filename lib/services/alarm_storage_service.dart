@@ -36,7 +36,7 @@ class AlarmStorageService {
   Future<void> updateAlarm(TransportAlarm updated) async {
     final alarms = await loadAlarms();
     final index = alarms.indexWhere((a) => a.id == updated.id);
-    if (index == -1) return; // todo check functionality
+    if (index == -1) return;
     alarms[index] = updated;
     await saveAlarms(alarms);
   }

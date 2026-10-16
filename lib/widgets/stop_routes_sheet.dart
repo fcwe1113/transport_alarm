@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:transport_alarm/models/scheduled_departure.dart';
-import 'package:transport_alarm/provider_registry.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
+import '../locale_registry.dart';
 import '../transit/models/transport_route.dart';
 import '../transit/models/gtfs_stop.dart';
 
@@ -52,7 +52,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 
   Widget _buildPickerContent(BuildContext context) {
-    final db = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
+    final db = GtfsDatabase.forLocale(widget.stop.locale);
     return SafeArea(child: Container(
       height: MediaQuery.of(context).size.height * 0.5,
       padding: const EdgeInsets.all(16),
@@ -60,6 +60,9 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
         Text(widget.stop.displayNameFor(AppStrings.languageCode), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
         const SizedBox(height: 12,),
         Expanded(child: FutureBuilder<List<TransportRoute>>(future: db.getRoutesForGtfsStop(widget.stop.id), builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SizedBox(height: 32, child: Center(child: CircularProgressIndicator(),),);
+          }
           final routes = TransportRoute.dedupeByRouteNumber(snapshot.data ?? []);
           if (routes.isEmpty) return Text(AppStrings.text('stop.no_routes'));
           return Scrollbar(child: ListView(children: routes.map((r) => ListTile(
@@ -71,7 +74,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 
   Widget _buildFullContent(BuildContext context) {
-    final db = GtfsDatabase.forLocale("hk"); // todo remove hardcode
+    final db = GtfsDatabase.forLocale(widget.stop.locale);
     return SafeArea(child: Container(
       height: MediaQuery.of(context).size.height * 0.5,
       padding: const EdgeInsets.all(16),
@@ -127,7 +130,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 
   Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop) async {
-    final operatorStopIds = await GtfsDatabase.forLocale("hk").getOperatorStopIds(stop.id); // todo fix hardcode
+    final operatorStopIds = await LocaleRegistry.getLocale(stop.locale).db.getOperatorStopIds(stop.id);
 
     final idsByProvider = <String,List<String>>{};
     for (final operatorStopId in operatorStopIds) {
@@ -142,7 +145,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     for (final entry in idsByProvider.entries) {
       final providerCode = entry.key;
       final rawIds = entry.value;
-      final provider = availableProviders.where((p) => p.providerCode == providerCode).firstOrNull;
+      final provider = LocaleRegistry.getLocale(widget.stop.locale).transitProviders.where((p) => p.providerCode == providerCode).firstOrNull;
       if (provider == null) continue; // skip stops with no valid providers
       for (final rawId in rawIds) {
         try {
@@ -158,7 +161,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 
   Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop) async {
-    final db = GtfsDatabase.forLocale("hk");
+    final db = GtfsDatabase.forLocale(stop.locale);
 
     final results = await Future.wait([db.getRoutesForGtfsStop(stop.id), _fetchLiveEtaForStop(stop), db.getUpcomingDepartures(stop.id, limit: 50)]);
 
@@ -202,7 +205,7 @@ class _RoutePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = availableProviders.firstWhere((p) => p.providerCode == route.providerCode);
+    final provider = LocaleRegistry.getLocale(route.locale).transitProviders.firstWhere((p) => p.providerCode == route.providerCode);
     final colours = provider.coloursForRoute(route);
 
     return Container(

@@ -52,10 +52,13 @@ dependencies:
   csv: ^8.0.0
   sqflite: ^2.4.4
   path: ^1.9.1
+  timezone: ^0.11.1
+  xml: ^7.0.1
   flutter_local_notifications: ^22.3.1
   android_alarm_manager_plus: ^5.1.1
   live_update_countdown:
     path: packages/live_update_countdown
+  flutter_archive: ^6.3.1
 
 dev_dependencies:
   flutter_test:
@@ -78,4 +81,5 @@ flutter:
   assets:
     - assets/icons/
     - assets/localization/
+    - lib/transit/locale/gb/atco.json
     - config/secrets.json
