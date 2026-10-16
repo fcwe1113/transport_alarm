@@ -11,6 +11,7 @@ import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
+import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:transport_alarm/transit/transport_mode.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
@@ -89,14 +90,16 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     _sliderMinutes = _calculateDurationInMinutes(_leftTime, _rightTime);
     if (_sliderMinutes > 60) _sliderMinutes = 60;
     await _loadBusStops();
-    final db = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
+    final db = GtfsDatabase.forLocale(alarm.localeCode);
     final stop = await db.getGtfsStopById(alarm.gtfsStopId);
     if (stop != null) {
       final routes = TransportRoute.dedupeByRouteAndDestination(
         await db.getRoutesForGtfsStop(alarm.gtfsStopId),
         languageCode: AppStrings.languageCode,
       );
-      final selectedRoutes = routes.where((r) => alarm.routeNumbers.contains(r.routeNumber)).toSet();
+      final currentLang = await LocaleSelectionService().getAppLanguageCode();
+      final destinationText = alarm.routeNumbers.values.first[currentLang] ?? alarm.routeNumbers.values.first["en"];
+      final selectedRoutes = routes.where((r) => alarm.routeNumbers.keys.contains(r.routeNumber) && destinationText == (r.destinationText[currentLang] ?? r.destinationText["en"])).toSet();
 
       setState(() {
         _selectedStop = stop;
@@ -133,7 +136,10 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   }
 
   Future<void> _loadBusStops() async {
-    final stopsList = await GtfsDatabase.forLocale("hk").getAllGtfsStops();
+    final stopsList = <GtfsStop>[];
+    for (final locale in (await LocaleSelectionService().getEnabledLocales()).keys) {
+      stopsList.addAll(await GtfsDatabase.forLocale(locale).getAllGtfsStops());
+    }
     setState(() {
       _loadedStops = stopsList;
       _isLoadingStops = false;
@@ -179,10 +185,10 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   void _openMapPicker() async {
     final picked = await Navigator.push<GtfsStop>(context, MaterialPageRoute(builder: (context) => const MapScreen(pickerMode: true,)));
     if (picked == null) return; // user did not select stop
-    final routeList = Set<TransportRoute>.from(await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(picked.id)); // todo remove locale hardcode
+    final routeList = Set<TransportRoute>.from(await GtfsDatabase.forLocale(picked.locale).getRoutesForGtfsStop(picked.id));
     setState(() {
       _selectedStop = picked;
-      _availableRoutes = routeList;
+      _availableRoutes = TransportRoute.dedupeByRouteAndDestination(routeList.toList()).toSet();
       _selectedRoutes = {};
       _searchController?.text = _selectedStop!.displayNameFor(AppStrings.languageCode);
     });
@@ -276,13 +282,19 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
 
     // Resolve each selected route's operator stop now and persist its exact ETA
     // URL with the alarm, avoiding this GTFS mapping query during every push.
-    final gtfsDatabase = GtfsDatabase.forLocale("hk"); // todo remove locale hardcode
-    final routeApiConfigs = <AlarmRouteConfig>[];
+    final gtfsDatabase = GtfsDatabase.forLocale(_selectedStop!.locale);
+    final routeApiConfigs = <AlarmRouteConfig>[]; // todo fill in gb api call
     for (final route in _selectedRoutes) {
-      final operatorStopId = await gtfsDatabase.getOperatorStopIdForRouteAtGtfsStop(
-        operatorRouteId: route.id,
-        gtfsStopId: _selectedStop!.id,
-      );
+      late final operatorStopId;
+      if (LocaleRegistry.getLocale(_selectedStop!.locale).gtfsOnly){
+        operatorStopId = _selectedStop!.id;
+      } else {
+        operatorStopId = await gtfsDatabase
+            .getOperatorStopIdForRouteAtGtfsStop(
+          operatorRouteId: route.id,
+          gtfsStopId: _selectedStop!.id,
+        );
+      }
       if (operatorStopId == null) continue;
       final config = _buildAlarmRouteConfig(route, operatorStopId);
       if (config != null) routeApiConfigs.add(config);
@@ -299,11 +311,17 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       return;
     }
 
+    final routeInput = <String, Map<String, String>>{};
+
+    for (final route in _selectedRoutes) {
+      routeInput[route.routeNumber] = route.destinationText; // todo maybe fix hardcode
+    }
+
     final newAlarm = TransportAlarm(
         id: widget.alarmToEdit?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         gtfsStopId: _selectedStop!.id,
         routeApiConfigs: routeApiConfigs,
-        routeNumbers: _selectedRoutes.map((r) => r.routeNumber).toList(),
+        routeNumbers: routeInput,
         windowStart: _leftTime,
         windowEnd: _rightTime,
         thresholdStates: alarmThresholds,
@@ -314,6 +332,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         ),
         liveOnly: _liveOnly,
         message: _messageController.text,
+        localeCode: _selectedStop!.locale,
         enabled: true,
     );
 
@@ -503,7 +522,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             onSelected: (GtfsStop selection) async {
               FocusScope.of(context).unfocus();
               final routeList = TransportRoute.dedupeByRouteAndDestination(
-                await GtfsDatabase.forLocale("hk").getRoutesForGtfsStop(selection.id),
+                await GtfsDatabase.forLocale(selection.locale).getRoutesForGtfsStop(selection.id),
                 languageCode: AppStrings.languageCode,
               ).toSet();
               setState(() {
@@ -518,11 +537,11 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                 controller: controller,
                 focusNode: focusNode,
                 decoration: InputDecoration(
-                    hintText: AppStrings.text('alarm.stop_search', {
-                      'transportMode': AppStrings.transportMode(
-                        _currentTransportMode,
-                      ),
-                    }),
+                    // hintText: AppStrings.text('alarm.stop_search', {
+                    //   'transportMode': AppStrings.transportMode(
+                    //     _currentTransportMode,
+                    //   ),
+                    // }),
                     prefixIcon: const Icon(Icons.search),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
                 ),

@@ -60,6 +60,9 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
         Text(widget.stop.displayNameFor(AppStrings.languageCode), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
         const SizedBox(height: 12,),
         Expanded(child: FutureBuilder<List<TransportRoute>>(future: db.getRoutesForGtfsStop(widget.stop.id), builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SizedBox(height: 32, child: Center(child: CircularProgressIndicator(),),);
+          }
           final routes = TransportRoute.dedupeByRouteNumber(snapshot.data ?? []);
           if (routes.isEmpty) return Text(AppStrings.text('stop.no_routes'));
           return Scrollbar(child: ListView(children: routes.map((r) => ListTile(

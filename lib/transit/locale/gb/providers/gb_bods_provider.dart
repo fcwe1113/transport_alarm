@@ -18,13 +18,20 @@ import '../../../models/route_colour_scheme.dart';
 import '../../../models/transport_route.dart';
 
 class GbBodsProvider extends TransitProvider {
+  static String? _cachedApiKey;
+
   final ApiCaller _apiCaller;
   final GtfsDatabase db = LocaleRegistry.getLocale("gb").db;
-  Future<String> _apiKey() async {
+
+  /// Loads the bundled key once during startup so synchronous URL builders can use it.
+  static Future<void> loadApiKey() async {
     final source = await rootBundle.loadString('config/secrets.json');
-    final key = jsonDecode(source)['UK_BODS_KEY'];
-    return key.trim();
+    final key = (jsonDecode(source) as Map<String, dynamic>)['UK_BODS_KEY'];
+    _cachedApiKey = key is String ? key.trim() : null;
   }
+
+  /// Returns the key loaded by [loadApiKey].
+  String? _apiKey() => _cachedApiKey;
 
   GbBodsProvider(this._apiCaller);
 
@@ -182,6 +189,7 @@ class GbBodsProvider extends TransitProvider {
         return LiveEta(
           routeNumber: entry['lineName']?.toString() ?? '',
           bound: entry['direction']?.toString() ?? '',
+          destination: entry["destinationName"] ?? "",
           etaTime: timeToStation == null
               ? null
               : now.add(Duration(seconds: timeToStation)),
@@ -240,6 +248,7 @@ class GbBodsProvider extends TransitProvider {
         return LiveEta(
           routeNumber: entry['lineName']?.toString() ?? '',
           bound: entry['direction']?.toString() ?? '',
+          destination: entry["destinationName"] ?? "",
           etaTime: timeToStation == null
               ? null
               : now.add(Duration(seconds: timeToStation)),
@@ -247,20 +256,31 @@ class GbBodsProvider extends TransitProvider {
       }).toList();
     } else {
       final db = await this.db.database;
-      final noc = (await db.rawQuery(
-        // there should only be one
+      final nocRows = await db.rawQuery(
         '''
-    SELECT DISTINCT ga.agency_noc
-    FROM gtfs_stops gs
-    INNER JOIN gtfs_stop_times gst on gs.stop_id = gst.stop_id
-    INNER JOIN gtfs_trips gt on gst.trip_id = gt.trip_id
-    INNER JOIN gtfs_routes gr on gt.route_id = gr.route_id
-    INNER JOIN gtfs_agencies ga on gr.agency_id = ga.agency_id
-    WHERE gs.stop_id = ? AND gr.route_short_name = ?''',
+        SELECT DISTINCT ga.agency_noc
+        FROM gtfs_stops gs
+        INNER JOIN gtfs_stop_times gst ON gs.stop_id = gst.stop_id
+        INNER JOIN gtfs_trips gt ON gst.trip_id = gt.trip_id
+        INNER JOIN gtfs_routes gr ON gt.route_id = gr.route_id
+        INNER JOIN gtfs_agencies ga ON gr.agency_id = ga.agency_id
+        WHERE gs.stop_id = ? AND gr.route_short_name = ?
+        LIMIT 1
+        ''',
         [rawStopId, routeNumber],
-      ))[0]["agency_noc"].toString();
-
-      final apiKey = await _apiKey();
+      );
+      final noc = nocRows.isEmpty
+          ? null
+          : nocRows.first['agency_noc']?.toString();
+      if (noc == null || noc.isEmpty) {
+        throw StateError(
+          'No operator NOC found for $routeNumber at $rawStopId.',
+        );
+      }
+      final apiKey = _apiKey();
+      if (apiKey == null || apiKey.isEmpty) {
+        throw StateError('BODS API key has not been loaded.');
+      }
 
       final uri = Uri.https('data.bus-data.dft.gov.uk', '/api/v1/datafeed/', {
         'api_key': apiKey,
@@ -296,6 +316,7 @@ class GbBodsProvider extends TransitProvider {
               'originAimedDepartureTime': departureText == null
                   ? null
                   : DateTime.tryParse(departureText)?.toUtc(),
+              "destinationName": childText(journey, "DestinationName"),
               'latitude': double.tryParse(
                 childText(location, 'Latitude') ?? '',
               ),
@@ -494,6 +515,7 @@ class GbBodsProvider extends TransitProvider {
           LiveEta(
             routeNumber: routeNumber,
             bound: vehicle['bound'].toString(),
+            destination: {"en": vehicle["destinationName"].toString()},
             etaTime: DateTime.now().toUtc().add(
               Duration(seconds: remainingSeconds),
             ),
@@ -525,4 +547,28 @@ class GbBodsProvider extends TransitProvider {
     // gb has a centralized bus data source so this is left intentionally empty
     return RefreshResult();
   }
+
+  @override
+  String? alarmEtaUrl({
+    required String operatorStopId,
+    required TransportRoute route,
+  }) {
+    if (operatorStopId.startsWith("490")) {
+      return "https://api.tfl.gov.uk/Line/${route.routeNumber}/Arrivals/$operatorStopId";
+    } else {
+      final noc = getRouteNoc(route);
+      if (noc == null || noc.isEmpty) return null;
+      final apiKey = _apiKey();
+      if (apiKey == null || apiKey.isEmpty) return null;
+
+      return Uri.https('data.bus-data.dft.gov.uk', '/api/v1/datafeed/', {
+        'api_key': apiKey,
+        'lineRef': route.routeNumber,
+        'operatorRef': noc,
+      }).toString();
+    }
+  }
+
+  /// Returns the NOC already loaded onto a route by the GTFS route query.
+  String? getRouteNoc(TransportRoute route) => route.agencyNoc;
 }

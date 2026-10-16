@@ -118,7 +118,7 @@ class _AlarmCardState extends State<AlarmCard> {
 
   @override
   Widget build(BuildContext context) {
-    final db = GtfsDatabase.forLocale("hk"); // todo fix locale hardcode
+    final db = GtfsDatabase.forLocale(widget.alarm.localeCode);
     final isActive = _withinActiveWindow;
     return Card(
       // groups up everything within visually
@@ -230,6 +230,7 @@ class _AlarmCardState extends State<AlarmCard> {
                 RoutePillStrip(
                   gtfsStopId: widget.alarm.gtfsStopId,
                   routeNumberFilter: widget.alarm.routeNumbers,
+                  locale: widget.alarm.localeCode,
                 ),
                 const SizedBox(height: 6),
                 Column(

@@ -255,7 +255,7 @@ class AlarmPingHandler {
           scheduled
               .where(
                 (departure) =>
-                    alarm.routeNumbers.contains(departure.routeShortName) &&
+                    alarm.routeNumbers.keys.contains(departure.routeShortName) &&
                     (minimumArrivalMinutes == null ||
                         departure.minutesFromNow >= minimumArrivalMinutes),
               )

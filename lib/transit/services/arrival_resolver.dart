@@ -2,6 +2,7 @@ import 'package:transport_alarm/models/scheduled_departure.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 
 import '../../locale_registry.dart';
 import '../models/gtfs_stop.dart';
@@ -9,7 +10,7 @@ import '../models/live_eta.dart';
 
 Future<List<RouteArrival>> resolveArrivals({
   required String gtfsStopId,
-  List<String>? routeNumberFilter,
+  Map<String, Map<String, String>>? routeNumberFilter,
   int? minimumMinutesFromNow,
   required String locale,
 }) async {
@@ -18,7 +19,7 @@ Future<List<RouteArrival>> resolveArrivals({
   final routes = routeNumberFilter == null
       ? allRoutes
       : allRoutes
-            .where((r) => routeNumberFilter.contains(r.routeNumber))
+            .where((r) => routeNumberFilter.keys.contains(r.routeNumber))
             .toList();
   final gtfsStop = await db.getGtfsStopById(gtfsStopId);
   final liveEtas = routeNumberFilter == null
@@ -114,7 +115,7 @@ Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop, String locale) async {
 
 Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
   GtfsStop stop,
-  List<String> routeNumbers,
+  Map<String, Map<String, String>> routeNumbers,
 ) async {
   final db = GtfsDatabase.forLocale(stop.locale);
   final operatorStops = await db.getOperatorStopIds(stop.id);
@@ -128,10 +129,13 @@ Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
         .where((p) => p.providerCode == providerCode)
         .firstOrNull;
     if (provider == null) continue; // skip stops with no valid providers
-    for (final routeNumber in routeNumbers) {
+    for (final routeNumber in routeNumbers.entries) {
       try {
-        final etas = await provider.fetchLiveEtaForRoute(rawId, routeNumber);
-        results.addAll(etas.where((e) => e.etaTime != null));
+        final currentLang = await LocaleSelectionService().getAppLanguageCode();
+        final etas = (await provider.fetchLiveEtaForRoute(rawId, routeNumber.key));
+        final destinationText = routeNumber.value[currentLang];
+        results.addAll(etas.where((e) =>
+                e.etaTime != null && ((destinationText ?? routeNumber.value["en"]) == (e.destination[currentLang] ?? e.destination["en"])?.replaceAll("_", " "))));
       } catch (_) {
         // do nothing
       }

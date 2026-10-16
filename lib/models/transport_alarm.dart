@@ -8,7 +8,7 @@ import '../transit/models/repeat_pattern.dart';
 /// Transport Alarm object definition
 class TransportAlarm {
   final String id; // maybe gen a uuid for it or something, this is local anyways so whatever
-  final List<String> routeNumbers; // stores raw route numbers for deduping
+  final Map<String, Map<String, String>> routeNumbers; // stores raw route numbers for deduping
   final String gtfsStopId;
   // API URLs are resolved when the alarm is created, so notification
   // processing does not need GTFS to map this stop to an operator stop.
@@ -45,7 +45,7 @@ class TransportAlarm {
     required this.id,
     required this.gtfsStopId,
     this.routeApiConfigs = const [],
-    this.localeCode = 'hk',
+    required this.localeCode,
     required this.routeNumbers,
     required this.windowStart,
     required this.windowEnd,
@@ -69,7 +69,7 @@ class TransportAlarm {
     String? gtfsStopId,
     List<AlarmRouteConfig>? routeApiConfigs,
     String? localeCode,
-    List<String>? routeNumbers,
+    Map<String, Map<String, String>>? routeNumbers,
     TimeOfDay? windowStart,
     TimeOfDay? windowEnd,
     int? maxRingsPerThreshold,
@@ -160,7 +160,7 @@ class TransportAlarm {
             .toList() ??
         const [],
     localeCode: json['localeCode'] as String? ?? 'hk',
-    routeNumbers: List<String>.from(json['routeNumbers']),
+    routeNumbers: (json['routeNumbers'] as Map<String, dynamic>).map((key, value) => MapEntry(key, Map<String, String>.from(value as Map)),),
     windowStart: _minutesToTimeOfDay(json['windowStart'] as int),
     windowEnd: _minutesToTimeOfDay(json['windowEnd'] as int),
     maxRingsPerThreshold: json['maxRingsPerThreshold'] as int,

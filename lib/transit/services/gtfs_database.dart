@@ -1083,7 +1083,7 @@ class GtfsDatabase {
         INNER JOIN matching_trips mt ON mt.trip_id = st.trip_id
         GROUP BY st.trip_id
       )
-      SELECT gr.route_id, gr.route_short_name, ga.agency_name, gt.direction_id, first_stop.stop_name AS first_stop_name, last_stop.stop_name AS last_stop_name
+      SELECT gr.route_id, gr.route_short_name, ga.agency_name, ga.agency_noc, gt.direction_id, first_stop.stop_name AS first_stop_name, last_stop.stop_name AS last_stop_name
       FROM gtfs_routes gr
       INNER JOIN gtfs_trips gt ON gt.route_id = gr.route_id
       INNER JOIN gtfs_agencies ga ON ga.agency_id = gr.agency_id
@@ -1115,6 +1115,7 @@ class GtfsDatabase {
                   .providerCode,
               locale: locale,
               agency: row["agency_name"].toString(),
+              agencyNoc: row["agency_noc"]?.toString(),
             ),
           )
           .toList();
