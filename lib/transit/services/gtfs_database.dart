@@ -1216,6 +1216,13 @@ class GtfsDatabase {
       whereArgs: [stopId],
     );
     if (rows.isEmpty) return null;
+    if (LocaleRegistry.getLocale(locale).gtfsOnly) return GtfsStop( // early out for gtfs only locales
+        id: rows[0]["stop_id"] as String,
+        name: rows[0]["stop_name"] as String,
+        lat: rows[0]["stop_lat"] as double,
+        lng: rows[0]["stop_lon"] as double,
+        locale: locale
+    );
     final row = rows.first;
     final operatorNameRows = await (await database).rawQuery(
       '''
