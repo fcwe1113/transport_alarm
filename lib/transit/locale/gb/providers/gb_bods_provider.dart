@@ -73,7 +73,7 @@ class GbBodsProvider extends TransitProvider {
       case "Stagecoach Oxfordshire":
         return const RouteColourScheme(
           iconColour: Colors.lightBlue,
-          textColour: Color(0xFFFF9F28),
+          textColour: Color(0xFFFFA600),
         );
       case "First South Yorkshire":
       case "First South & West Wales":
@@ -297,6 +297,7 @@ class GbBodsProvider extends TransitProvider {
 
       // Each VehicleMonitoringDelivery can contain multiple VehicleActivity
       // entries, so extract the requested values independently for every bus.
+      final now = DateTime.now();
       final vehicleActivities = XmlDocument.parse(response.body)
           .findAllElements('VehicleActivity')
           .map((activity) {
@@ -323,6 +324,7 @@ class GbBodsProvider extends TransitProvider {
               'longitude': double.tryParse(
                 childText(location, 'Longitude') ?? '',
               ),
+              "recordedTime" : activity.getElement("RecordedAtTime")?.innerText,
             };
           })
           // Ignore malformed activities that don't contain the journey/location
@@ -333,9 +335,9 @@ class GbBodsProvider extends TransitProvider {
                 activity['originAimedDepartureTime'] != null &&
                 activity['latitude'] != null &&
                 activity['longitude'] != null &&
-                activity["bound"] != null,
-          )
-          .toList();
+                activity["bound"] != null// &&
+                // DateTime.tryParse(activity["recordedTime"] as String)!.isBefore(now.subtract(Duration(minutes: 2))),
+          ).toList();
 
       final arrivals = <LiveEta>[];
       final ukTimezone = tz.getLocation('Europe/London');
@@ -410,7 +412,7 @@ class GbBodsProvider extends TransitProvider {
             serviceDate,
           ],
         );
-        if (tripCandidates.isEmpty) continue;
+        if (tripCandidates.isEmpty) continue; // exit if cannot find the trip related to the vehicle entry
 
         final aimedSeconds =
             localDeparture.hour * 3600 +

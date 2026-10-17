@@ -1097,20 +1097,19 @@ class GtfsDatabase {
       return rows
           .map(
             (row) => TransportRoute(
-              id: row["route_id"].toString(), // route_id
-              names: {
+              id: row["route_id"].toString(),
+              names: { // todo add multilingual compat
                 "en": row["route_short_name"].toString(),
               }, // route_short_name
               routeNumber: row["route_short_name"].toString(), // append agency name before number, same as names
-              bound: row["direction_id"]
-                  .toString(), // direction_id from gtfs_trips
-              originText: {
+              bound: row["direction_id"].toString(),
+              originText: { // todo add multilingual compat
                 "en": row["first_stop_name"].toString(),
               }, // resolve from stop_id where seq = 0 from gtfs_stop_times
-              destinationText: {
+              destinationText: { // todo add multilingual compat
                 "en": row["last_stop_name"].toString(),
               }, // resolve from stop_id where seq = max
-              providerCode: LocaleRegistry.getLocale(locale)
+              providerCode: LocaleRegistry.getLocale(locale) // todo add multi provider compat
                   .transitProviders[0]
                   .providerCode,
               locale: locale,
@@ -1216,13 +1215,15 @@ class GtfsDatabase {
       whereArgs: [stopId],
     );
     if (rows.isEmpty) return null;
-    if (LocaleRegistry.getLocale(locale).gtfsOnly) return GtfsStop( // early out for gtfs only locales
+    if (LocaleRegistry.getLocale(locale).gtfsOnly) {
+      return GtfsStop( // early out for gtfs only locales
         id: rows[0]["stop_id"] as String,
         name: rows[0]["stop_name"] as String,
         lat: rows[0]["stop_lat"] as double,
         lng: rows[0]["stop_lon"] as double,
         locale: locale
-    );
+      );
+    }
     final row = rows.first;
     final operatorNameRows = await (await database).rawQuery(
       '''
