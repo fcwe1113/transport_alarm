@@ -135,7 +135,7 @@ Route<dynamic>? _generateRoute(RouteSettings settings) {
     case '/loading':
       return MaterialPageRoute<void>(
         settings: settings,
-        builder: (_) => const LoadingScreen(),
+        builder: (_) => const LoadingScreen(firstTimeSetup: true),
       );
     case '/add-alarm':
       return MaterialPageRoute<void>(

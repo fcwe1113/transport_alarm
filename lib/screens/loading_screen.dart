@@ -1,5 +1,7 @@
 import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
+import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:transport_alarm/transit/services/stale_data_reminder.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
@@ -13,6 +15,9 @@ class LoadingScreen extends StatefulWidget {
   final bool showBottomNavigation;
   // Off for first-time setup, which has no data to fall back on.
   final bool cancellable;
+  // The first data build: setup only counts as done once it succeeds, and a
+  // failure restarts setup.
+  final bool firstTimeSetup;
   const LoadingScreen({
     super.key,
     this.forceRefresh = false,
@@ -20,6 +25,7 @@ class LoadingScreen extends StatefulWidget {
     this.returnToPrevious = false,
     this.showBottomNavigation = false,
     this.cancellable = false,
+    this.firstTimeSetup = false,
   });
 
   @override
@@ -59,6 +65,11 @@ class _LoadingScreenState extends State<LoadingScreen> {
         },
       );
       
+      if (widget.firstTimeSetup && !await _allLocalesHaveData()) {
+        await _restartSetup(failures.join(", "));
+        return;
+      }
+
       if (mounted && failures.isNotEmpty) {
         await showDialog(context: context, builder: (context) => AlertDialog(
           title: Text(AppStrings.text('loading.failures.title')),
@@ -71,6 +82,9 @@ class _LoadingScreenState extends State<LoadingScreen> {
       }
       
       await StaleDataReminder().clearSnooze();
+      if (widget.firstTimeSetup) {
+        await LocaleSelectionService().setSetupCompleted(true);
+      }
 
       if (mounted) {
         setState(() {
@@ -83,12 +97,44 @@ class _LoadingScreenState extends State<LoadingScreen> {
       // The operation has already removed its staging and temp files.
       if (mounted) _onOkPressed();
     } catch (e) {
+      if (widget.firstTimeSetup) {
+        await _restartSetup('$e');
+        return;
+      }
       if (mounted) {
         setState(() {
           _error = AppStrings.text('loading.failed', {'error': e});
         });
       }
     }
+  }
+
+  /// Whether every enabled locale ended up with a usable timetable.
+  Future<bool> _allLocalesHaveData() async {
+    final locales = await LocaleSelectionService().getEnabledLocales();
+    for (final locale in locales.keys) {
+      if (!await GtfsDatabase.forLocale(locale).hasUsableGtfsData()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Explains that the first build failed, then starts setup again from the
+  /// language page. The setup flag stays false, so relaunching does too.
+  Future<void> _restartSetup(String details) async {
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('setup.build_failed.title')),
+        content: Text(AppStrings.text('setup.build_failed.body', {'details': details})),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok')))],
+      ),
+    );
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/setup-language', (_) => false);
   }
 
   void _cancel() {

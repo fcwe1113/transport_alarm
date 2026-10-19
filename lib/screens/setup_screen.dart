@@ -70,6 +70,7 @@ class _SetupScreenState extends State<SetupScreen> {
     final shouldProceed = await showDataUsageWarning(context);
     if (!shouldProceed) return; // user clicked no on the popup
 
+    await _selectionService.setSetupCompleted(false);
     await _selectionService.commitLocaleSelectionDraft();
     if (mounted) Navigator.pushReplacementNamed(context, "/loading");
   }

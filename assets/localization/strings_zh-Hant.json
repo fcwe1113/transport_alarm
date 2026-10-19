@@ -27,6 +27,8 @@
   "setup.choose_language": "Choose your language",
   "setup.heads_up": "請留意!",
   "setup.download_warning": "建立資料庫需要使用相當多的數據，建議先連接Wi-Fi再繼續。",
+  "setup.build_failed.title": "Setup couldn't finish",
+  "setup.build_failed.body": "The transit data couldn't be downloaded, so setup will start again.\n\n{details}",
   "stale_data.title": "Timetable data out of date",
   "stale_data.body": "The timetable data for {locales} hasn't been updated for a while, so arrival times may be wrong. Refresh it now?",
   "stale_data.later": "Later",
