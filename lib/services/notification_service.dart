@@ -15,10 +15,7 @@ class NotificationService {
   static final FlutterLocalNotificationsPlugin plugin =
       FlutterLocalNotificationsPlugin();
 
-  // v2: the ring moved to the alarm stream. A channel's sound can't change
-  // once created, so it needed a new ID; the old channel is deleted.
-  static const String ringChannelId = 'transport_alarm_ring_channel_v2';
-  static const String _legacyRingChannelId = 'transport_alarm_ring_channel';
+  static const String ringChannelId = 'transport_alarm_ring_channel';
   static String get ringChannelName => AppStrings.text('notification.channel.rings');
   static const String statusChannelId = 'transport_alarm_status_channel';
   static String get statusChannelName => AppStrings.text('notification.channel.updates');
@@ -95,7 +92,6 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >();
-    await android?.deleteNotificationChannel(channelId: _legacyRingChannelId);
     await android?.createNotificationChannel(
         AndroidNotificationChannel(
           ringChannelId,
