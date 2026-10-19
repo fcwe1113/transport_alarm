@@ -46,15 +46,22 @@ class _MapScreenState extends State<MapScreen> {
   // Set once the camera has been moved to the user or to a tapped stop, so a
   // slow location fix never pulls the camera away afterwards.
   bool _cameraPlaced = false;
-  // Where the user last left the map, restored on the next visit.
+  // Where the user last left the map, restored on the next visit. Null when
+  // the last view came from centring on their location, so losing location
+  // access falls back to the stops instead of their old position.
   CameraPosition? _savedCamera;
   CameraPosition? _currentCamera;
+  // True from starting a move to the user's location until it comes to rest.
+  bool _movingToLocation = false;
 
   static const _stopIconAsset = "assets/icons/icon.png";
   static const _defaultCamera = CameraPosition(target: LatLng(22.3193, 114.1694), zoom: 12);
   static const _cameraLatKey = 'map_camera_lat';
   static const _cameraLngKey = 'map_camera_lng';
   static const _cameraZoomKey = 'map_camera_zoom';
+  static const _cameraFromLocationKey = 'map_camera_from_location';
+  // A last known fix older than this may be somewhere else entirely.
+  static const _maxLastKnownAge = Duration(minutes: 10);
 
   @override
   void initState() {
@@ -88,16 +95,20 @@ class _MapScreenState extends State<MapScreen> {
     final lng = prefs.getDouble(_cameraLngKey);
     final zoom = prefs.getDouble(_cameraZoomKey);
     if (lat == null || lng == null || zoom == null) return null;
+    if (prefs.getBool(_cameraFromLocationKey) ?? false) return null;
     return CameraPosition(target: LatLng(lat, lng), zoom: zoom);
   }
 
   Future<void> _saveCamera() async {
     final camera = _currentCamera;
+    final fromLocation = _movingToLocation;
+    _movingToLocation = false;
     if (camera == null) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_cameraLatKey, camera.target.latitude);
     await prefs.setDouble(_cameraLngKey, camera.target.longitude);
     await prefs.setDouble(_cameraZoomKey, camera.zoom);
+    await prefs.setBool(_cameraFromLocationKey, fromLocation);
   }
 
   /// With no saved view, shows the user's selected stops until (or unless)
@@ -154,8 +165,12 @@ class _MapScreenState extends State<MapScreen> {
       // Rebuild so the map turns on its location dot now access is granted.
       if (mounted) setState(() {});
 
-      final position = await Geolocator.getLastKnownPosition() ??
-          await Geolocator.getCurrentPosition(
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      final lastKnownIsRecent = lastKnown != null &&
+          DateTime.now().difference(lastKnown.timestamp) < _maxLastKnownAge;
+      final position = lastKnownIsRecent
+          ? lastKnown
+          : await Geolocator.getCurrentPosition(
             locationSettings: const LocationSettings(
               accuracy: LocationAccuracy.medium,
               timeLimit: Duration(seconds: 10),
@@ -165,6 +180,7 @@ class _MapScreenState extends State<MapScreen> {
       if (position.latitude == 0 && position.longitude == 0) return;
       if (!mounted || _cameraPlaced || _mapController == null) return;
       _cameraPlaced = true;
+      _movingToLocation = true;
       await _mapController!.animateCamera(
         CameraUpdate.newLatLngZoom(
           LatLng(position.latitude, position.longitude),
