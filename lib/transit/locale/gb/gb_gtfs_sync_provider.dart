@@ -52,6 +52,20 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
     if (selectedAreas!.isEmpty) return true;
     final prefs = await SharedPreferences.getInstance();
     final selectionSignature = (selectedAreas.toList()..sort()).join(',');
+    // Databases built before syncs recorded these keys have neither. Treat the
+    // file's last write as the sync time, for the current selection, rather
+    // than calling a working database stale.
+    if (!prefs.containsKey('gtfs_last_checked_$locale') &&
+        !prefs.containsKey('gtfs_atco_selection_$locale')) {
+      final builtAt = await GtfsDatabase.forLocale(locale).activeFileModified();
+      if (builtAt != null) {
+        await prefs.setString('gtfs_atco_selection_$locale', selectionSignature);
+        await prefs.setString(
+          'gtfs_last_checked_$locale',
+          builtAt.toIso8601String(),
+        );
+      }
+    }
     if (prefs.getString('gtfs_atco_selection_$locale') != selectionSignature) {
       return true;
     }
