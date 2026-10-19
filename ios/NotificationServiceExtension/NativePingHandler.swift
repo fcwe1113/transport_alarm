@@ -36,198 +36,272 @@ final class NativePingHandler {
         self.appGroupDirectory = appGroupDirectory
     }
 
+    /// What a ping has to do, worked out from the saved alarm before acting.
+    /// Add a case here, and to [act], for any new kind of ping.
+    private enum PingDecision {
+        /// No alarm has this ping ID any more.
+        case unknownAlarm
+        case disabled
+        /// Outside the window with nothing under way: wait for its start.
+        case beforeWindow(start: Date)
+        /// Outside the window with an occurrence under way: end it.
+        case windowEnded
+        /// A one-off alarm whose occurrence already finished.
+        case alreadyFinished
+        /// A repeating alarm's next occurrence has started; reset it, then
+        /// decide again.
+        case startRepeat
+        case allThresholdsDone
+        case ringing(thresholdIndex: Int)
+        case estimate(thresholdIndex: Int)
+    }
+
     /// Processes one server ping. A visible push is the ring itself; the same
     /// server ping ID is rescheduled until the user acknowledges the threshold.
     func handle(pingID: String) async -> PingResult { // todo track the second when ping comes in and decide all schedules to "5-30 sec before the second"
         do {
             var alarms = try loadAlarms()
-            guard let alarmIndex = alarms.firstIndex(where: {
-                Self.stringValue($0["pingId"]) == pingID
-            }) else {
-                try? await acknowledge(pingID: pingID)
-                return PingResult(title: NativeLocalization.text("native.alarm_no_longer_active.title"), body: NativeLocalization.text("native.alarm_no_longer_active.body"))
-            }
-
-            var alarm = alarms[alarmIndex]
-            guard (alarm["enabled"] as? Bool) != false else {
-                try? await acknowledge(pingID: pingID)
-                return PingResult(title: NativeLocalization.text("native.alarm_disabled.title"), body: "\(NativeLocalization.text("native.alarm_disabled.body")) \(Self.alarmDebugJSON(alarm))")
-            }
-
-            var thresholdStates = (alarm["thresholdStates"] as? [[String: Any]] ?? []).sorted {
-                (Self.intValue($0["minutesBeforeArrival"]) ?? 0) >
-                    (Self.intValue($1["minutesBeforeArrival"]) ?? 0)
-            }
-
-            // Outside the alarm's window: end an occurrence that was under
-            // way, or wait for the next window start.
-            let calendar = NativeTransitLocales.gregorianCalendar()
-            let now = Date()
-            if let window = AlarmWindow(alarm: alarm),
-               window.activeOccurrence(at: now, calendar: calendar) == nil {
-                let inProgress = alarm["spent"] as? Bool != true && (
-                    Self.intValue(alarm["lastEstimatedMinutesUntilThreshold"]) != nil ||
-                        thresholdStates.contains { ($0["outcome"] as? String ?? "pending") != "pending" }
-                )
-                if inProgress {
-                    return try await concludeOccurrence(
-                        alarms: &alarms,
-                        index: alarmIndex,
-                        thresholdStates: thresholdStates,
-                        pingID: pingID,
-                        windowEnded: true
-                    )
-                }
-                guard let next = window.nextOccurrence(after: now, calendar: calendar) else {
-                    throw PingHandlerError.invalidAlarmData
-                }
-                try await reschedule(pingID: pingID, at: next.start, requireAck: false)
-                return PingResult(
-                    title: NativeLocalization.text("native.waiting_for_window.title"),
-                    body: NativeLocalization.text("native.waiting_for_window.body")
-                )
-            }
-
-            // A scheduled ping at the next repeat start begins a fresh occurrence.
-            if alarm["spent"] as? Bool == true {
-                if repeatFrequency(of: alarm) == "none" {
-                    alarm["enabled"] = false
-                    alarm["pingId"] = NSNull()
-                    alarms[alarmIndex] = alarm
-                    try saveAlarms(alarms)
-                    try? await acknowledge(pingID: pingID)
-                    return PingResult(title: NativeLocalization.text("native.alarm_complete.title"), body: NativeLocalization.text("native.alarm_complete.already_finished"))
-                }
-                for index in thresholdStates.indices {
-                    thresholdStates[index]["outcome"] = "pending"
-                    thresholdStates[index]["ringCount"] = 0
-                }
-                alarm["thresholdStates"] = thresholdStates
-                alarm["spent"] = false
-                alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
-                alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
-                alarms[alarmIndex] = alarm
-                try saveAlarms(alarms)
-            }
-
-            alarm["thresholdStates"] = thresholdStates
-            guard let activeIndex = thresholdStates.firstIndex(where: {
-                let outcome = $0["outcome"] as? String
-                return outcome == "pending" || outcome == "ringing"
-            }) else {
-                alarms[alarmIndex] = alarm
-                return try await concludeOccurrence(
-                    alarms: &alarms,
-                    index: alarmIndex,
-                    thresholdStates: thresholdStates,
-                    pingID: pingID,
-                    windowEnded: false
-                )
-            }
-
-            // Use a fresh arrival estimate when available, otherwise retain the
-            // last good value so a transient API failure does not stop the alarm.
-            guard let thresholdMinutes = Self.intValue(thresholdStates[activeIndex]["minutesBeforeArrival"]) else {
-                throw PingHandlerError.invalidAlarmData
-            }
-            let cachedEstimateUntilThreshold = Self.intValue(alarm["lastEstimatedMinutesUntilThreshold"])
-                ?? Self.intValue(alarm["lastEstimatedMinutesUntilArrival"]).map { $0 - thresholdMinutes }
-            if (alarm["routeApiConfigs"] as? [[String: Any]] ?? []).isEmpty {
-                let alarmLocale = NativeTransitLocales.locale(for: alarm["localeCode"] as? String)
-                let configs = routeAPIConfigsForLegacyAlarm(alarm, locale: alarmLocale)
-                if !configs.isEmpty {
-                    alarm["routeApiConfigs"] = configs
-                    alarms[alarmIndex] = alarm
-                    try saveAlarms(alarms)
-                }
-            }
-            let isFreshOccurrence = cachedEstimateUntilThreshold == nil &&
-                !thresholdStates.isEmpty &&
-                thresholdStates.allSatisfy { ($0["outcome"] as? String ?? "pending") == "pending" }
-            let minimumArrivalMinutes = isFreshOccurrence
-                ? thresholdStates.compactMap { Self.intValue($0["minutesBeforeArrival"]) }.max()
-                : nil
-            let freshArrivalEstimate = await estimateMinutesUntilArrival(
-                for: alarm,
-                minimumArrivalMinutes: minimumArrivalMinutes
-            )
-            let freshEstimateUntilThreshold = freshArrivalEstimate.map { $0 - thresholdMinutes }
-            let estimateUntilThreshold = freshEstimateUntilThreshold ?? cachedEstimateUntilThreshold
-            if let freshEstimateUntilThreshold {
-                alarm["lastEstimatedMinutesUntilThreshold"] = freshEstimateUntilThreshold
-                alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
-            }
-
-            // Once a threshold is ringing, keep sending the same visible push
-            // every minute until its notification action acknowledges it.
-            if thresholdStates[activeIndex]["outcome"] as? String == "ringing" {
-                do {
-                    try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
-                    alarm["thresholdStates"] = thresholdStates
-                    if let freshEstimateUntilThreshold {
-                        alarm["lastEstimatedMinutesUntilThreshold"] = freshEstimateUntilThreshold
-                        alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
-                    }
-                    alarms[alarmIndex] = alarm
-                    try saveAlarms(alarms)
-                    return ringResult(alarm: alarm, thresholdMinutes: thresholdMinutes)
-                } catch {
-                    return ringResult(alarm: alarm, thresholdMinutes: thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
-                }
-            }
-
-            guard let estimateUntilThreshold else {
-                let retryAt = Date().addingTimeInterval(5 * 60)
-                try await reschedule(pingID: pingID, at: retryAt, requireAck: false)
-                alarms[alarmIndex] = alarm
-                try saveAlarms(alarms)
-                return PingResult(title: NativeLocalization.text("native.estimate_unavailable.title"), body: NativeLocalization.text("native.estimate_unavailable.body"))
-            }
-
-            if estimateUntilThreshold > 5 {
-                // Recheck halfway through the remaining time to this threshold.
-                let delayMinutes = max(1, Int((Double(estimateUntilThreshold) / 2).rounded()))
-                try await reschedule(
-                    pingID: pingID,
-                    at: Date().addingTimeInterval(TimeInterval(delayMinutes * 60)),
-                    requireAck: false
-                )
-                alarm["thresholdStates"] = thresholdStates
-                alarms[alarmIndex] = alarm
-                try saveAlarms(alarms)
-                return PingResult(
-                    title: NativeLocalization.text("native.update_scheduled.title"),
-                    body: NativeLocalization.text("native.update_scheduled.body", values: ["minutes": estimateUntilThreshold, "delay": delayMinutes])
-                )
-            }
-
-            if estimateUntilThreshold > 0 {
-                try await reschedule(
-                    pingID: pingID,
-                    at: Date().addingTimeInterval(TimeInterval(estimateUntilThreshold * 60)),
-                    requireAck: true
-                )
-                alarm["thresholdStates"] = thresholdStates
-                alarms[alarmIndex] = alarm
-                try saveAlarms(alarms)
-                return PingResult(title: NativeLocalization.text("native.alarm_approaching.title"), body: NativeLocalization.text("native.alarm_approaching.body", values: ["minutes": estimateUntilThreshold]))
-            }
-
-            thresholdStates[activeIndex]["outcome"] = "ringing"
-            let oldCount = Self.intValue(thresholdStates[activeIndex]["ringCount"]) ?? 0
-            thresholdStates[activeIndex]["ringCount"] = oldCount + 1
-            alarm["thresholdStates"] = thresholdStates
-            alarms[alarmIndex] = alarm
-            try? saveAlarms(alarms)
-            do {
-                try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
-                return ringResult(alarm: alarm, thresholdMinutes: thresholdMinutes)
-            } catch {
-                return ringResult(alarm: alarm, thresholdMinutes: thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
-            }
+            let index = alarms.firstIndex { Self.stringValue($0["pingId"]) == pingID }
+            let decision = try decide(alarm: index.map { alarms[$0] }, now: Date())
+            return try await act(on: decision, alarms: &alarms, index: index, pingID: pingID)
         } catch {
             return PingResult(title: NativeLocalization.text("native.update_failed.title"), body: NativeLocalization.text("native.update_failed.body"))
         }
+    }
+
+    private func decide(alarm: [String: Any]?, now: Date) throws -> PingDecision {
+        guard let alarm else { return .unknownAlarm }
+        guard (alarm["enabled"] as? Bool) != false else { return .disabled }
+        let thresholdStates = Self.sortedThresholds(of: alarm)
+
+        let calendar = NativeTransitLocales.gregorianCalendar()
+        if let window = AlarmWindow(alarm: alarm),
+           window.activeOccurrence(at: now, calendar: calendar) == nil {
+            if Self.occurrenceInProgress(alarm, thresholdStates: thresholdStates) {
+                return .windowEnded
+            }
+            guard let next = window.nextOccurrence(after: now, calendar: calendar) else {
+                throw PingHandlerError.invalidAlarmData
+            }
+            return .beforeWindow(start: next.start)
+        }
+
+        if alarm["spent"] as? Bool == true {
+            return repeatFrequency(of: alarm) == "none" ? .alreadyFinished : .startRepeat
+        }
+        guard let active = thresholdStates.firstIndex(where: {
+            let outcome = $0["outcome"] as? String
+            return outcome == "pending" || outcome == "ringing"
+        }) else {
+            return .allThresholdsDone
+        }
+        return thresholdStates[active]["outcome"] as? String == "ringing"
+            ? .ringing(thresholdIndex: active)
+            : .estimate(thresholdIndex: active)
+    }
+
+    private func act(
+        on decision: PingDecision,
+        alarms: inout [[String: Any]],
+        index: Int?,
+        pingID: String
+    ) async throws -> PingResult {
+        guard let index else {
+            try? await acknowledge(pingID: pingID)
+            return PingResult(title: NativeLocalization.text("native.alarm_no_longer_active.title"), body: NativeLocalization.text("native.alarm_no_longer_active.body"))
+        }
+        switch decision {
+        case .unknownAlarm:
+            try? await acknowledge(pingID: pingID)
+            return PingResult(title: NativeLocalization.text("native.alarm_no_longer_active.title"), body: NativeLocalization.text("native.alarm_no_longer_active.body"))
+        case .disabled:
+            try? await acknowledge(pingID: pingID)
+            return PingResult(title: NativeLocalization.text("native.alarm_disabled.title"), body: "\(NativeLocalization.text("native.alarm_disabled.body")) \(Self.alarmDebugJSON(alarms[index]))")
+        case .beforeWindow(let start):
+            try await reschedule(pingID: pingID, at: start, requireAck: false)
+            return PingResult(
+                title: NativeLocalization.text("native.waiting_for_window.title"),
+                body: NativeLocalization.text("native.waiting_for_window.body")
+            )
+        case .windowEnded:
+            return try await concludeOccurrence(
+                alarms: &alarms,
+                index: index,
+                thresholdStates: Self.sortedThresholds(of: alarms[index]),
+                pingID: pingID,
+                windowEnded: true
+            )
+        case .alreadyFinished:
+            alarms[index]["enabled"] = false
+            alarms[index]["pingId"] = NSNull()
+            try saveAlarms(alarms)
+            try? await acknowledge(pingID: pingID)
+            return PingResult(title: NativeLocalization.text("native.alarm_complete.title"), body: NativeLocalization.text("native.alarm_complete.already_finished"))
+        case .startRepeat:
+            try startRepeat(alarms: &alarms, index: index)
+            let next = try decide(alarm: alarms[index], now: Date())
+            return try await act(on: next, alarms: &alarms, index: index, pingID: pingID)
+        case .allThresholdsDone:
+            return try await concludeOccurrence(
+                alarms: &alarms,
+                index: index,
+                thresholdStates: Self.sortedThresholds(of: alarms[index]),
+                pingID: pingID,
+                windowEnded: false
+            )
+        case .ringing(let thresholdIndex):
+            return try await handleRinging(alarms: &alarms, index: index, thresholdIndex: thresholdIndex, pingID: pingID)
+        case .estimate(let thresholdIndex):
+            return try await handleEstimate(alarms: &alarms, index: index, thresholdIndex: thresholdIndex, pingID: pingID)
+        }
+    }
+
+    /// Resets a spent repeating alarm at the start of its next occurrence.
+    private func startRepeat(alarms: inout [[String: Any]], index: Int) throws {
+        var thresholdStates = Self.sortedThresholds(of: alarms[index])
+        for threshold in thresholdStates.indices {
+            thresholdStates[threshold]["outcome"] = "pending"
+            thresholdStates[threshold]["ringCount"] = 0
+        }
+        alarms[index]["thresholdStates"] = thresholdStates
+        alarms[index]["spent"] = false
+        alarms[index]["lastEstimatedMinutesUntilThreshold"] = NSNull()
+        alarms[index].removeValue(forKey: "lastEstimatedMinutesUntilArrival")
+        try saveAlarms(alarms)
+    }
+
+    /// A threshold that's ringing keeps getting the same visible push every
+    /// minute until its notification action acknowledges it.
+    private func handleRinging(
+        alarms: inout [[String: Any]],
+        index: Int,
+        thresholdIndex: Int,
+        pingID: String
+    ) async throws -> PingResult {
+        let estimate = try await refreshEstimate(alarms: &alarms, index: index, thresholdIndex: thresholdIndex)
+        do {
+            try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
+            try saveAlarms(alarms)
+            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
+        } catch {
+            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
+        }
+    }
+
+    /// Updates the arrival estimate for a pending threshold and schedules the
+    /// next ping: halfway to the threshold, at it, or ringing now.
+    private func handleEstimate(
+        alarms: inout [[String: Any]],
+        index: Int,
+        thresholdIndex: Int,
+        pingID: String
+    ) async throws -> PingResult {
+        let estimate = try await refreshEstimate(alarms: &alarms, index: index, thresholdIndex: thresholdIndex)
+        guard let estimateUntilThreshold = estimate.untilThreshold else {
+            let retryAt = Date().addingTimeInterval(5 * 60)
+            try await reschedule(pingID: pingID, at: retryAt, requireAck: false)
+            try saveAlarms(alarms)
+            return PingResult(title: NativeLocalization.text("native.estimate_unavailable.title"), body: NativeLocalization.text("native.estimate_unavailable.body"))
+        }
+
+        if estimateUntilThreshold > 5 {
+            // Recheck halfway through the remaining time to this threshold.
+            let delayMinutes = max(1, Int((Double(estimateUntilThreshold) / 2).rounded()))
+            try await reschedule(
+                pingID: pingID,
+                at: Date().addingTimeInterval(TimeInterval(delayMinutes * 60)),
+                requireAck: false
+            )
+            try saveAlarms(alarms)
+            return PingResult(
+                title: NativeLocalization.text("native.update_scheduled.title"),
+                body: NativeLocalization.text("native.update_scheduled.body", values: ["minutes": estimateUntilThreshold, "delay": delayMinutes])
+            )
+        }
+
+        if estimateUntilThreshold > 0 {
+            try await reschedule(
+                pingID: pingID,
+                at: Date().addingTimeInterval(TimeInterval(estimateUntilThreshold * 60)),
+                requireAck: true
+            )
+            try saveAlarms(alarms)
+            return PingResult(title: NativeLocalization.text("native.alarm_approaching.title"), body: NativeLocalization.text("native.alarm_approaching.body", values: ["minutes": estimateUntilThreshold]))
+        }
+
+        var thresholdStates = Self.sortedThresholds(of: alarms[index])
+        thresholdStates[thresholdIndex]["outcome"] = "ringing"
+        let oldCount = Self.intValue(thresholdStates[thresholdIndex]["ringCount"]) ?? 0
+        thresholdStates[thresholdIndex]["ringCount"] = oldCount + 1
+        alarms[index]["thresholdStates"] = thresholdStates
+        try? saveAlarms(alarms)
+        do {
+            try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
+            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
+        } catch {
+            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
+        }
+    }
+
+    /// Fetches a fresh arrival estimate for the given threshold and stores it
+    /// on the alarm (unsaved), falling back to the last good value so a
+    /// transient API failure doesn't stop the alarm.
+    private func refreshEstimate(
+        alarms: inout [[String: Any]],
+        index: Int,
+        thresholdIndex: Int
+    ) async throws -> (thresholdMinutes: Int, untilThreshold: Int?) {
+        let thresholdStates = Self.sortedThresholds(of: alarms[index])
+        alarms[index]["thresholdStates"] = thresholdStates
+        guard let thresholdMinutes = Self.intValue(thresholdStates[thresholdIndex]["minutesBeforeArrival"]) else {
+            throw PingHandlerError.invalidAlarmData
+        }
+        let cachedEstimateUntilThreshold = Self.intValue(alarms[index]["lastEstimatedMinutesUntilThreshold"])
+            ?? Self.intValue(alarms[index]["lastEstimatedMinutesUntilArrival"]).map { $0 - thresholdMinutes }
+        if (alarms[index]["routeApiConfigs"] as? [[String: Any]] ?? []).isEmpty {
+            let alarmLocale = NativeTransitLocales.locale(for: alarms[index]["localeCode"] as? String)
+            let configs = routeAPIConfigsForLegacyAlarm(alarms[index], locale: alarmLocale)
+            if !configs.isEmpty {
+                alarms[index]["routeApiConfigs"] = configs
+                try saveAlarms(alarms)
+            }
+        }
+        let isFreshOccurrence = cachedEstimateUntilThreshold == nil &&
+            !thresholdStates.isEmpty &&
+            thresholdStates.allSatisfy { ($0["outcome"] as? String ?? "pending") == "pending" }
+        let minimumArrivalMinutes = isFreshOccurrence
+            ? thresholdStates.compactMap { Self.intValue($0["minutesBeforeArrival"]) }.max()
+            : nil
+        let freshArrivalEstimate = await estimateMinutesUntilArrival(
+            for: alarms[index],
+            minimumArrivalMinutes: minimumArrivalMinutes
+        )
+        let freshEstimateUntilThreshold = freshArrivalEstimate.map { $0 - thresholdMinutes }
+        if let freshEstimateUntilThreshold {
+            alarms[index]["lastEstimatedMinutesUntilThreshold"] = freshEstimateUntilThreshold
+            alarms[index].removeValue(forKey: "lastEstimatedMinutesUntilArrival")
+        }
+        return (thresholdMinutes, freshEstimateUntilThreshold ?? cachedEstimateUntilThreshold)
+    }
+
+    /// Thresholds ordered from the largest minutes-before-arrival down, the
+    /// order they ring in.
+    private static func sortedThresholds(of alarm: [String: Any]) -> [[String: Any]] {
+        (alarm["thresholdStates"] as? [[String: Any]] ?? []).sorted {
+            (intValue($0["minutesBeforeArrival"]) ?? 0) > (intValue($1["minutesBeforeArrival"]) ?? 0)
+        }
+    }
+
+    /// Whether the alarm has started its current occurrence: it has an
+    /// estimate, or a threshold has moved on from pending.
+    private static func occurrenceInProgress(
+        _ alarm: [String: Any],
+        thresholdStates: [[String: Any]]
+    ) -> Bool {
+        alarm["spent"] as? Bool != true && (
+            intValue(alarm["lastEstimatedMinutesUntilThreshold"]) != nil ||
+                thresholdStates.contains { ($0["outcome"] as? String ?? "pending") != "pending" }
+        )
     }
 
     /// Ends the current occurrence, because its thresholds are done or its
@@ -325,21 +399,20 @@ final class NativePingHandler {
         }
 
         let locale = NativeTransitLocales.locale(for: alarm["localeCode"] as? String)
-        let savedRouteConfigs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
-        let requests: [NativeTransitETARequest] = savedRouteConfigs.compactMap { config -> NativeTransitETARequest? in
-            guard let mode = config["mode"] as? String,
-                  let providerCode = config["providerCode"] as? String,
-                  let apiURL = config["apiUrl"] as? String else {
-                return nil
+        var hkRequests: [NativeTransitETARequest] = []
+        for source in LiveSource.sources(for: alarm, locale: locale) {
+            switch source {
+            case .hkOperatorJSON(let request):
+                hkRequests.append(request)
+            case .unsupported:
+                break
             }
-            return NativeTransitETAProviders.request(
-                mode: mode,
-                providerCode: providerCode,
-                apiURL: apiURL
-            )
         }
 
-        let liveDates = requests.isEmpty ? [] : await fetchLiveETAs(from: requests, allowedRoutes: Set(routeNumbers))
+        var liveDates: [Date] = []
+        if !hkRequests.isEmpty {
+            liveDates += await fetchLiveETAs(from: hkRequests, allowedRoutes: Set(routeNumbers))
+        }
         let eligibleLiveDates = liveDates.filter { date in
             guard let minimumArrivalMinutes else { return true }
             return Int(date.timeIntervalSinceNow / 60) >= minimumArrivalMinutes
@@ -350,12 +423,19 @@ final class NativePingHandler {
         if alarm["liveOnly"] as? Bool == true {
             return nil
         }
-        return scheduledMinutesUntilArrival(
-            stopID: stopID,
-            routeNumbers: routeNumbers,
-            locale: locale,
-            minimumArrivalMinutes: minimumArrivalMinutes
-        )
+        // Each locale's timetable comes from its own GTFS database; add a case
+        // for a locale whose timetable needs a different query.
+        switch locale.code {
+        case "hk", "gb":
+            return scheduledMinutesUntilArrival(
+                stopID: stopID,
+                routeNumbers: routeNumbers,
+                locale: locale,
+                minimumArrivalMinutes: minimumArrivalMinutes
+            )
+        default:
+            return nil
+        }
     }
 
     /// Migrates older alarm records once by saving the provider URL for each

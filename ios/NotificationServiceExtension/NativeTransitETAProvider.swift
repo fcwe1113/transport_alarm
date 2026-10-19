@@ -102,3 +102,44 @@ enum NativeTransitETAProviders {
         registered[providerCode]?.arrivalDates(from: data, matching: routeNumbers) ?? []
     }
 }
+
+/// Where an alarm's live arrivals come from, and so which request and
+/// parsing code fetches them. Add a case, with its own fetch and parse
+/// functions, to support another locale or operator.
+enum LiveSource {
+    /// HK operators (KMB, Citybus): one JSON ETA endpoint per saved route.
+    case hkOperatorJSON(NativeTransitETARequest)
+    /// No live data available for this route or locale.
+    case unsupported
+
+    /// The live sources for an alarm, chosen by its locale, then by each saved
+    /// route's provider code.
+    static func sources(for alarm: [String: Any], locale: NativeTransitLocale) -> [LiveSource] {
+        switch locale.code {
+        case "hk":
+            let configs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
+            return configs.map(hkSource)
+        default:
+            return []
+        }
+    }
+
+    private static func hkSource(for config: [String: Any]) -> LiveSource {
+        guard let providerCode = config["providerCode"] as? String else { return .unsupported }
+        switch providerCode {
+        case "kmb", "ctb":
+            guard let mode = config["mode"] as? String,
+                  let apiURL = config["apiUrl"] as? String,
+                  let request = NativeTransitETAProviders.request(
+                      mode: mode,
+                      providerCode: providerCode,
+                      apiURL: apiURL
+                  ) else {
+                return .unsupported
+            }
+            return .hkOperatorJSON(request)
+        default:
+            return .unsupported
+        }
+    }
+}
