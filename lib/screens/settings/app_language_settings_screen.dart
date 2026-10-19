@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_language_state.dart';
 import '../../l10n/app_strings.dart';
-import '../../services/app_group_storage.dart';
+import '../../l10n/app_languages.dart';
 import '../../transit/services/locale_selection_service.dart';
 import '../../widgets/app_shell.dart';
 
@@ -16,21 +16,6 @@ class AppLanguageSettingsScreen extends StatefulWidget {
 }
 
 class _AppLanguageSettingsScreenState extends State<AppLanguageSettingsScreen> {
-  static const _languages = <({String code, String name})>[
-    (code: 'en', name: "English"),
-    (code: 'zh-Hant', name: "正體中文"),
-    (code: 'zh-Hans', name: "简体中文"),
-    (code: 'ja', name: "日本語"),
-    (code: 'fr', name: "Français"),
-    (code: 'es', name: "Español"),
-    (code: 'de', name: "Deutsch"),
-    (code: 'nl', name: "Nederlands"),
-    (code: 'it', name: "Italiano"),
-    (code: 'pl', name: "Polski"),
-    (code: 'ko', name: "한국어"),
-    (code: 'uk', name: "Українська"),
-  ];
-
   final _selectionService = LocaleSelectionService();
   String? _selectedCode;
   bool _saving = false;
@@ -52,10 +37,7 @@ class _AppLanguageSettingsScreenState extends State<AppLanguageSettingsScreen> {
     if (code == null || _saving) return;
 
     setState(() => _saving = true);
-    await _selectionService.setAppLanguageCode(code);
-    await AppStrings.load(code);
-    await AppGroupStorage.setAppLanguageCode(code);
-    appLanguageCodeNotifier.value = code;
+    await applyAppLanguage(code);
     if (mounted) {
       appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
         '/settings',
@@ -92,7 +74,7 @@ class _AppLanguageSettingsScreenState extends State<AppLanguageSettingsScreen> {
         },
         child: ListView(
           children: [
-            for (final language in _languages)
+            for (final language in appLanguages)
               RadioListTile<String>(
                 value: language.code,
                 title: Text(language.name),

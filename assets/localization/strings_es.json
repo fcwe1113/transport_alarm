@@ -24,6 +24,7 @@
   "settings.about": "Acerca de",
   "setup.title": "Configuración inicial",
   "setup.choose_region": "Elija su país/región",
+  "setup.choose_language": "Elija su idioma",
   "setup.heads_up": "¡Aviso!",
   "setup.download_warning": "La descarga de los datos requeridos puede tardar un poco y consumir muchos datos. Es recomendable conectarse a una red Wi-Fi antes de continuar.",
   "loading.starting": "Iniciando...",

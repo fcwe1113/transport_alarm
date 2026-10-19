@@ -24,6 +24,7 @@
   "settings.about": "About",
   "setup.title": "First time setup",
   "setup.choose_region": "Choose your country/region",
+  "setup.choose_language": "Choose your language",
   "setup.heads_up": "Heads up!",
   "setup.download_warning": "Downloading the required data can take a while and use a fair amount of data. You may want to connect to Wi-Fi before proceeding.",
   "loading.starting": "Starting...",

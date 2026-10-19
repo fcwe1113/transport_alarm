@@ -24,6 +24,7 @@
   "settings.about": "About",
   "setup.title": "初始化",
   "setup.choose_region": "選擇你的國家/地區",
+  "setup.choose_language": "選擇你的語言",
   "setup.heads_up": "請留意!",
   "setup.download_warning": "建立資料庫需要使用相當多的數據，建議先連接Wi-Fi再繼續。",
   "loading.starting": "開始中...",

@@ -5,6 +5,7 @@ import 'package:transport_alarm/screens/add_alarm_screen.dart';
 import 'package:transport_alarm/screens/alarm_list_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
+import 'package:transport_alarm/screens/setup_language_screen.dart';
 import 'package:transport_alarm/screens/setup_screen.dart';
 import 'package:transport_alarm/screens/settings_screen.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
@@ -62,7 +63,7 @@ Future<void> main() async {
       .hasCompletedSetup(); // check if user did setup before
 
   runApp(
-    MyApp(initialRoute: setupDone ? "/" : "/setup"),
+    MyApp(initialRoute: setupDone ? "/" : "/setup-language"),
   ); // app entry point, working with flutter from this point on
 }
 
@@ -116,6 +117,11 @@ Route<dynamic>? _generateRoute(RouteSettings settings) {
       return _tabRoute(settings, const MapScreen());
     case '/settings':
       return _tabRoute(settings, const SettingsScreen());
+    case '/setup-language':
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => const SetupLanguageScreen(),
+      );
     case '/setup':
       return MaterialPageRoute<void>(
         settings: settings,
