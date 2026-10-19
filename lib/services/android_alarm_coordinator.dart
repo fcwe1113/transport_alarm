@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math' as math;
 import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
@@ -158,7 +157,7 @@ class AndroidAlarmCoordinator {
   Future<void> scheduleRecoveryCheck(String alarmId) async {
     final alarm = await _findAlarm(alarmId);
     if (alarm == null || !alarm.enabled || alarm.spent) return;
-    await _scheduleRetry(alarm, DateTime.now());
+    await _scheduleNextCheck(alarm);
   }
 
   Future<void> _checkAlarm(String alarmId) async {
@@ -199,7 +198,7 @@ class AndroidAlarmCoordinator {
     if (activeThresholdIndex >= 0 &&
         alarm.thresholdStates[activeThresholdIndex].outcome ==
             ThresholdOutcome.ringing) {
-      await _scheduleRetry(alarm, now);
+      await _scheduleNextCheck(alarm);
       return;
     }
 
@@ -234,7 +233,7 @@ class AndroidAlarmCoordinator {
       if (arrivalAt == null) {
         await _cancel(_fireAlarmId(alarm.id));
         await NotificationService.cancel(_countdownNotificationId(alarm.id));
-        await _scheduleRetry(alarm, now);
+        await _scheduleNextCheck(alarm);
         return;
       }
 
@@ -270,7 +269,7 @@ class AndroidAlarmCoordinator {
           ),
           body: _ringBody(ringing, stopName),
         );
-        await _scheduleRetry(ringing, now);
+        await _scheduleNextCheck(ringing);
         return;
       }
 
@@ -297,7 +296,7 @@ class AndroidAlarmCoordinator {
       } else {
         await NotificationService.cancel(_countdownNotificationId(alarm.id));
       }
-      await _scheduleHalfwayCheck(alarm, now, thresholdAt);
+      await _scheduleNextCheck(alarm);
       return;
     }
 
@@ -306,7 +305,7 @@ class AndroidAlarmCoordinator {
     if (finalArrivalAt == null) {
       await _cancel(_fireAlarmId(alarm.id));
       await NotificationService.cancel(_countdownNotificationId(alarm.id));
-      await _scheduleRetry(alarm, now);
+      await _scheduleNextCheck(alarm);
       return;
     }
     final arrivalAlertAt = finalArrivalAt.subtract(const Duration(seconds: 20));
@@ -344,7 +343,7 @@ class AndroidAlarmCoordinator {
     } else {
       await NotificationService.cancel(_countdownNotificationId(alarm.id));
     }
-    await _scheduleHalfwayCheck(alarm, now, arrivalAlertAt);
+    await _scheduleNextCheck(alarm);
   }
 
   Future<ArrivalLookup> _lookupArrival(
@@ -545,29 +544,12 @@ class AndroidAlarmCoordinator {
     return updated;
   }
 
-  Future<void> _scheduleHalfwayCheck(
-    TransportAlarm alarm,
-    DateTime now,
-    DateTime target,
-  ) async {
-    final endSeconds = alarm.androidOccurrenceEndEpochSeconds;
-    final windowEnd = endSeconds == null
-        ? null
-        : DateTime.fromMillisecondsSinceEpoch(endSeconds * 1000);
-    if (windowEnd != null && !target.isBefore(windowEnd)) {
-      await _schedule(alarm, windowEnd, 'windowEnd');
-      return;
-    }
-    final remainingSeconds = target.difference(now).inSeconds;
-    if (remainingSeconds <= 60) return;
-    final waitSeconds = math.max(60, remainingSeconds ~/ 2).toInt();
-    final checkAt = now.add(Duration(seconds: waitSeconds));
-    if (checkAt.isBefore(target)) {
-      await _schedule(alarm, checkAt, 'check');
-    }
-  }
-
-  Future<void> _scheduleRetry(TransportAlarm alarm, DateTime now) async {
+  /// Schedules the next arrival check one minute from now, measured after
+  /// the fetch that just finished whether it succeeded or failed, or the
+  /// window end if that comes first. The threshold "fire" callback is
+  /// separate, so a ring due sooner still happens on time.
+  Future<void> _scheduleNextCheck(TransportAlarm alarm) async {
+    final now = DateTime.now();
     final endSeconds = alarm.androidOccurrenceEndEpochSeconds;
     final end = endSeconds == null
         ? now.add(const Duration(minutes: 1))
