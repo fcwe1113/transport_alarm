@@ -106,7 +106,16 @@ class GtfsDatabase {
       // Create the staging schema for the first archive, or reopen the partial
       // snapshot left by an earlier archive. Carry operator data forward only
       // after the complete timetable snapshot has been populated.
-      await stagingDb.database;
+      // Bulk-load settings for the staging file only. It's discarded if the
+      // import fails and validated before it's installed, so it doesn't need
+      // the journal and syncing that protect the live database; skipping them
+      // makes the import many times faster and far lighter on storage. They
+      // apply to this connection only: the installed file reopens with the
+      // defaults.
+      final stagingConnection = await stagingDb.database;
+      await stagingConnection.rawQuery('PRAGMA journal_mode=OFF');
+      await stagingConnection.execute('PRAGMA synchronous=OFF');
+      await stagingConnection.execute('PRAGMA cache_size=-32768');
       await populate(stagingDb);
       populateSucceeded = true;
 

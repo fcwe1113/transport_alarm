@@ -428,6 +428,9 @@ class _TemporaryIndex {
           await db.execute('CREATE TABLE included_ids (id TEXT PRIMARY KEY)');
         },
       );
+      // Deleted after every import, so it needs no journal or syncing.
+      await database.rawQuery('PRAGMA journal_mode=OFF');
+      await database.execute('PRAGMA synchronous=OFF');
       return _TemporaryIndex._(directory, database, name);
     } catch (_) {
       await directory.delete(recursive: true);
