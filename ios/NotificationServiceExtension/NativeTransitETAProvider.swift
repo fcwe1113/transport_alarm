@@ -109,6 +109,9 @@ enum NativeTransitETAProviders {
 enum LiveSource {
     /// HK operators (KMB, Citybus): one JSON ETA endpoint per saved route.
     case hkOperatorJSON(NativeTransitETARequest)
+    /// GB: TfL for London stops, otherwise BODS vehicle locations matched to
+    /// GTFS trips (GBLiveArrivals), for all of the alarm's routes at once.
+    case gbLive
     /// No live data available for this route or locale.
     case unsupported
 
@@ -119,6 +122,8 @@ enum LiveSource {
         case "hk":
             let configs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
             return configs.map(hkSource)
+        case "gb":
+            return [.gbLive]
         default:
             return []
         }

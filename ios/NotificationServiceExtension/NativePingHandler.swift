@@ -420,16 +420,28 @@ final class NativePingHandler {
 
         let locale = NativeTransitLocales.locale(for: alarm["localeCode"] as? String)
         var hkRequests: [NativeTransitETARequest] = []
+        var liveDates: [Date] = []
+        // Trips a live feed shows as running or already past the stop, so the
+        // timetable fallback doesn't offer a bus that has gone.
+        var liveTripIDs: Set<String> = []
         for source in LiveSource.sources(for: alarm, locale: locale) {
             switch source {
             case .hkOperatorJSON(let request):
                 hkRequests.append(request)
+            case .gbLive:
+                let result = await GBLiveArrivals(
+                    databaseURL: locale.databaseURL(in: appGroupDirectory),
+                    stopID: stopID,
+                    routes: Self.routeDestinations(of: alarm),
+                    timeZone: locale.timeZone
+                ).fetch()
+                liveDates += result.arrivals
+                liveTripIDs.formUnion(result.liveTripIDs)
             case .unsupported:
                 break
             }
         }
 
-        var liveDates: [Date] = []
         if !hkRequests.isEmpty {
             liveDates += await fetchLiveETAs(from: hkRequests, allowedRoutes: Set(routeNumbers))
         }
@@ -451,7 +463,8 @@ final class NativePingHandler {
                 stopID: stopID,
                 routeNumbers: routeNumbers,
                 locale: locale,
-                minimumArrivalMinutes: minimumArrivalMinutes
+                minimumArrivalMinutes: minimumArrivalMinutes,
+                excludingTrips: liveTripIDs
             )
         default:
             return nil
@@ -536,7 +549,8 @@ final class NativePingHandler {
         stopID: String,
         routeNumbers: [String],
         locale: NativeTransitLocale,
-        minimumArrivalMinutes: Int?
+        minimumArrivalMinutes: Int?,
+        excludingTrips: Set<String> = []
     ) -> Int? {
         guard !routeNumbers.isEmpty else { return nil }
         let databaseURL = locale.databaseURL(in: appGroupDirectory)
@@ -563,7 +577,7 @@ final class NativePingHandler {
         let localTime = timeFormatter.string(from: now)
         let placeholders = Array(repeating: "?", count: routeNumbers.count).joined(separator: ",")
         let sql = """
-            SELECT st.arrival_time
+            SELECT st.arrival_time, st.trip_id
             FROM gtfs_stop_times st
             INNER JOIN gtfs_trips t ON st.trip_id = t.trip_id
             INNER JOIN gtfs_routes r ON t.route_id = r.route_id
@@ -590,6 +604,8 @@ final class NativePingHandler {
         var soonest: Int?
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let timePointer = sqlite3_column_text(statement, 0) else { continue }
+            if let tripPointer = sqlite3_column_text(statement, 1),
+               excludingTrips.contains(String(cString: tripPointer)) { continue }
             let pieces = String(cString: timePointer).split(separator: ":").compactMap { Int($0) }
             guard pieces.count == 3 else { continue }
             let departure = startOfDay.addingTimeInterval(TimeInterval(pieces[0] * 3600 + pieces[1] * 60 + pieces[2]))
@@ -700,6 +716,20 @@ final class NativePingHandler {
     }
 
     // MARK: SQLite and JSON scalar helpers
+
+    /// Each selected route's saved destination (English name), or nil when
+    /// the alarm saved none, for matching live buses.
+    static func routeDestinations(of alarm: [String: Any]) -> [String: String?] {
+        var destinations: [String: String?] = [:]
+        if let routes = alarm["routeNumbers"] as? [String: Any] {
+            for (route, value) in routes {
+                destinations[route] = (value as? [String: Any])?["en"] as? String
+            }
+        } else {
+            for route in routeNumbers(of: alarm) { destinations[route] = .some(nil) }
+        }
+        return destinations
+    }
 
     /// The route numbers selected on an alarm. Alarms now save a map of route
     /// number to its destination names; older ones saved a plain list.
