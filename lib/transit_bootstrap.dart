@@ -121,6 +121,34 @@ Future<List<String>> refreshStaleProviders({
   return allFailures;
 }
 
+/// Names of the enabled locales with out-of-date data, for the startup
+/// reminder. A provider whose check fails (e.g. offline) counts as fresh, so
+/// being offline never triggers the reminder.
+Future<List<String>> findStaleLocales() async {
+  final staleNames = <String>[];
+  final locales = await LocaleSelectionService().getEnabledLocales();
+  for (final locale in LocaleRegistry.getLocales(locales.keys.toList())) {
+    var stale = false;
+    for (final gtfsProvider in locale.gtfsProviders) {
+      try {
+        stale = stale || await gtfsProvider.checkIsStale();
+      } catch (_) {}
+    }
+    for (final transitProvider in locale.transitProviders) {
+      try {
+        stale = stale || await transitProvider.isStale();
+      } catch (_) {}
+    }
+    if (stale) {
+      final names = locale.config.displayName;
+      staleNames.add(
+        names[AppStrings.languageCode] ?? names['en'] ?? locale.config.code,
+      );
+    }
+  }
+  return staleNames;
+}
+
 Future<List<String>> localesForSelection(
   LocaleSelectionService selectionService,
   List<String> enabledLocales,

@@ -927,11 +927,11 @@ class GtfsDatabase {
   Future<bool> hasUsableGtfsData() async {
     final rows = await (await database).rawQuery('''
       SELECT
-        (SELECT COUNT(*) FROM gtfs_routes) AS routes,
-        (SELECT COUNT(*) FROM gtfs_trips) AS trips,
-        (SELECT COUNT(*) FROM gtfs_calendar) AS calendar,
-        (SELECT COUNT(*) FROM gtfs_stops) AS stops,
-        (SELECT COUNT(*) FROM gtfs_stop_times) AS stop_times
+        EXISTS(SELECT 1 FROM gtfs_routes) AS routes,
+        EXISTS(SELECT 1 FROM gtfs_trips) AS trips,
+        EXISTS(SELECT 1 FROM gtfs_calendar) AS calendar,
+        EXISTS(SELECT 1 FROM gtfs_stops) AS stops,
+        EXISTS(SELECT 1 FROM gtfs_stop_times) AS stop_times
     ''');
     final counts = rows.single;
     return counts.values.every((value) => value is int && value > 0);

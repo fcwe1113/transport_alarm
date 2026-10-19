@@ -1,11 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:transport_alarm/screens/add_alarm_screen.dart';
+import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/widgets/alarm_card.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
+import 'package:transport_alarm/transit/services/stale_data_reminder.dart';
+import 'package:transport_alarm/transit_bootstrap.dart';
 
 import '../models/transport_alarm.dart';
 import '../services/alarm_server_service.dart';
@@ -27,11 +30,54 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   List<TransportAlarm> _alarms = [];
   bool _isEditing = false;
   bool _isLoading = true;
+  // Once per app run, not every time this screen is rebuilt or revisited.
+  static bool _checkedStaleData = false;
 
   @override
   void initState() {
     super.initState();
     _loadAlarms();
+    if (!_checkedStaleData) {
+      _checkedStaleData = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _remindIfStale());
+    }
+  }
+
+  Future<void> _remindIfStale() async {
+    final reminder = StaleDataReminder();
+    if (!await reminder.shouldRemind()) return;
+    final staleLocales = await findStaleLocales();
+    if (staleLocales.isEmpty || !mounted) return;
+
+    final refreshNow = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('stale_data.title')),
+        content: Text(
+          '${AppStrings.text('stale_data.body', {'locales': staleLocales.join(', ')})}\n\n'
+          '${AppStrings.text('setup.download_warning')}',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('stale_data.later'))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('stale_data.refresh_now'))),
+        ],
+      ),
+    );
+    if (refreshNow != true) {
+      await reminder.snooze();
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const LoadingScreen(
+          operation: refreshStaleProviders,
+          returnToPrevious: true,
+          showBottomNavigation: true,
+        ),
+      ),
+    );
   }
 
   Future<void> _loadAlarms() async {

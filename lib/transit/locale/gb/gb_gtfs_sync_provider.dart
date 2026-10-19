@@ -181,5 +181,16 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
         await workDirectory.delete(recursive: true);
       }
     }
+
+    // Record what was synced and when; checkIsStale compares against these.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'gtfs_atco_selection_$locale',
+      (selectedAreas.toList()..sort()).join(','),
+    );
+    await prefs.setString(
+      'gtfs_last_checked_$locale',
+      DateTime.now().toIso8601String(),
+    );
   }
 }

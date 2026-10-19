@@ -1,4 +1,5 @@
 import 'package:transport_alarm/transit/progress_callback.dart';
+import 'package:transport_alarm/transit/services/stale_data_reminder.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
@@ -61,6 +62,8 @@ class _LoadingScreenState extends State<LoadingScreen> {
         ));
       }
       
+      await StaleDataReminder().clearSnooze();
+
       if (mounted) {
         setState(() {
           _message = AppStrings.text('loading.completed');
