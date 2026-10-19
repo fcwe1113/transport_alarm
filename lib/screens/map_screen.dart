@@ -51,6 +51,8 @@ class _MapScreenState extends State<MapScreen> {
   // access falls back to the stops instead of their old position.
   CameraPosition? _savedCamera;
   CameraPosition? _currentCamera;
+  // Chosen once, when the map is first laid out.
+  CameraPosition? _initialCamera;
   // True from starting a move to the user's location until it comes to rest.
   bool _movingToLocation = false;
 
@@ -111,13 +113,13 @@ class _MapScreenState extends State<MapScreen> {
     await prefs.setBool(_cameraFromLocationKey, fromLocation);
   }
 
-  /// With no saved view, shows the user's selected stops until (or unless)
-  /// their location arrives. The map already opens on a saved view.
-  Future<void> _fitToStops() async {
-    if (_savedCamera != null || _cameraPlaced || _mapController == null) return;
+  /// A view of the user's selected stops for a map of [size], worked out here
+  /// rather than with the map's own bounds fitting, which can leave the map
+  /// in a broken state if it runs before the map view is laid out.
+  CameraPosition? _cameraForStops(Size size) {
     // The GB import stores 0,0 for stops without coordinates.
     final stops = _stops.where((s) => s.lat != 0 || s.lng != 0).toList();
-    if (stops.isEmpty) return;
+    if (stops.isEmpty || size.isEmpty) return null;
 
     final lats = stops.map((s) => s.lat).toList()..sort();
     final lngs = stops.map((s) => s.lng).toList()..sort();
@@ -127,26 +129,22 @@ class _MapScreenState extends State<MapScreen> {
     final south = lats[trim], north = lats[lats.length - 1 - trim];
     final west = lngs[trim], east = lngs[lngs.length - 1 - trim];
 
-    try {
-      if (south == north && west == east) {
-        await _mapController!.moveCamera(
-          CameraUpdate.newLatLngZoom(LatLng(south, west), 15),
-        );
-      } else {
-        await _mapController!.moveCamera(
-          CameraUpdate.newLatLngBounds(
-            LatLngBounds(
-              southwest: LatLng(south, west),
-              northeast: LatLng(north, east),
-            ),
-            48,
-          ),
-        );
-      }
-    } catch (e) {
-      // newLatLngBounds fails if the map hasn't been laid out yet.
-      debugPrint("Could not fit map to stops: $e");
-    }
+    // Web Mercator: the world is 256 logical pixels wide at zoom 0.
+    double mercatorY(double lat) => log(tan(pi / 4 + lat * pi / 360));
+    final centerY = (mercatorY(south) + mercatorY(north)) / 2;
+    final center = LatLng(
+      (2 * atan(exp(centerY)) - pi / 2) * 180 / pi,
+      (west + east) / 2,
+    );
+
+    const padding = 48.0;
+    final width = max(size.width - 2 * padding, 64.0);
+    final height = max(size.height - 2 * padding, 64.0);
+    final lngSpan = east - west;
+    final ySpan = mercatorY(north) - mercatorY(south);
+    final zoomX = lngSpan <= 0 ? 15.0 : log(width * 360 / (256 * lngSpan)) / ln2;
+    final zoomY = ySpan <= 0 ? 15.0 : log(height * 2 * pi / (256 * ySpan)) / ln2;
+    return CameraPosition(target: center, zoom: min(zoomX, zoomY).clamp(3.0, 15.0));
   }
 
   /// Moves the camera to the user's location when it's available. Without
@@ -308,14 +306,14 @@ class _MapScreenState extends State<MapScreen> {
           Navigator.pop(context, _selectedPickerStop);
         },),
       ] : null,
-      body: Navigator(key: _nestedNavKey, onGenerateRoute: (settings) => MaterialPageRoute(builder: (nestedContext) => GoogleMap(
+      body: Navigator(key: _nestedNavKey, onGenerateRoute: (settings) => MaterialPageRoute(builder: (nestedContext) => LayoutBuilder(builder: (context, constraints) {
+        _initialCamera ??= _savedCamera ?? _cameraForStops(constraints.biggest) ?? _defaultCamera;
+        return GoogleMap(
           padding: _mapPadding, // not working for some reason
-          initialCameraPosition: _savedCamera ?? _defaultCamera,
+          initialCameraPosition: _initialCamera!,
           onMapCreated: (controller) {
             _mapController = controller;
             _updateVisibleMarkers();
-            // After the first frame, so the map has a size to fit bounds to.
-            WidgetsBinding.instance.addPostFrameCallback((_) => _fitToStops());
             _centerOnUserLocation();
           },
           onCameraMove: (camera) => _currentCamera = camera,
@@ -325,7 +323,8 @@ class _MapScreenState extends State<MapScreen> {
           },
           myLocationEnabled: true, // enables phone location services
           markers: _visibleMarkers
-      ),),)
+        );
+      }),),)
     );
   }
 }
