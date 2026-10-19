@@ -59,6 +59,7 @@ dependencies:
   live_update_countdown:
     path: packages/live_update_countdown
   flutter_archive: ^6.3.1
+  wakelock_plus: ^1.8.0
 
 dev_dependencies:
   flutter_test:

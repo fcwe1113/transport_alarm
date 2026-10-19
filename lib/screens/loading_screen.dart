@@ -6,6 +6,7 @@ import 'package:transport_alarm/transit/services/stale_data_reminder.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
 class LoadingScreen extends StatefulWidget {
@@ -57,17 +58,25 @@ class _LoadingScreenState extends State<LoadingScreen> {
       _cancelToken = cancelToken;
     });
     try {
-      final failures = await widget.operation(
-        forceRefresh: widget.forceRefresh,
-        cancelToken: cancelToken,
-        onProgress: (message, progress) {
-          if (!mounted || cancelToken.isCancelled) return;
-          setState(() {
-            _message = message;
-            _progress = progress;
-          });
-        },
-      );
+      // Keep the screen on while data downloads and imports, so the device
+      // doesn't lock partway through a long import.
+      await WakelockPlus.enable();
+      final List<String> failures;
+      try {
+        failures = await widget.operation(
+          forceRefresh: widget.forceRefresh,
+          cancelToken: cancelToken,
+          onProgress: (message, progress) {
+            if (!mounted || cancelToken.isCancelled) return;
+            setState(() {
+              _message = message;
+              _progress = progress;
+            });
+          },
+        );
+      } finally {
+        await WakelockPlus.disable();
+      }
       
       if (widget.firstTimeSetup && !await _allLocalesHaveData()) {
         await _restartSetup(failures.join(", "));
@@ -164,6 +173,13 @@ class _LoadingScreenState extends State<LoadingScreen> {
     );
     if (!mounted) return;
     Navigator.of(context).pushNamedAndRemoveUntil('/setup-language', (_) => false);
+  }
+
+  @override
+  void dispose() {
+    // Release it if the screen closes while the operation is still running.
+    WakelockPlus.disable();
+    super.dispose();
   }
 
   void _cancel() {
