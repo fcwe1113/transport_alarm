@@ -11,6 +11,8 @@ import 'package:transport_alarm/transit/refresh_result.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/transit_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:xml/xml.dart';
 
@@ -60,17 +62,58 @@ class GbBodsProvider extends TransitProvider {
     return xml;
   }
 
+  // Shared through preferences, so the app and the background alarm
+  // isolate both respect a pause.
+  static const _pausedUntilKey = 'bods_requests_paused_until';
+
+  /// How long to stop calling BODS after it refuses a request: an hour if
+  /// the key was rejected (401/403), or the server's Retry-After (5 minutes
+  /// if it gives none) when rate limited (429). Null for other failures.
+  static Duration? _pauseFor(http.Response response) {
+    switch (response.statusCode) {
+      case 401:
+      case 403:
+        return const Duration(hours: 1);
+      case 429:
+        final retryAfter = int.tryParse(response.headers['retry-after'] ?? '');
+        if (retryAfter == null) return const Duration(minutes: 5);
+        return Duration(seconds: retryAfter.clamp(30, 3600));
+      default:
+        return null;
+    }
+  }
+
   Future<String> _requestVehicleFeed(
     String noc,
     String routeNumber,
     String apiKey,
   ) async {
+    final prefs = await SharedPreferences.getInstance();
+    // Pick up a pause set by the other isolate.
+    await prefs.reload();
+    final pausedUntil = prefs.getInt(_pausedUntilKey);
+    if (pausedUntil != null &&
+        DateTime.now().millisecondsSinceEpoch < pausedUntil) {
+      throw StateError(
+        'BODS requests are paused until '
+        '${DateTime.fromMillisecondsSinceEpoch(pausedUntil)} after the '
+        'service refused a request.',
+      );
+    }
+
     final uri = Uri.https('data.bus-data.dft.gov.uk', '/api/v1/datafeed/', {
       'api_key': apiKey,
       'lineRef': routeNumber,
       'operatorRef': noc,
     });
     final response = await ApiCaller.get(uri);
+    final pause = _pauseFor(response);
+    if (pause != null) {
+      await prefs.setInt(
+        _pausedUntilKey,
+        DateTime.now().add(pause).millisecondsSinceEpoch,
+      );
+    }
     if (response.statusCode != 200) {
       throw Exception(
         'BODS live feed request failed for $noc/$routeNumber: '
