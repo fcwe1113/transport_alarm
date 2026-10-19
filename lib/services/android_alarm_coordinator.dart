@@ -650,18 +650,7 @@ class AndroidAlarmCoordinator {
     );
     var nextWindow = _nextOccurrence(alarm, occurrenceEnd);
     if (!nextWindow.end.isAfter(now)) {
-      final activeWindow = _activeWindow(alarm, now);
-      final activeStartDate = activeWindow == null
-          ? null
-          : DateTime(
-              activeWindow.start.year,
-              activeWindow.start.month,
-              activeWindow.start.day,
-            );
-      nextWindow = activeWindow != null &&
-              _repeatMatches(alarm.repeat, activeStartDate!)
-          ? activeWindow
-          : _nextOccurrence(alarm, now);
+      nextWindow = _activeWindow(alarm, now) ?? _nextOccurrence(alarm, now);
     }
     final concluded = alarm.copyWith(
       spent: true,
@@ -781,9 +770,12 @@ class AndroidAlarmCoordinator {
     }
   }
 
+  /// The window that contains [now], if it started on a day the alarm
+  /// repeats on. Windows crossing midnight belong to the day they start.
   WindowOccurrence? _activeWindow(TransportAlarm alarm, DateTime now) {
     for (var offset = -1; offset <= 0; offset++) {
       final date = DateTime(now.year, now.month, now.day + offset);
+      if (!_repeatMatches(alarm.repeat, date)) continue;
       final occurrence = _windowForStart(alarm, date);
       if (!now.isBefore(occurrence.start) && now.isBefore(occurrence.end)) {
         return occurrence;
