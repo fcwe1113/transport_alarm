@@ -295,6 +295,8 @@ class GtfsSyncService {
           includedServiceIds.add(_csvField(header, row, 'service_id'));
         }
       },
+      // Can run to hundreds of thousands of rows, like stop_times.
+      batchSize: 25000,
     );
 
     await parseWithHeader('agency.txt', _db.batchInsertAgencies);
