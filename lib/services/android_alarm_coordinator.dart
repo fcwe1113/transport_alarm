@@ -587,6 +587,10 @@ class AndroidAlarmCoordinator {
           ? _fireAlarmId(alarm.id)
           : _checkAlarmId(alarm.id),
       androidAlarmManagerCallback,
+      // Threshold rings use Android's alarm clock scheduling, which Doze
+      // can't delay. The minute-by-minute checks stay ordinary exact alarms,
+      // which Doze may space out while the phone is idle.
+      alarmClock: scheduledEvent == 'fire',
       exact: true,
       allowWhileIdle: true,
       wakeup: true,
