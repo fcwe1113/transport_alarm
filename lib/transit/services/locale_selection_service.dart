@@ -7,6 +7,7 @@ class LocaleSelectionService {
   static const _key = "enabled_locales";
   // static const _enabledUkRegionsKey = "enabled_uk_regions";
   static const _appLanguageKey = "app_language_code";
+  static const _setupCompletedKey = "setup_completed";
   static Map<String, String>? _localeSelectionDraft;
   static final ValueNotifier<Map<String, String>> _draftNotifier =
       ValueNotifier<Map<String, String>>(<String, String>{});
@@ -128,8 +129,18 @@ class LocaleSelectionService {
     return result;
   }
 
+  /// Installs from before the setup_completed flag existed count as set up
+  /// once they have saved locales.
   Future<bool> hasCompletedSetup() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.containsKey(_key);
+    return prefs.getBool(_setupCompletedKey) ?? prefs.containsKey(_key);
+  }
+
+  /// Set to false when the first data build starts and true once it has
+  /// succeeded, so a failed or interrupted first build sends the user back
+  /// through setup.
+  Future<void> setSetupCompleted(bool completed) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_setupCompletedKey, completed);
   }
 }

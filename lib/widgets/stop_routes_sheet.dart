@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:transport_alarm/models/scheduled_departure.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
+import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
@@ -15,8 +16,11 @@ class StopRoutesSheet extends StatefulWidget {
   final GtfsStop stop;
   final bool pickerMode;
 
-  const StopRoutesSheet(
-      {super.key, required this.stop, this.pickerMode = false});
+  const StopRoutesSheet({
+    super.key,
+    required this.stop,
+    this.pickerMode = false,
+  });
 
   @override
   State<StopRoutesSheet> createState() => _StopRoutesSheetState();
@@ -25,10 +29,21 @@ class StopRoutesSheet extends StatefulWidget {
 class _StopRoutesSheetState extends State<StopRoutesSheet> {
   Timer? _refreshTimer;
   int _refreshTick = 0;
+  String? _selectedRouteNumber;
+  late Future<List<TransportRoute>> _routesFuture;
+
+  void _toggleRouteSelection(TransportRoute route) {
+    setState(() {
+      _selectedRouteNumber = _selectedRouteNumber == route.routeNumber
+          ? null
+          : route.routeNumber;
+    });
+  }
 
   @override
   void initState() {
     super.initState();
+    _routesFuture = GtfsDatabase.forLocale(widget.stop.locale).getRoutesForGtfsStop(widget.stop.id);
     if (!widget.pickerMode) {
       _refreshTimer = Timer.periodic(const Duration(minutes: 2), (_) {
         setState(() => _refreshTick++);
@@ -53,86 +68,180 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
 
   Widget _buildPickerContent(BuildContext context) {
     final db = GtfsDatabase.forLocale(widget.stop.locale);
-    return SafeArea(child: Container(
-      height: MediaQuery.of(context).size.height * 0.5,
-      padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(widget.stop.displayNameFor(AppStrings.languageCode), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
-        const SizedBox(height: 12,),
-        Expanded(child: FutureBuilder<List<TransportRoute>>(future: db.getRoutesForGtfsStop(widget.stop.id), builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SizedBox(height: 32, child: Center(child: CircularProgressIndicator(),),);
-          }
-          final routes = TransportRoute.dedupeByRouteNumber(snapshot.data ?? []);
-          if (routes.isEmpty) return Text(AppStrings.text('stop.no_routes'));
-          return Scrollbar(child: ListView(children: routes.map((r) => ListTile(
-            leading: _RoutePill(route: r),
-            title: Text(r.destinationNameFor(AppStrings.languageCode)),)).toList(),));
-        },))
-      ],),
-    ));
+    return SafeArea(
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.5,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.stop.displayNameFor(AppStrings.languageCode),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: FutureBuilder<List<TransportRoute>>(
+                future: db.getRoutesForGtfsStop(widget.stop.id),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const SizedBox(
+                      height: 32,
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  final routes = TransportRoute.dedupeByRouteNumber(
+                    snapshot.data ?? [],
+                  );
+                  if (routes.isEmpty)
+                    return Text(AppStrings.text('stop.no_routes'));
+                  return Scrollbar(
+                    child: ListView(
+                      children: routes
+                          .map(
+                            (r) => ListTile(
+                              leading: _RoutePill(
+                                route: r,
+                                selected: _selectedRouteNumber == r.routeNumber,
+                                onTap: () => _toggleRouteSelection(r),
+                              ),
+                              title: Text(
+                                r.destinationNameFor(AppStrings.languageCode),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildFullContent(BuildContext context) {
-    final db = GtfsDatabase.forLocale(widget.stop.locale);
-    return SafeArea(child: Container(
-      height: MediaQuery.of(context).size.height * 0.5,
-      padding: const EdgeInsets.all(16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(widget.stop.displayNameFor(AppStrings.languageCode), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),),
-        const SizedBox(height: 12,),
-        FutureBuilder(future: db.getRoutesForGtfsStop(widget.stop.id), builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SizedBox(height: 32, child: Center(child: CircularProgressIndicator(),),);
-          }
-          final routes = snapshot.data ?? [];
-          final dedupedRoutes = TransportRoute.dedupeByRouteNumber(routes);
-          if (dedupedRoutes.isEmpty) return const SizedBox.shrink();
+    // final db = GtfsDatabase.forLocale(widget.stop.locale);
+    return SafeArea(
+      child: Container(
+        height: MediaQuery.of(context).size.height * 0.5,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.stop.displayNameFor(AppStrings.languageCode),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            FutureBuilder(
+              future: _routesFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 32,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                final routes = snapshot.data ?? [];
+                final dedupedRoutes = TransportRoute.dedupeByRouteNumber(
+                  routes,
+                );
+                if (dedupedRoutes.isEmpty) return const SizedBox.shrink();
 
-          return SizedBox(height: 32, child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: dedupedRoutes.map((route) => Padding(
-              padding: const EdgeInsetsGeometry.only(right: 8),
-              child: _RoutePill(route: route),)).toList(),
-          ),);
-        }),
-        const SizedBox(height: 4,),
-        Expanded(
-          child: FutureBuilder(key: ValueKey(_refreshTick), future: _resolveArrivals(widget.stop), builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) { // todo implement seamless background load
-              return const Center(child: CircularProgressIndicator(),);
-            }
-            final arrivals = snapshot.data ?? [];
-            if (arrivals.isEmpty) {
-              return Text(AppStrings.text('stop.no_departures'));
-            }
+                return SizedBox(
+                  height: 32,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: dedupedRoutes
+                        .map(
+                          (route) => Padding(
+                            padding: const EdgeInsetsGeometry.only(right: 8),
+                            child: _RoutePill(
+                              route: route,
+                              selected:
+                                  _selectedRouteNumber == route.routeNumber,
+                              onTap: () => _toggleRouteSelection(route),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 4),
+            Expanded(
+              child: FutureBuilder(
+                key: ValueKey(_refreshTick),
+                future: _resolveArrivals(widget.stop, routeNumber: _selectedRouteNumber),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    // todo implement seamless background load
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final arrivals = snapshot.data ?? [];
+                  if (arrivals.isEmpty) {
+                    return Text(AppStrings.text('stop.no_departures'));
+                  }
 
-            return Scrollbar(child: ListView(children: arrivals.map((a) {
-              final label = a.minutesFromNow <= 0
-                  ? AppStrings.text('stop.due')
-                  : a.minutesFromNow > 60
-                  ? AppStrings.text('stop.hours', {
-                      'hours': (a.minutesFromNow / 60).toStringAsFixed(2),
-                    })
-                  : AppStrings.text('stop.minutes', {'minutes': a.minutesFromNow});
-              return ListTile(
-                  leading: _RoutePill(route: a.route),
-                  title: Text(a.route.destinationNameFor(AppStrings.languageCode)),
-                  subtitle: Text(AppStrings.text(a.isLive ? 'stop.live' : 'stop.scheduled')),
-                  trailing: Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: a.isLive ? Colors.blueAccent : null),)
-              );
-            }).toList(),));
-            },
-          ),
-        )
-      ],)
-    ));
+                  return Scrollbar(
+                    child: ListView(
+                      children: arrivals.map((a) {
+                        final label = a.minutesFromNow <= 0
+                            ? AppStrings.text('stop.due')
+                            : a.minutesFromNow > 60
+                            ? AppStrings.text('stop.hours', {
+                                'hours': (a.minutesFromNow / 60)
+                                    .toStringAsFixed(2),
+                              })
+                            : AppStrings.text('stop.minutes', {
+                                'minutes': a.minutesFromNow,
+                              });
+                        return ListTile(
+                          leading: _RoutePill(
+                            route: a.route,
+                            selected:
+                                _selectedRouteNumber == a.route.routeNumber,
+                            // onTap: () => _toggleRouteSelection(a.route),
+                            fitContent: true,
+                          ),
+                          title: Text(
+                            _arrivalDestination(a),
+                          ),
+                          subtitle: Text(
+                            AppStrings.text(
+                              a.isLive ? 'stop.live' : 'stop.scheduled',
+                            ),
+                          ),
+                          trailing: Text(
+                            label,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: a.isLive ? Colors.blueAccent : null,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop) async {
-    final operatorStopIds = await LocaleRegistry.getLocale(stop.locale).db.getOperatorStopIds(stop.id);
+    final operatorStopIds = await LocaleRegistry.getLocale(stop.locale).db
+        .getOperatorStopIds(stop.id);
 
-    final idsByProvider = <String,List<String>>{};
+    final idsByProvider = <String, List<String>>{};
     for (final operatorStopId in operatorStopIds) {
       final parts = operatorStopId.split(":");
       final providerCode = parts[0];
@@ -145,7 +254,10 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     for (final entry in idsByProvider.entries) {
       final providerCode = entry.key;
       final rawIds = entry.value;
-      final provider = LocaleRegistry.getLocale(widget.stop.locale).transitProviders.where((p) => p.providerCode == providerCode).firstOrNull;
+      final provider = LocaleRegistry.getLocale(widget.stop.locale)
+          .transitProviders
+          .where((p) => p.providerCode == providerCode)
+          .firstOrNull;
       if (provider == null) continue; // skip stops with no valid providers
       for (final rawId in rawIds) {
         try {
@@ -160,14 +272,35 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     return allEtas;
   }
 
-  Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop) async {
+  /// The arrival's own destination in the app language, or the route's
+  /// destination when it has none, cleaned by the route's provider.
+  String _arrivalDestination(RouteArrival arrival) {
+    final languageCode = AppStrings.languageCode;
+    final provider = LocaleRegistry.getLocale(arrival.route.locale)
+        .transitProviders
+        .firstWhere((p) => p.providerCode == arrival.route.providerCode);
+    return provider.cleanDestination(
+      arrival.destination[languageCode] ??
+          arrival.route.destinationNameFor(languageCode),
+    );
+  }
+
+  Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop, {String? routeNumber}) async {
     final db = GtfsDatabase.forLocale(stop.locale);
 
-    final results = await Future.wait([db.getRoutesForGtfsStop(stop.id), _fetchLiveEtaForStop(stop), db.getUpcomingDepartures(stop.id, limit: 50)]);
+    final results = await Future.wait([
+      db.getRoutesForGtfsStop(stop.id),
+      _fetchLiveEtaForStop(stop),
+      db.getUpcomingDepartures(stop.id, limit: 50),
+    ]);
 
     final routes = results[0] as List<TransportRoute>;
-    final liveEtas = (results[1] as List<LiveEta>).where((e) => e.etaTime != null).toList();
-    final scheduled = results[2] as List<ScheduledDeparture>;
+    final allLiveEtas = results[1] as List<LiveEta>;
+    final liveEtas = allLiveEtas.where((e) => e.etaTime != null).toList();
+    final scheduled = withoutLiveTrips(
+      results[2] as List<ScheduledDeparture>,
+      allLiveEtas,
+    );
 
     final routeGroups = <String, List<TransportRoute>>{};
     for (final route in routes) {
@@ -177,44 +310,109 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
 
     for (final group in routeGroups.values) {
       final representative = group.first;
+      if (routeNumber != null && routeNumber != representative.routeNumber) continue;
 
-      final matchingLive = liveEtas.where((e) => group.any((r) => r.routeNumber == e.routeNumber)).toList()
-        ..sort((a, b) => a.etaTime!.compareTo(b.etaTime!));
+      final matchingLive =
+          liveEtas
+              .where((e) => group.any((r) => r.routeNumber == e.routeNumber))
+              .toList()
+            ..sort((a, b) => a.etaTime!.compareTo(b.etaTime!));
       if (matchingLive.isNotEmpty) {
-        arrivals.add(RouteArrival(route: representative, minutesFromNow: matchingLive.first.minutesFromNow!, isLive: true));
+        if (routeNumber == null) {
+          arrivals.add(
+            RouteArrival(
+              route: representative,
+              destination: matchingLive.first.destination,
+              minutesFromNow: matchingLive.first.minutesFromNow!,
+              isLive: true,
+            ),
+          );
+        } else {
+          arrivals.addAll(matchingLive.map((a) => RouteArrival(
+              route: representative,
+              destination: a.destination,
+              minutesFromNow: a.minutesFromNow!,
+              isLive: true
+          )));
+        }
         continue;
       }
 
-      final matchingScheduled = scheduled.where((d) => group.any((r) => d.routeShortName == r.routeNumber)).toList()
-        ..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
+      final matchingScheduled =
+          scheduled
+              .where((d) => group.any((r) => d.routeShortName == r.routeNumber))
+              .toList()
+            ..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
       if (matchingScheduled.isNotEmpty) {
-        arrivals.add(RouteArrival(route: representative, minutesFromNow: matchingScheduled.first.minutesFromNow, isLive: false));
+        arrivals.add(
+          RouteArrival(
+            route: representative,
+            destination: matchingScheduled.first.destination,
+            minutesFromNow: matchingScheduled.first.minutesFromNow,
+            isLive: false,
+          ),
+        );
       }
     }
 
     arrivals.sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
     return arrivals;
   }
-
 }
 
 class _RoutePill extends StatelessWidget {
   final TransportRoute route;
+  final bool selected;
+  final VoidCallback? onTap;
+  final bool fitContent;
 
-  const _RoutePill({required this.route});
+  const _RoutePill({
+    required this.route,
+    this.selected = false,
+    this.onTap,
+    this.fitContent = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final provider = LocaleRegistry.getLocale(route.locale).transitProviders.firstWhere((p) => p.providerCode == route.providerCode);
+    final provider = LocaleRegistry.getLocale(route.locale).transitProviders
+        .firstWhere((p) => p.providerCode == route.providerCode);
     final colours = provider.coloursForRoute(route);
 
-    return Container(
-      height: 28,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(color: colours.iconColour, borderRadius: BorderRadius.circular(11)),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Text(route.nameFor(AppStrings.languageCode), style: TextStyle(color: colours.textColour, fontWeight: FontWeight.bold, fontSize: 13),)
-      ],),
+    return Material(
+      color: colours.iconColour,
+      borderRadius: BorderRadius.circular(11),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(11),
+        child: Container(
+          height: 28,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            border: selected
+                ? Border.all(color: colours.textColour, width: 2)
+                : null,
+            borderRadius: BorderRadius.circular(11),
+          ),
+          alignment: fitContent ? null : Alignment.center,
+          child: fitContent
+              ? Center(widthFactor: 1, child: _label(colours.textColour))
+              : _label(colours.textColour),
+        ),
+      ),
+    );
+  }
+
+  Widget _label(Color textColour) {
+    return Text(
+      route.nameFor(AppStrings.languageCode),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: textColour,
+        fontWeight: FontWeight.bold,
+        fontSize: 13,
+      ),
     );
   }
 }

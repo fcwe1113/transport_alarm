@@ -21,6 +21,25 @@ class RoutePillStrip extends StatefulWidget{
 class _RoutePillStripState extends State<RoutePillStrip> {
   final ScrollController _controller = ScrollController();
   Timer? _timer;
+  late Future<List<TransportRoute>> _routesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _routesFuture = _loadRoutes();
+  }
+
+  @override
+  void didUpdateWidget(RoutePillStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.gtfsStopId != widget.gtfsStopId ||
+        oldWidget.locale != widget.locale) {
+      _routesFuture = _loadRoutes();
+    }
+  }
+
+  Future<List<TransportRoute>> _loadRoutes() =>
+      GtfsDatabase.forLocale(widget.locale).getRoutesForGtfsStop(widget.gtfsStopId);
 
   @override
   void dispose() {
@@ -43,7 +62,7 @@ class _RoutePillStripState extends State<RoutePillStrip> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder(future: GtfsDatabase.forLocale(widget.locale).getRoutesForGtfsStop(widget.gtfsStopId), builder: (context, snapshot) {
+    return FutureBuilder(future: _routesFuture, builder: (context, snapshot) {
       final allRoutes = snapshot.data ?? [];
       final filtered = widget.routeNumberFilter == null ?  allRoutes : allRoutes.where((r) => widget.routeNumberFilter!.keys.contains(r.routeNumber)).toList();
       final routes = TransportRoute.dedupeByRouteNumber(filtered);

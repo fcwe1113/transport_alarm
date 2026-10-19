@@ -6,6 +6,7 @@ import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
+import 'package:transport_alarm/widgets/data_usage_warning.dart';
 
 /// Settings landing page; language selection is implemented as a child page.
 class SettingsScreen extends StatelessWidget {
@@ -84,14 +85,17 @@ Future<void> _openDataOperation(
   BuildContext context, {
   required TransitOperation operation,
   bool forceRefresh = false,
-}) {
-  return Navigator.of(context).push<void>(
+}) async {
+  if (!await showDataUsageWarning(context)) return;
+  if (!context.mounted) return;
+  await Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
       builder: (_) => LoadingScreen(
         operation: operation,
         forceRefresh: forceRefresh,
         returnToPrevious: true,
         showBottomNavigation: true,
+        cancellable: true,
       ),
     ),
   );

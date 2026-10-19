@@ -25,6 +25,10 @@ abstract class TransitProvider {
   Future<bool> isStale();
   RouteColourScheme coloursForRoute(TransportRoute route) => RouteColourScheme(iconColour: defaultIconColor, textColour: defaultTextColor);
 
+  /// Cleans a destination name from this provider's data for display.
+  /// Providers whose names need no cleanup return [destination] unchanged.
+  String cleanDestination(String destination);
+
   Future<List<LiveEta>> fetchLiveEta(String rawStopId);
   Future<List<LiveEta>> fetchLiveEtaForRoute(String rawStopId, String routeNumber);
 

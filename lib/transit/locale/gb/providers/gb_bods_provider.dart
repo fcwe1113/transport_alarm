@@ -11,6 +11,8 @@ import 'package:transport_alarm/transit/refresh_result.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/transit_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:xml/xml.dart';
 
@@ -23,15 +25,111 @@ class GbBodsProvider extends TransitProvider {
   final ApiCaller _apiCaller;
   final GtfsDatabase db = LocaleRegistry.getLocale("gb").db;
 
-  /// Loads the bundled key once during startup so synchronous URL builders can use it.
+  // Compiled in at build time rather than bundled as a readable asset:
+  // flutter run/build --dart-define-from-file=config/build_secrets.json,
+  // and --obfuscate for release builds. Still extractable from the binary
+  // with effort, so keep request volume low and rotate it if it leaks.
+  static const _buildApiKey = String.fromEnvironment('UK_BODS_KEY');
+
+  /// Loads the build-time key once during startup so synchronous URL
+  /// builders can use it.
   static Future<void> loadApiKey() async {
-    final source = await rootBundle.loadString('config/secrets.json');
-    final key = (jsonDecode(source) as Map<String, dynamic>)['UK_BODS_KEY'];
-    _cachedApiKey = key is String ? key.trim() : null;
+    final key = _buildApiKey.trim();
+    _cachedApiKey = key.isEmpty ? null : key;
+  }
+
+  // One operator and route's live vehicle feed is shared for this long by
+  // every lookup in this isolate (alarm checks, stop sheets, alarm cards),
+  // to keep requests on the shared key down.
+  static const _feedCacheAge = Duration(seconds: 30);
+  static final _feedCache = <String, ({DateTime fetchedAt, Future<String> xml})>{};
+
+  /// The SIRI-VM vehicle feed for [routeNumber] run by [noc], from the cache
+  /// when it's under [_feedCacheAge] old. A request still in flight is
+  /// shared too, and a failed one isn't cached.
+  Future<String> _vehicleFeed(String noc, String routeNumber, String apiKey) {
+    final key = '$noc|$routeNumber';
+    final cached = _feedCache[key];
+    if (cached != null &&
+        DateTime.now().difference(cached.fetchedAt) < _feedCacheAge) {
+      return cached.xml;
+    }
+    final xml = _requestVehicleFeed(noc, routeNumber, apiKey);
+    _feedCache[key] = (fetchedAt: DateTime.now(), xml: xml);
+    xml.then<void>((_) {}, onError: (_) {
+      if (identical(_feedCache[key]?.xml, xml)) _feedCache.remove(key);
+    });
+    return xml;
+  }
+
+  // Shared through preferences, so the app and the background alarm
+  // isolate both respect a pause.
+  static const _pausedUntilKey = 'bods_requests_paused_until';
+
+  /// How long to stop calling BODS after it refuses a request: an hour if
+  /// the key was rejected (401/403), or the server's Retry-After (5 minutes
+  /// if it gives none) when rate limited (429). Null for other failures.
+  static Duration? _pauseFor(http.Response response) {
+    switch (response.statusCode) {
+      case 401:
+      case 403:
+        return const Duration(hours: 1);
+      case 429:
+        final retryAfter = int.tryParse(response.headers['retry-after'] ?? '');
+        if (retryAfter == null) return const Duration(minutes: 5);
+        return Duration(seconds: retryAfter.clamp(30, 3600));
+      default:
+        return null;
+    }
+  }
+
+  Future<String> _requestVehicleFeed(
+    String noc,
+    String routeNumber,
+    String apiKey,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    // Pick up a pause set by the other isolate.
+    await prefs.reload();
+    final pausedUntil = prefs.getInt(_pausedUntilKey);
+    if (pausedUntil != null &&
+        DateTime.now().millisecondsSinceEpoch < pausedUntil) {
+      throw StateError(
+        'BODS requests are paused until '
+        '${DateTime.fromMillisecondsSinceEpoch(pausedUntil)} after the '
+        'service refused a request.',
+      );
+    }
+
+    final uri = Uri.https('data.bus-data.dft.gov.uk', '/api/v1/datafeed/', {
+      'api_key': apiKey,
+      'lineRef': routeNumber,
+      'operatorRef': noc,
+    });
+    final response = await ApiCaller.get(uri);
+    final pause = _pauseFor(response);
+    if (pause != null) {
+      await prefs.setInt(
+        _pausedUntilKey,
+        DateTime.now().add(pause).millisecondsSinceEpoch,
+      );
+    }
+    if (response.statusCode != 200) {
+      throw Exception(
+        'BODS live feed request failed for $noc/$routeNumber: '
+        'HTTP ${response.statusCode}',
+      );
+    }
+    return response.body;
   }
 
   /// Returns the key loaded by [loadApiKey].
   String? _apiKey() => _cachedApiKey;
+
+  /// BODS live data uses underscores in place of spaces in destination names.
+  @override
+  String cleanDestination(String destination) =>
+      destination.replaceAll("_", " ").replaceAll(RegExp(r"\s+"), " ").trim();
 
   GbBodsProvider(this._apiCaller);
 
@@ -73,7 +171,7 @@ class GbBodsProvider extends TransitProvider {
       case "Stagecoach Oxfordshire":
         return const RouteColourScheme(
           iconColour: Colors.lightBlue,
-          textColour: Color(0xFFFF9F28),
+          textColour: Color(0xFFFFA600),
         );
       case "First South Yorkshire":
       case "First South & West Wales":
@@ -189,7 +287,7 @@ class GbBodsProvider extends TransitProvider {
         return LiveEta(
           routeNumber: entry['lineName']?.toString() ?? '',
           bound: entry['direction']?.toString() ?? '',
-          destination: entry["destinationName"] ?? "",
+          destination: {"en": cleanDestination(entry["destinationName"]?.toString() ?? "")},
           etaTime: timeToStation == null
               ? null
               : now.add(Duration(seconds: timeToStation)),
@@ -248,7 +346,7 @@ class GbBodsProvider extends TransitProvider {
         return LiveEta(
           routeNumber: entry['lineName']?.toString() ?? '',
           bound: entry['direction']?.toString() ?? '',
-          destination: entry["destinationName"] ?? "",
+          destination: {"en": cleanDestination(entry["destinationName"]?.toString() ?? "")},
           etaTime: timeToStation == null
               ? null
               : now.add(Duration(seconds: timeToStation)),
@@ -282,22 +380,12 @@ class GbBodsProvider extends TransitProvider {
         throw StateError('BODS API key has not been loaded.');
       }
 
-      final uri = Uri.https('data.bus-data.dft.gov.uk', '/api/v1/datafeed/', {
-        'api_key': apiKey,
-        'lineRef': routeNumber,
-        'operatorRef': noc,
-      });
-      final response = await ApiCaller.get(uri);
-      if (response.statusCode != 200) {
-        throw Exception(
-          'BODS live feed request failed for $noc/$routeNumber: '
-          'HTTP ${response.statusCode}',
-        );
-      }
+      final feedXml = await _vehicleFeed(noc, routeNumber, apiKey);
 
       // Each VehicleMonitoringDelivery can contain multiple VehicleActivity
       // entries, so extract the requested values independently for every bus.
-      final vehicleActivities = XmlDocument.parse(response.body)
+      final now = DateTime.now();
+      final vehicleActivities = XmlDocument.parse(feedXml)
           .findAllElements('VehicleActivity')
           .map((activity) {
             final journey = activity.getElement('MonitoredVehicleJourney');
@@ -323,6 +411,7 @@ class GbBodsProvider extends TransitProvider {
               'longitude': double.tryParse(
                 childText(location, 'Longitude') ?? '',
               ),
+              "recordedTime" : activity.getElement("RecordedAtTime")?.innerText,
             };
           })
           // Ignore malformed activities that don't contain the journey/location
@@ -333,9 +422,9 @@ class GbBodsProvider extends TransitProvider {
                 activity['originAimedDepartureTime'] != null &&
                 activity['latitude'] != null &&
                 activity['longitude'] != null &&
-                activity["bound"] != null,
-          )
-          .toList();
+                activity["bound"] != null// &&
+                // DateTime.tryParse(activity["recordedTime"] as String)!.isBefore(now.subtract(Duration(minutes: 2))),
+          ).toList();
 
       final arrivals = <LiveEta>[];
       final ukTimezone = tz.getLocation('Europe/London');
@@ -410,7 +499,7 @@ class GbBodsProvider extends TransitProvider {
             serviceDate,
           ],
         );
-        if (tripCandidates.isEmpty) continue;
+        if (tripCandidates.isEmpty) continue; // exit if cannot find the trip related to the vehicle entry
 
         final aimedSeconds =
             localDeparture.hour * 3600 +
@@ -485,9 +574,26 @@ class GbBodsProvider extends TransitProvider {
         }
         if (bestPairIndex < 0) continue;
 
+        final tripId = selectedTrip['trip_id']?.toString();
+        final destination = {
+          "en": cleanDestination(vehicle["destinationName"]?.toString() ?? ""),
+        };
+
         // The bus has passed the requested stop if the closest pair ends at or
-        // before it in stop_sequence order.
-        if (bestPairIndex >= targetIndex) continue;
+        // before it in stop_sequence order. Report it as passed so callers can
+        // drop that trip's scheduled arrival instead of showing a gone bus.
+        if (bestPairIndex >= targetIndex) {
+          arrivals.add(
+            LiveEta(
+              routeNumber: routeNumber,
+              bound: vehicle['bound'].toString(),
+              destination: destination,
+              tripId: tripId,
+              hasPassed: true,
+            ),
+          );
+          continue;
+        }
 
         final from = stopSequence[bestPairIndex];
         final next = stopSequence[bestPairIndex + 1];
@@ -515,10 +621,11 @@ class GbBodsProvider extends TransitProvider {
           LiveEta(
             routeNumber: routeNumber,
             bound: vehicle['bound'].toString(),
-            destination: {"en": vehicle["destinationName"].toString()},
+            destination: destination,
             etaTime: DateTime.now().toUtc().add(
               Duration(seconds: remainingSeconds),
             ),
+            tripId: tripId,
           ),
         );
       }

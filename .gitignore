@@ -47,6 +47,7 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 /config/secrets.json
+/config/build_secrets.json
 /requirements list.txt
 /android/build/reports/problems/problems-report.html
 

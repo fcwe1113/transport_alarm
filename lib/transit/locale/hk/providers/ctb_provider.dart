@@ -5,6 +5,7 @@ import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/transit/services/staleness_tracker.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/transit/transit_provider.dart';
 import 'package:flutter/material.dart';
@@ -34,6 +35,10 @@ class CtbProvider extends TransitProvider {
   String get providerCode => "ctb";
   @override
   String get providerName => "Citybus";
+
+  @override
+  String cleanDestination(String destination) => destination;
+
   @override
   Color get defaultIconColor => const Color(0xFFFFD200);
   @override
@@ -192,19 +197,18 @@ class CtbProvider extends TransitProvider {
       ...routeStopResult.failedKeys.map((r) => "route-stop ${r.routeNumber}"),
       ...stopDetailResult.failedKeys.map((id) => "stop $id"),
     ];
+    // Only a complete refresh resets the age; a partial one is retried.
+    if (failed.isEmpty) {
+      await StalenessTracker().markRefreshed('hk', providerCode);
+    }
     return RefreshResult(failedItems: failed);
   }
 
   @override
   Future<bool> isStale() async {
-    if (await _apiCaller.isEndpointStale(
-      providerCode,
-      _routesEndpointName,
-      maxAge: const Duration(days: 7),
-    )) {
-      return true;
-    }
+    if (await StalenessTracker().isStale('hk', providerCode)) return true;
 
+    // Also stale if a refresh left data missing, whatever its age.
     final db = GtfsDatabase.forLocale('hk');
     final routes = await db.getOperatorRoutes(providerCode);
     if (routes.isEmpty ||
@@ -212,29 +216,10 @@ class CtbProvider extends TransitProvider {
         !await db.hasOperatorRouteStops(providerCode)) {
       return true;
     }
-
-    final routeStopEndpoints = routes.map(
-      (route) => 'route_stop_${route.routeNumber}_${route.bound}',
-    );
     for (final route in routes) {
       if (!await db.hasRouteStops(route.id)) return true;
     }
-    if (await _apiCaller.areAnyEndpointsStale(
-      providerCode,
-      routeStopEndpoints,
-    )) {
-      return true;
-    }
-
-    final stopEndpoints = (await db.getOperatorStopIdsForProvider(providerCode))
-        .map((operatorStopId) {
-          final separator = operatorStopId.indexOf(':');
-          final rawStopId = separator < 0
-              ? operatorStopId
-              : operatorStopId.substring(separator + 1);
-          return 'stop_$rawStopId';
-        });
-    return _apiCaller.areAnyEndpointsStale(providerCode, stopEndpoints);
+    return false;
   }
 
   @override
@@ -273,7 +258,7 @@ class CtbProvider extends TransitProvider {
       return LiveEta(
         routeNumber: entry["route"] as String,
         bound: (entry["dir"] as String?) ?? "",
-        destination: {"en": entry["dest_en"] as String, "zh-HanT": entry["dest_tc"] as String, "zh-HanS": entry["dest_sc"] as String},
+        destination: {"en": entry["dest_en"] as String, "zh-Hant": entry["dest_tc"] as String, "zh-Hans": entry["dest_sc"] as String},
         etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
         remark: entry["rmk_en"] as String?,
       );

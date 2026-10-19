@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:transport_alarm/locale_registry.dart';
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/models/scheduled_departure.dart';
 import 'package:transport_alarm/services/geo_utils.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
@@ -21,6 +22,9 @@ class GtfsDatabase {
   static final Map<String, String> _deferredStagingPaths = {};
   final String locale;
   final String? _explicitDatabasePath;
+  // Shared per stop so concurrent callers (route pills, arrivals, stop sheet)
+  // run the routes query once. Cleared whenever the active database changes.
+  final Map<String, Future<List<TransportRoute>>> _routesForStopCache = {};
 
   GtfsDatabase._(this.locale, {String? databasePath})
     : _explicitDatabasePath = databasePath;
@@ -70,6 +74,7 @@ class GtfsDatabase {
   Future<void> refreshAtomically(
     Future<void> Function(GtfsDatabase stagingDatabase) populate, {
     bool deferCommit = false,
+    CancellationToken? cancelToken,
   }) async {
     final previousRefresh = _refreshTails[locale] ?? Future<void>.value();
     final refreshFinished = Completer<void>();
@@ -81,6 +86,7 @@ class GtfsDatabase {
     File? stagingFile;
     var preserveStagingFile = false;
     var populateSucceeded = false;
+    var swapping = false;
     try {
       final currentDb = await database;
       final appDir = await AppGroupStorage.directory;
@@ -111,6 +117,11 @@ class GtfsDatabase {
         return;
       }
 
+      // From here the new snapshot is copied in and swapped for the active
+      // file, which must finish once started.
+      cancelToken?.beginUncancellable();
+      swapping = true;
+
       // Pause new database lookups while the auxiliary data is copied and the
       // active file is swapped. The existing timetable remains readable while
       // the new snapshot is being downloaded and built.
@@ -130,6 +141,7 @@ class GtfsDatabase {
         _deferredStagingPaths.remove(locale);
         final installed = await _initDB(activeFile.path);
         _databases[locale] = installed;
+        _routesForStopCache.clear();
         await _validateSnapshot(installed);
         if (await backupFile.exists()) {
           try {
@@ -148,6 +160,7 @@ class GtfsDatabase {
         rethrow;
       }
     } finally {
+      if (swapping) cancelToken?.endUncancellable();
       try {
         if (stagingDb != null) await stagingDb.close();
         if (stagingFile != null &&
@@ -339,7 +352,7 @@ class GtfsDatabase {
       '''CREATE INDEX idx_operator_stops_provider ON operator_stops(provider_code)''',
     );
     await db.execute(
-      '''CREATE INDEX idx_stop_times_trip ON gtfs_stop_times(trip_id)''',
+      '''CREATE INDEX idx_stop_times_trip_ends ON gtfs_stop_times(trip_id, stop_sequence, stop_id)''',
     );
   }
 
@@ -671,7 +684,9 @@ class GtfsDatabase {
     await batch.commit();
   }
 
-  Future<void> interpolateMissingArrivalTimes() async {
+  Future<void> interpolateMissingArrivalTimes({
+    CancellationToken? cancelToken,
+  }) async {
     final db = await database;
     final tripIds = await db.rawQuery(
       "SELECT DISTINCT trip_id FROM gtfs_stop_times",
@@ -680,6 +695,7 @@ class GtfsDatabase {
     var processedTrips = 0;
 
     for (final tripRow in tripIds) {
+      cancelToken?.throwIfCancelled();
       final tripId = tripRow["trip_id"] as String;
       final stopTimes = await db.query(
         "gtfs_stop_times",
@@ -923,11 +939,11 @@ class GtfsDatabase {
   Future<bool> hasUsableGtfsData() async {
     final rows = await (await database).rawQuery('''
       SELECT
-        (SELECT COUNT(*) FROM gtfs_routes) AS routes,
-        (SELECT COUNT(*) FROM gtfs_trips) AS trips,
-        (SELECT COUNT(*) FROM gtfs_calendar) AS calendar,
-        (SELECT COUNT(*) FROM gtfs_stops) AS stops,
-        (SELECT COUNT(*) FROM gtfs_stop_times) AS stop_times
+        EXISTS(SELECT 1 FROM gtfs_routes) AS routes,
+        EXISTS(SELECT 1 FROM gtfs_trips) AS trips,
+        EXISTS(SELECT 1 FROM gtfs_calendar) AS calendar,
+        EXISTS(SELECT 1 FROM gtfs_stops) AS stops,
+        EXISTS(SELECT 1 FROM gtfs_stop_times) AS stop_times
     ''');
     final counts = rows.single;
     return counts.values.every((value) => value is int && value > 0);
@@ -974,32 +990,45 @@ class GtfsDatabase {
 
     final List<Map<String, dynamic>> rows = await db.rawQuery(
       '''
-    SELECT r.route_short_name, st.arrival_time, t.direction_id
-    from gtfs_stop_times st
-    INNER JOIN gtfs_trips t ON st.trip_id = t.trip_id
-    INNER JOIN gtfs_routes r ON t.route_id = r.route_id
-    INNER JOIN gtfs_calendar c ON t.service_id = c.service_id
-    WHERE st.stop_id = ?
-      AND st.arrival_time > ?
-      AND c.$currentDayColumn = 1
-      AND c.start_date <= ?
-      AND c.end_date >= ?
-    ORDER BY st.arrival_time ASC
-    LIMIT ?
+    WITH upcoming AS (
+      SELECT r.route_short_name, st.arrival_time, t.direction_id, t.trip_id
+      FROM gtfs_stop_times AS st
+      INNER JOIN gtfs_trips AS t ON st.trip_id = t.trip_id
+      INNER JOIN gtfs_routes AS r ON t.route_id = r.route_id
+      INNER JOIN gtfs_calendar AS c ON t.service_id = c.service_id
+      WHERE st.stop_id = ?
+        AND st.arrival_time > ?
+        AND c.$currentDayColumn = 1
+        AND c.start_date <= ?
+        AND c.end_date >= ?
+      ORDER BY st.arrival_time ASC
+      LIMIT ?
+    )
+    SELECT u.route_short_name, u.arrival_time, u.direction_id, u.trip_id,
+      (SELECT s.stop_name
+        FROM gtfs_stop_times AS lt
+        INNER JOIN gtfs_stops AS s ON s.stop_id = lt.stop_id
+        WHERE lt.trip_id = u.trip_id
+        ORDER BY lt.stop_sequence DESC
+        LIMIT 1) AS destination_name
+    FROM upcoming AS u
+    ORDER BY u.arrival_time ASC
     ''',
       [stopId, timeStr, dateStr, dateStr, limit],
     );
 
-    return rows
-        .map(
-          (row) => ScheduledDeparture(
-            routeShortName: row["route_short_name"] as String,
-            arrivalTime: row["arrival_time"] as String,
-            directionId: row["direction_id"] as int?,
-            locale: locale,
-          ),
-        )
-        .toList();
+    return rows.map((row) {
+      final destinationName = row["destination_name"] as String?;
+      return ScheduledDeparture(
+        routeShortName: row["route_short_name"] as String,
+        arrivalTime: row["arrival_time"] as String,
+        // todo fix multilang support
+        destination: destinationName == null ? {} : {"en": destinationName},
+        directionId: row["direction_id"] as int?,
+        tripId: row["trip_id"] as String?,
+        locale: locale,
+      );
+    }).toList();
   }
 
   Future<List<GtfsStop>> getAllGtfsStops({String? languageCode}) async {
@@ -1063,6 +1092,22 @@ class GtfsDatabase {
   }
 
   Future<List<TransportRoute>> getRoutesForGtfsStop(String gtfsStopId) async {
+    final cached = _routesForStopCache.putIfAbsent(
+      gtfsStopId,
+      () => _queryRoutesForGtfsStop(gtfsStopId),
+    );
+    try {
+      return List.of(await cached);
+    } catch (_) {
+      // Don't keep a failed lookup; the next caller retries the query.
+      if (identical(_routesForStopCache[gtfsStopId], cached)) {
+        _routesForStopCache.remove(gtfsStopId);
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<TransportRoute>> _queryRoutesForGtfsStop(String gtfsStopId) async {
     // todo check query on circular routes
     if (LocaleRegistry.getLocale(locale).gtfsOnly) {
       // todo adapt for multilingual names
@@ -1073,21 +1118,20 @@ class GtfsDatabase {
         FROM gtfs_stop_times
         WHERE stop_id = ?
       ), trip_ends AS (
-        SELECT st.trip_id, MAX(CASE WHEN st.stop_sequence = 0 THEN st.stop_id END) AS first_stop_id,
-        MAX(CASE WHEN st.stop_sequence = (
-          SELECT MAX(st2.stop_sequence)
-          FROM gtfs_stop_times st2
-          WHERE st2.trip_id = st.trip_id
-        ) THEN st.stop_id END) AS last_stop_id
-        FROM gtfs_stop_times st
-        INNER JOIN matching_trips mt ON mt.trip_id = st.trip_id
-        GROUP BY st.trip_id
+        SELECT mt.trip_id,
+          (SELECT x.stop_id FROM gtfs_stop_times x
+            WHERE x.trip_id = mt.trip_id
+            ORDER BY x.stop_sequence ASC LIMIT 1) AS first_stop_id,
+          (SELECT x.stop_id FROM gtfs_stop_times x
+            WHERE x.trip_id = mt.trip_id
+            ORDER BY x.stop_sequence DESC LIMIT 1) AS last_stop_id
+        FROM matching_trips mt
       )
-      SELECT gr.route_id, gr.route_short_name, ga.agency_name, ga.agency_noc, gt.direction_id, first_stop.stop_name AS first_stop_name, last_stop.stop_name AS last_stop_name
-      FROM gtfs_routes gr
-      INNER JOIN gtfs_trips gt ON gt.route_id = gr.route_id
+      SELECT DISTINCT gr.route_id, gr.route_short_name, ga.agency_name, ga.agency_noc, gt.direction_id, first_stop.stop_name AS first_stop_name, last_stop.stop_name AS last_stop_name
+      FROM trip_ends te
+      INNER JOIN gtfs_trips gt ON gt.trip_id = te.trip_id
+      INNER JOIN gtfs_routes gr ON gr.route_id = gt.route_id
       INNER JOIN gtfs_agencies ga ON ga.agency_id = gr.agency_id
-      INNER JOIN trip_ends te ON te.trip_id = gt.trip_id
       LEFT JOIN gtfs_stops first_stop ON first_stop.stop_id = te.first_stop_id
       LEFT JOIN gtfs_stops last_stop ON last_stop.stop_id = te.last_stop_id;
       ''',
@@ -1097,20 +1141,19 @@ class GtfsDatabase {
       return rows
           .map(
             (row) => TransportRoute(
-              id: row["route_id"].toString(), // route_id
-              names: {
+              id: row["route_id"].toString(),
+              names: { // todo add multilingual compat
                 "en": row["route_short_name"].toString(),
               }, // route_short_name
               routeNumber: row["route_short_name"].toString(), // append agency name before number, same as names
-              bound: row["direction_id"]
-                  .toString(), // direction_id from gtfs_trips
-              originText: {
+              bound: row["direction_id"].toString(),
+              originText: { // todo add multilingual compat
                 "en": row["first_stop_name"].toString(),
               }, // resolve from stop_id where seq = 0 from gtfs_stop_times
-              destinationText: {
+              destinationText: { // todo add multilingual compat
                 "en": row["last_stop_name"].toString(),
               }, // resolve from stop_id where seq = max
-              providerCode: LocaleRegistry.getLocale(locale)
+              providerCode: LocaleRegistry.getLocale(locale) // todo add multi provider compat
                   .transitProviders[0]
                   .providerCode,
               locale: locale,
@@ -1216,6 +1259,15 @@ class GtfsDatabase {
       whereArgs: [stopId],
     );
     if (rows.isEmpty) return null;
+    if (LocaleRegistry.getLocale(locale).gtfsOnly) {
+      return GtfsStop( // early out for gtfs only locales
+        id: rows[0]["stop_id"] as String,
+        name: rows[0]["stop_name"] as String,
+        lat: rows[0]["stop_lat"] as double,
+        lng: rows[0]["stop_lon"] as double,
+        locale: locale
+      );
+    }
     final row = rows.first;
     final operatorNameRows = await (await database).rawQuery(
       '''
@@ -1437,6 +1489,7 @@ class GtfsDatabase {
       await _databases[locale]!.close();
     }
     _databases.remove(locale);
+    _routesForStopCache.clear();
     final dir = await AppGroupStorage.directory;
     final file = File("${dir.path}/gtfs/$locale.db");
     if (await file.exists()) {

@@ -7,6 +7,8 @@ import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../widgets/app_shell.dart';
 import '../widgets/stop_routes_sheet.dart';
@@ -41,8 +43,27 @@ class _MapScreenState extends State<MapScreen> {
   BitmapDescriptor? _stopIcon;
   GtfsStop? _selectedPickerStop;
   final GlobalKey<NavigatorState> _nestedNavKey = GlobalKey<NavigatorState>();
+  // Set once the camera has been moved to the user or to a tapped stop, so a
+  // slow location fix never pulls the camera away afterwards.
+  bool _cameraPlaced = false;
+  // Where the user last left the map, restored on the next visit. Null when
+  // the last view came from centring on their location, so losing location
+  // access falls back to the stops instead of their old position.
+  CameraPosition? _savedCamera;
+  CameraPosition? _currentCamera;
+  // Chosen once, when the map is first laid out.
+  CameraPosition? _initialCamera;
+  // True from starting a move to the user's location until it comes to rest.
+  bool _movingToLocation = false;
 
   static const _stopIconAsset = "assets/icons/icon.png";
+  static const _defaultCamera = CameraPosition(target: LatLng(22.3193, 114.1694), zoom: 12);
+  static const _cameraLatKey = 'map_camera_lat';
+  static const _cameraLngKey = 'map_camera_lng';
+  static const _cameraZoomKey = 'map_camera_zoom';
+  static const _cameraFromLocationKey = 'map_camera_from_location';
+  // A last known fix older than this may be somewhere else entirely.
+  static const _maxLastKnownAge = Duration(minutes: 10);
 
   @override
   void initState() {
@@ -57,14 +78,115 @@ class _MapScreenState extends State<MapScreen> {
       for (final locale in locales.keys) {
         stops.addAll(await GtfsDatabase.forLocale(locale).getAllGtfsStops());
       }
+      final savedCamera = await _loadSavedCamera();
 
       setState(() {
         _stops = stops;
+        _savedCamera = savedCamera;
         _loading = false;
       });
     } catch (e, stackTrace) {
       print("Map data load failed: $e");
       print(stackTrace);
+    }
+  }
+
+  Future<CameraPosition?> _loadSavedCamera() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lat = prefs.getDouble(_cameraLatKey);
+    final lng = prefs.getDouble(_cameraLngKey);
+    final zoom = prefs.getDouble(_cameraZoomKey);
+    if (lat == null || lng == null || zoom == null) return null;
+    if (prefs.getBool(_cameraFromLocationKey) ?? false) return null;
+    return CameraPosition(target: LatLng(lat, lng), zoom: zoom);
+  }
+
+  Future<void> _saveCamera() async {
+    final camera = _currentCamera;
+    final fromLocation = _movingToLocation;
+    _movingToLocation = false;
+    if (camera == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_cameraLatKey, camera.target.latitude);
+    await prefs.setDouble(_cameraLngKey, camera.target.longitude);
+    await prefs.setDouble(_cameraZoomKey, camera.zoom);
+    await prefs.setBool(_cameraFromLocationKey, fromLocation);
+  }
+
+  /// A view of the user's selected stops for a map of [size], worked out here
+  /// rather than with the map's own bounds fitting, which can leave the map
+  /// in a broken state if it runs before the map view is laid out.
+  CameraPosition? _cameraForStops(Size size) {
+    // The GB import stores 0,0 for stops without coordinates.
+    final stops = _stops.where((s) => s.lat != 0 || s.lng != 0).toList();
+    if (stops.isEmpty || size.isEmpty) return null;
+
+    final lats = stops.map((s) => s.lat).toList()..sort();
+    final lngs = stops.map((s) => s.lng).toList()..sort();
+    // Trim the outermost 2% so a few stray stops don't stretch the view;
+    // small sets use every stop.
+    final trim = stops.length >= 50 ? (stops.length * 0.02).floor() : 0;
+    final south = lats[trim], north = lats[lats.length - 1 - trim];
+    final west = lngs[trim], east = lngs[lngs.length - 1 - trim];
+
+    // Web Mercator: the world is 256 logical pixels wide at zoom 0.
+    double mercatorY(double lat) => log(tan(pi / 4 + lat * pi / 360));
+    final centerY = (mercatorY(south) + mercatorY(north)) / 2;
+    final center = LatLng(
+      (2 * atan(exp(centerY)) - pi / 2) * 180 / pi,
+      (west + east) / 2,
+    );
+
+    const padding = 48.0;
+    final width = max(size.width - 2 * padding, 64.0);
+    final height = max(size.height - 2 * padding, 64.0);
+    final lngSpan = east - west;
+    final ySpan = mercatorY(north) - mercatorY(south);
+    final zoomX = lngSpan <= 0 ? 15.0 : log(width * 360 / (256 * lngSpan)) / ln2;
+    final zoomY = ySpan <= 0 ? 15.0 : log(height * 2 * pi / (256 * ySpan)) / ln2;
+    return CameraPosition(target: center, zoom: min(zoomX, zoomY).clamp(3.0, 15.0));
+  }
+
+  /// Moves the camera to the user's location when it's available. Without
+  /// location access or a fix, the map keeps its saved or stop-fitted view.
+  Future<void> _centerOnUserLocation() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission != LocationPermission.whileInUse &&
+          permission != LocationPermission.always) {
+        return;
+      }
+      // Rebuild so the map turns on its location dot now access is granted.
+      if (mounted) setState(() {});
+
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      final lastKnownIsRecent = lastKnown != null &&
+          DateTime.now().difference(lastKnown.timestamp) < _maxLastKnownAge;
+      final position = lastKnownIsRecent
+          ? lastKnown
+          : await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+              timeLimit: Duration(seconds: 10),
+            ),
+          );
+      // 0,0 is what some devices report before they have a real fix.
+      if (position.latitude == 0 && position.longitude == 0) return;
+      if (!mounted || _cameraPlaced || _mapController == null) return;
+      _cameraPlaced = true;
+      _movingToLocation = true;
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          LatLng(position.latitude, position.longitude),
+          16,
+        ),
+      );
+    } catch (e) {
+      debugPrint("Could not centre map on user location: $e");
     }
   }
 
@@ -85,6 +207,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _onStopTapped(GtfsStop stop) async {
+    _cameraPlaced = true;
 
     const zoom = 19.0;
     final screenHeight = MediaQuery.of(context).size.height;
@@ -183,17 +306,25 @@ class _MapScreenState extends State<MapScreen> {
           Navigator.pop(context, _selectedPickerStop);
         },),
       ] : null,
-      body: Navigator(key: _nestedNavKey, onGenerateRoute: (settings) => MaterialPageRoute(builder: (nestedContext) => GoogleMap(
+      body: Navigator(key: _nestedNavKey, onGenerateRoute: (settings) => MaterialPageRoute(builder: (nestedContext) => LayoutBuilder(builder: (context, constraints) {
+        _initialCamera ??= _savedCamera ?? _cameraForStops(constraints.biggest) ?? _defaultCamera;
+        return GoogleMap(
           padding: _mapPadding, // not working for some reason
-          initialCameraPosition: const CameraPosition(target: LatLng(22.3193, 114.1694), zoom: 12),
+          initialCameraPosition: _initialCamera!,
           onMapCreated: (controller) {
             _mapController = controller;
             _updateVisibleMarkers();
+            _centerOnUserLocation();
           },
-          onCameraIdle: _updateVisibleMarkers,
+          onCameraMove: (camera) => _currentCamera = camera,
+          onCameraIdle: () {
+            _updateVisibleMarkers();
+            _saveCamera();
+          },
           myLocationEnabled: true, // enables phone location services
           markers: _visibleMarkers
-      ),),)
+        );
+      }),),)
     );
   }
 }

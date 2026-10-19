@@ -66,5 +66,8 @@ class AppStrings {
         'Audible notifications for alarm thresholds.',
     'notification.channel.updates.description':
         'Silent arrival tracking and status updates.',
+    'notification.channel.alerts': 'Alarm problems',
+    'notification.channel.alerts.description':
+        'Alerts when live arrival times can\'t be loaded or no bus is found.',
   };
 }

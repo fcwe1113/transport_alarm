@@ -4,13 +4,17 @@ import 'package:timezone/timezone.dart' as tz;
 class ScheduledDeparture {
   final String routeShortName;
   final String arrivalTime; // in "HH:MM:SS"
+  final Map<String, String> destination;
   final int? directionId;
+  final String? tripId;
   final String locale;
 
   const ScheduledDeparture({
     required this.routeShortName,
     required this.arrivalTime,
+    required this.destination,
     this.directionId,
+    this.tripId,
     required this.locale,
   });
 

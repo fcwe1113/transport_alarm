@@ -1,3 +1,4 @@
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,10 +8,11 @@ import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/transit/services/download_progress.dart';
 import 'package:transport_alarm/transit/services/gtfs_sync_service.dart';
+import 'package:transport_alarm/transit/services/staleness_tracker.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
 /// Downloads and combines the UK GTFS archives selected in Settings.
 class GbGtfsSyncProvider implements GtfsSyncProvider {
@@ -30,13 +32,6 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
   static const int _areaBatchSize = 40;
   static const Duration _ttl = Duration(days: 7);
 
-  /// Loads the BODS API key from the bundled local secrets file.
-  Future<String> _apiKey() async {
-    final source = await rootBundle.loadString('config/secrets.json');
-    final key = jsonDecode(source)['UK_BODS_KEY'];
-    return key.trim();
-  }
-
   String _preferenceKey(String region, String suffix) =>
       'gtfs_${locale}_${region}_$suffix';
 
@@ -44,29 +39,33 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
   @override
   Future<bool> checkIsStale() async {
     if (!await GtfsDatabase.forLocale(locale).hasUsableGtfsData()) return true;
+    final signature = await _areaSignature();
+    if (signature == null) return true;
+    return StalenessTracker().isStale(
+      locale,
+      StalenessTracker.gtfsProviderCode,
+      maxAge: _ttl,
+      signature: signature,
+    );
+  }
+
+  /// The selected ATCO areas, so changing them makes the data stale.
+  Future<String?> _areaSignature() async {
     final selectedAreas =
         (await LocaleSelectionService().getEnabledLocales())[locale]
             ?.split(",")
+            .where((area) => area.isNotEmpty)
             .toSet();
-    if (selectedAreas!.isEmpty) return true;
-    final prefs = await SharedPreferences.getInstance();
-    final selectionSignature = (selectedAreas.toList()..sort()).join(',');
-    if (prefs.getString('gtfs_atco_selection_$locale') != selectionSignature) {
-      return true;
-    }
-    final checkedAt = DateTime.tryParse(
-      prefs.getString('gtfs_last_checked_$locale') ?? '',
-    );
-    if (checkedAt != null) {
-      final age = DateTime.now().difference(checkedAt);
-      if (!age.isNegative && age < _ttl) return false;
-    }
-    return true;
+    if (selectedAreas == null || selectedAreas.isEmpty) return null;
+    return (selectedAreas.toList()..sort()).join(',');
   }
 
   /// Downloads only datasets returned for selected areas and atomically installs them.
   @override
-  Future<void> syncFeed({ProgressCallback? onProgress}) async { // todo adapt temp db for data import to prevent oom crash
+  Future<void> syncFeed({
+    ProgressCallback? onProgress,
+    CancellationToken? cancelToken,
+  }) async { // todo adapt temp db for data import to prevent oom crash
     final selectedAreas =
         (await LocaleSelectionService().getEnabledLocales())[locale]
             ?.split(",")
@@ -107,11 +106,14 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
     final workDirectory = await Directory(appDirectory.path)
         .createTemp('gb_gtfs_');
     final client = http.Client();
+    // Closing the client aborts an in-progress download on cancel.
+    final removeCancelListener = cancelToken?.onCancel(client.close);
     try {
       // Download each region in order. The archive processing belongs inside
       // this loop so it completes before the next region is downloaded.
       final regions = requiredRegions.toList();
       for (var regionIndex = 0; regionIndex < regions.length; regionIndex++) {
+        cancelToken?.throwIfCancelled();
         final region = regions[regionIndex];
         final isLastRegion = regionIndex == regions.length - 1;
         final regionKey = region.toLowerCase().replaceAll(RegExp(r'\s+'), '_');
@@ -130,9 +132,12 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
           );
         }
 
-        await response.stream
-            .timeout(ApiCaller.requestTimeout)
-            .pipe(zipFile.openWrite());
+        await downloadToFile(
+          response,
+          zipFile,
+          fileName: '$region.zip',
+          onProgress: onProgress,
+        );
 
         // Process/filter/import this ZIP here before the loop downloads the
         // next region. The archive is retained in workDirectory for that step.
@@ -149,6 +154,7 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
             final syncService = GtfsSyncService(
               locale: locale,
               database: stagingDatabase,
+              cancelToken: cancelToken,
             );
             await syncService.parseAndStoreGtfsArchive(
               zipFile,
@@ -170,13 +176,23 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
                 );
               },
             );
-          }, deferCommit: !isLastRegion);
+          }, deferCommit: !isLastRegion, cancelToken: cancelToken);
         } finally {
           if (await zipFile.exists()) await zipFile.delete();
         }
       }
     } finally {
+      removeCancelListener?.call();
       client.close();
+      if (await workDirectory.exists()) {
+        await workDirectory.delete(recursive: true);
+      }
     }
+
+    await StalenessTracker().markRefreshed(
+      locale,
+      StalenessTracker.gtfsProviderCode,
+      signature: await _areaSignature(),
+    );
   }
 }

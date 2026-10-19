@@ -2,6 +2,28 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:csv/csv.dart';
+import 'package:transport_alarm/transit/cancellation.dart';
+
+const _linesPerReport = 10000;
+
+/// Counts the data rows in [csvFile] (every line after the header) by
+/// scanning for line breaks, without decoding the file.
+Future<int> countCsvDataLines(
+  File csvFile, {
+  CancellationToken? cancelToken,
+}) async {
+  var lineBreaks = 0;
+  var endsWithLineBreak = true;
+  await for (final chunk in csvFile.openRead()) {
+    cancelToken?.throwIfCancelled();
+    for (final byte in chunk) {
+      if (byte == 0x0A) lineBreaks++;
+    }
+    if (chunk.isNotEmpty) endsWithLineBreak = chunk.last == 0x0A;
+  }
+  final lines = endsWithLineBreak ? lineBreaks : lineBreaks + 1;
+  return lines > 0 ? lines - 1 : 0;
+}
 
 Future<void> streamParseAndInsert(
   File csvFile,
@@ -14,6 +36,8 @@ Future<void> streamParseAndInsert(
   )?
   filterBatch,
   List<dynamic> Function(List<dynamic> header, List<dynamic> row)? transformRow,
+  CancellationToken? cancelToken,
+  void Function(int linesRead)? onLinesRead,
 }) => _streamParseAndInsert(
   csvFile,
   (header, batch) => insertBatch(batch),
@@ -21,6 +45,8 @@ Future<void> streamParseAndInsert(
   filter: filter,
   filterBatch: filterBatch,
   transformRow: transformRow,
+  cancelToken: cancelToken,
+  onLinesRead: onLinesRead,
 );
 
 Future<void> streamParseAndInsertWithHeader(
@@ -35,6 +61,8 @@ Future<void> streamParseAndInsertWithHeader(
   )?
   filterBatch,
   List<dynamic> Function(List<dynamic> header, List<dynamic> row)? transformRow,
+  CancellationToken? cancelToken,
+  void Function(int linesRead)? onLinesRead,
 }) => _streamParseAndInsert(
   csvFile,
   insertBatch,
@@ -42,6 +70,8 @@ Future<void> streamParseAndInsertWithHeader(
   filter: filter,
   filterBatch: filterBatch,
   transformRow: transformRow,
+  cancelToken: cancelToken,
+  onLinesRead: onLinesRead,
 );
 
 Future<void> _streamParseAndInsert(
@@ -57,6 +87,8 @@ Future<void> _streamParseAndInsert(
   filterBatch,
   required List<dynamic> Function(List<dynamic> header, List<dynamic> row)?
   transformRow,
+  CancellationToken? cancelToken,
+  void Function(int linesRead)? onLinesRead,
 }) async {
   final lines = csvFile
       .openRead()
@@ -67,8 +99,10 @@ Future<void> _streamParseAndInsert(
   var batch = <List<dynamic>>[];
   List<dynamic>? header;
   var headerRead = false;
+  var linesRead = 0;
 
   Future<void> flushBatch() async {
+    cancelToken?.throwIfCancelled();
     if (batch.isEmpty) return;
     final rows = filterBatch == null
         ? batch
@@ -85,6 +119,11 @@ Future<void> _streamParseAndInsert(
       header = row;
       continue;
     }
+    // Counts every data row read, including ones the filter drops.
+    linesRead++;
+    if (onLinesRead != null && linesRead % _linesPerReport == 0) {
+      onLinesRead(linesRead);
+    }
     if (filter != null && !filter(header!, row)) continue;
     batch.add(transformRow == null ? row : transformRow(header!, row));
 
@@ -94,6 +133,7 @@ Future<void> _streamParseAndInsert(
   }
 
   await flushBatch();
+  onLinesRead?.call(linesRead);
   if (!headerRead) {
     throw FormatException('GTFS CSV is empty: ${csvFile.path}');
   }

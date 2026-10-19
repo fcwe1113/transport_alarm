@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math' as math;
 import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
@@ -13,6 +12,7 @@ import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
+import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
@@ -43,7 +43,7 @@ class AndroidAlarmCoordinator {
           .toList(),
       clearLastEstimatedMinutesUntilThreshold: true,
       clearAndroidFallbackArrival: true,
-      androidApiWarningActive: false,
+      clearAndroidLiveNotice: true,
       androidOccurrenceStartEpochSeconds:
           occurrence.start.millisecondsSinceEpoch ~/ 1000,
       androidOccurrenceEndEpochSeconds:
@@ -56,6 +56,36 @@ class AndroidAlarmCoordinator {
       await _checkAlarm(prepared.id);
     } else {
       await _schedule(prepared, occurrence.start, 'windowStart');
+    }
+  }
+
+  /// Re-arms every enabled alarm from its saved progress, for when Android has
+  /// dropped the app's pending callbacks: after a force stop, an app update,
+  /// or a phone maker killing background work. Unlike [startOrSchedule], it
+  /// doesn't reset thresholds the user has already acknowledged.
+  Future<void> resumeAll() async {
+    for (final alarm in await _storage.loadAlarms()) {
+      if (!alarm.enabled) continue;
+      try {
+        await _cancelScheduledCallbacks(alarm.id);
+        if (!alarm.spent) {
+          await _checkAlarm(alarm.id);
+          continue;
+        }
+        // A repeating alarm between windows is spent until its next start.
+        if (alarm.repeat.frequency == RepeatFrequency.none) continue;
+        final startSeconds = alarm.androidOccurrenceStartEpochSeconds;
+        final startsAt = startSeconds == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(startSeconds * 1000);
+        if (startsAt != null && startsAt.isAfter(DateTime.now())) {
+          await _schedule(alarm, startsAt, 'windowStart');
+        } else {
+          await handleScheduledCallback(alarmId: alarm.id, event: 'windowStart');
+        }
+      } catch (e) {
+        debugPrint('Could not resume alarm ${alarm.id}: $e');
+      }
     }
   }
 
@@ -108,7 +138,7 @@ class AndroidAlarmCoordinator {
             : null,
         clearLastEstimatedMinutesUntilThreshold: startsRepeat,
         clearAndroidFallbackArrival: startsRepeat,
-        androidApiWarningActive: startsRepeat ? false : null,
+        clearAndroidLiveNotice: startsRepeat,
         androidProgressStartEpochSeconds:
             alarm.androidProgressStartEpochSeconds ??
                 DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -118,10 +148,24 @@ class AndroidAlarmCoordinator {
         await NotificationService.cancel(_statusNotificationId(alarmId));
       }
     }
-    await _checkAlarm(alarmId);
+    await _checkAlarm(alarmId, guaranteedCheck: event == 'liveCheck');
   }
 
-  Future<void> _checkAlarm(String alarmId) async {
+  /// After a check failed partway, schedules another in a minute so the
+  /// alarm isn't left without a pending callback. Each check schedules the
+  /// next one, so a check that throws first would otherwise end the alarm.
+  Future<void> scheduleRecoveryCheck(String alarmId) async {
+    final alarm = await _findAlarm(alarmId);
+    if (alarm == null || !alarm.enabled || alarm.spent) return;
+    await _scheduleNextCheck(alarm);
+  }
+
+  /// [guaranteedCheck] is true for the guaranteed live check, the only
+  /// check sure to have network access; see [_updateApiWarning].
+  Future<void> _checkAlarm(
+    String alarmId, {
+    bool guaranteedCheck = false,
+  }) async {
     var alarm = await _findAlarm(alarmId);
     if (alarm == null || !alarm.enabled || alarm.spent) return;
 
@@ -159,7 +203,7 @@ class AndroidAlarmCoordinator {
     if (activeThresholdIndex >= 0 &&
         alarm.thresholdStates[activeThresholdIndex].outcome ==
             ThresholdOutcome.ringing) {
-      await _scheduleRetry(alarm, now);
+      await _scheduleNextCheck(alarm);
       return;
     }
 
@@ -182,11 +226,16 @@ class AndroidAlarmCoordinator {
       '${lookup.arrivalAt?.toIso8601String() ?? 'no arrival found'}',
     );
     alarm = await _findAlarm(alarm.id) ?? alarm;
-    alarm = await _updateApiWarning(alarm, lookup.apiFailed);
+    alarm = await _updateLiveNotice(
+      alarm,
+      lookup,
+      canRaise: guaranteedCheck,
+    );
     if (!DateTime.now().isBefore(endsAt)) {
       await _finishOccurrence(alarm, dueToWindowEnd: true);
       return;
     }
+    await _scheduleLiveCheck(alarm, gotLiveData: lookup.liveFound);
 
     if (activeThresholdIndex >= 0) {
       final threshold = alarm.thresholdStates[activeThresholdIndex];
@@ -194,7 +243,7 @@ class AndroidAlarmCoordinator {
       if (arrivalAt == null) {
         await _cancel(_fireAlarmId(alarm.id));
         await NotificationService.cancel(_countdownNotificationId(alarm.id));
-        await _scheduleRetry(alarm, now);
+        await _scheduleNextCheck(alarm);
         return;
       }
 
@@ -230,7 +279,7 @@ class AndroidAlarmCoordinator {
           ),
           body: _ringBody(ringing, stopName),
         );
-        await _scheduleRetry(ringing, now);
+        await _scheduleNextCheck(ringing);
         return;
       }
 
@@ -257,7 +306,7 @@ class AndroidAlarmCoordinator {
       } else {
         await NotificationService.cancel(_countdownNotificationId(alarm.id));
       }
-      await _scheduleHalfwayCheck(alarm, now, thresholdAt);
+      await _scheduleNextCheck(alarm);
       return;
     }
 
@@ -266,7 +315,7 @@ class AndroidAlarmCoordinator {
     if (finalArrivalAt == null) {
       await _cancel(_fireAlarmId(alarm.id));
       await NotificationService.cancel(_countdownNotificationId(alarm.id));
-      await _scheduleRetry(alarm, now);
+      await _scheduleNextCheck(alarm);
       return;
     }
     final arrivalAlertAt = finalArrivalAt.subtract(const Duration(seconds: 20));
@@ -304,7 +353,7 @@ class AndroidAlarmCoordinator {
     } else {
       await NotificationService.cancel(_countdownNotificationId(alarm.id));
     }
-    await _scheduleHalfwayCheck(alarm, now, arrivalAlertAt);
+    await _scheduleNextCheck(alarm);
   }
 
   Future<ArrivalLookup> _lookupArrival(
@@ -313,16 +362,19 @@ class AndroidAlarmCoordinator {
   }) async {
     final now = DateTime.now();
     final liveDates = <DateTime>[];
-    var hasHealthyApi = false;
-    var hasFailedApi = false;
+    // Whether a live request itself failed, as opposed to succeeding without
+    // a bus on the alarm's routes.
+    var liveRequestFailed = false;
+    // From resolveArrivals when it was used. Its scheduled arrivals already
+    // skip trips a live feed shows as running or gone past the stop.
+    List<RouteArrival>? resolved;
 
     if (alarm.routeApiConfigs.isNotEmpty) {
       final results = await Future.wait(
         alarm.routeApiConfigs.map(_fetchRouteEta),
       );
       for (final result in results) {
-        hasHealthyApi = hasHealthyApi || result.healthy;
-        hasFailedApi = hasFailedApi || !result.healthy;
+        liveRequestFailed = liveRequestFailed || !result.healthy;
         liveDates.addAll(result.arrivals);
       }
     } else {
@@ -334,8 +386,10 @@ class AndroidAlarmCoordinator {
           minimumMinutesFromNow: minimumArrivalSeconds == null
               ? null
               : minimumArrivalSeconds ~/ 60,
-          locale: alarm.localeCode
+          locale: alarm.localeCode,
+          onLiveFetchFailed: () => liveRequestFailed = true,
         );
+        resolved = arrivals;
         liveDates.addAll(
           arrivals
               .where((arrival) => arrival.isLive)
@@ -343,11 +397,8 @@ class AndroidAlarmCoordinator {
                 (arrival) => now.add(Duration(minutes: arrival.minutesFromNow)),
               ),
         );
-        hasHealthyApi = arrivals.any((arrival) => arrival.isLive);
-        hasFailedApi = !hasHealthyApi;
       } catch (_) {
-        hasHealthyApi = false;
-        hasFailedApi = true;
+        liveRequestFailed = true;
       }
     }
 
@@ -364,7 +415,7 @@ class AndroidAlarmCoordinator {
       }
       return ArrivalLookup(
         arrivalAt: eligibleLive.first,
-        apiFailed: hasFailedApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: false,
       );
     }
@@ -372,7 +423,7 @@ class AndroidAlarmCoordinator {
     if (alarm.liveOnly) {
       return ArrivalLookup(
         arrivalAt: null,
-        apiFailed: hasFailedApi || !hasHealthyApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: false,
       );
     }
@@ -381,29 +432,42 @@ class AndroidAlarmCoordinator {
     if (pinnedEpoch != null) {
       return ArrivalLookup(
         arrivalAt: DateTime.fromMillisecondsSinceEpoch(pinnedEpoch * 1000),
-        apiFailed: hasFailedApi || !hasHealthyApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: true,
       );
     }
 
     try {
-      final departures = await GtfsDatabase.forLocale(alarm.localeCode)
-          .getUpcomingDepartures(alarm.gtfsStopId, limit: 100);
-      final matching = departures.where((departure) {
-        return alarm.routeNumbers.keys.contains(departure.routeShortName) &&
-            (minimumArrivalSeconds == null ||
-                departure.minutesFromNow * 60 >= minimumArrivalSeconds);
-      }).toList()..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
+      final List<int> scheduledMinutes;
+      if (resolved != null) {
+        scheduledMinutes = resolved
+            .where((arrival) => !arrival.isLive)
+            .map((arrival) => arrival.minutesFromNow)
+            .toList();
+      } else {
+        // Route-specific live APIs (HK) have no timetable trip IDs to skip
+        // live or passed trips with, so read the timetable directly.
+        final departures = await GtfsDatabase.forLocale(alarm.localeCode)
+            .getUpcomingDepartures(alarm.gtfsStopId, limit: 100);
+        scheduledMinutes = departures
+            .where((d) => alarm.routeNumbers.keys.contains(d.routeShortName))
+            .map((d) => d.minutesFromNow)
+            .toList();
+      }
+      final matching = scheduledMinutes
+          .where((minutes) =>
+              minimumArrivalSeconds == null ||
+              minutes * 60 >= minimumArrivalSeconds)
+          .toList()
+        ..sort();
       if (matching.isEmpty) {
         return ArrivalLookup(
           arrivalAt: null,
-          apiFailed: hasFailedApi || !hasHealthyApi,
+          liveRequestFailed: liveRequestFailed,
           usedSchedule: true,
         );
       }
-      final arrivalAt = now.add(
-        Duration(minutes: matching.first.minutesFromNow),
-      );
+      final arrivalAt = now.add(Duration(minutes: matching.first));
       final latest = await _findAlarm(alarm.id);
       if (latest != null && latest.androidFallbackArrivalEpochSeconds == null) {
         await _storage.updateAlarm(
@@ -415,13 +479,13 @@ class AndroidAlarmCoordinator {
       }
       return ArrivalLookup(
         arrivalAt: arrivalAt,
-        apiFailed: hasFailedApi || !hasHealthyApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: true,
       );
     } catch (_) {
       return ArrivalLookup(
         arrivalAt: null,
-        apiFailed: hasFailedApi || !hasHealthyApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: false,
       );
     }
@@ -466,51 +530,73 @@ class AndroidAlarmCoordinator {
         alarm.androidFallbackArrivalEpochSeconds == null;
   }
 
-  Future<TransportAlarm> _updateApiWarning(
+  /// Shows why there's no live arrival, or clears the notice once there is
+  /// one. Notices are only raised or switched when [canRaise]: other checks
+  /// may run while Doze has cut off the network, and their failures would
+  /// raise false alarms. Any live arrival clears the notice.
+  Future<TransportAlarm> _updateLiveNotice(
     TransportAlarm alarm,
-    bool apiFailed,
-  ) async {
-    if (apiFailed == alarm.androidApiWarningActive) return alarm;
-    final updated = alarm.copyWith(androidApiWarningActive: apiFailed);
-    await _storage.updateAlarm(updated);
-    if (apiFailed) {
-      await NotificationService.showSilentStatus(
-        notificationId: _statusNotificationId(alarm.id),
-        alarmId: alarm.id,
-        title: AppStrings.text('notification.live_unavailable'),
-        body: alarm.liveOnly
-            ? AppStrings.text('notification.live_failed.body')
-            : AppStrings.text('notification.live_failed_schedule.body'),
-      );
-    } else {
+    ArrivalLookup lookup, {
+    required bool canRaise,
+  }) async {
+    final notice = lookup.liveFound
+        ? null
+        : lookup.liveRequestFailed
+        ? AndroidLiveNotice.requestFailed
+        : lookup.arrivalAt != null
+        ? AndroidLiveNotice.usingTimetable
+        : AndroidLiveNotice.noBusFound;
+    if (notice?.name == alarm.androidLiveNotice) return alarm;
+    if (notice == null) {
+      final cleared = alarm.copyWith(clearAndroidLiveNotice: true);
+      await _storage.updateAlarm(cleared);
       await NotificationService.cancel(_statusNotificationId(alarm.id));
+      return cleared;
+    }
+    if (!canRaise) return alarm;
+
+    final updated = alarm.copyWith(androidLiveNotice: notice.name);
+    await _storage.updateAlarm(updated);
+    final mode = AppStrings.transportModeValues(alarm.transportMode);
+    switch (notice) {
+      case AndroidLiveNotice.requestFailed:
+        await NotificationService.showAlert(
+          notificationId: _statusNotificationId(alarm.id),
+          alarmId: alarm.id,
+          title: AppStrings.text('notification.live_unavailable'),
+          body: alarm.liveOnly
+              ? AppStrings.text('notification.live_failed.body')
+              : lookup.arrivalAt != null
+              ? AppStrings.text('notification.live_failed_schedule.body')
+              : AppStrings.text('notification.live_failed_no_bus.body', mode),
+        );
+      case AndroidLiveNotice.usingTimetable:
+        await NotificationService.showSilentStatus(
+          notificationId: _statusNotificationId(alarm.id),
+          alarmId: alarm.id,
+          title: AppStrings.text('notification.using_timetable'),
+          body: AppStrings.text('notification.using_timetable.body', mode),
+        );
+      case AndroidLiveNotice.noBusFound:
+        // Sounds like a failed request: with no bus, the alarm can't ring.
+        await NotificationService.showAlert(
+          notificationId: _statusNotificationId(alarm.id),
+          alarmId: alarm.id,
+          title: AppStrings.text('notification.no_bus_found', mode),
+          body: alarm.liveOnly
+              ? AppStrings.text('notification.no_live_bus_found.body', mode)
+              : AppStrings.text('notification.no_bus_found.body', mode),
+        );
     }
     return updated;
   }
 
-  Future<void> _scheduleHalfwayCheck(
-    TransportAlarm alarm,
-    DateTime now,
-    DateTime target,
-  ) async {
-    final endSeconds = alarm.androidOccurrenceEndEpochSeconds;
-    final windowEnd = endSeconds == null
-        ? null
-        : DateTime.fromMillisecondsSinceEpoch(endSeconds * 1000);
-    if (windowEnd != null && !target.isBefore(windowEnd)) {
-      await _schedule(alarm, windowEnd, 'windowEnd');
-      return;
-    }
-    final remainingSeconds = target.difference(now).inSeconds;
-    if (remainingSeconds <= 60) return;
-    final waitSeconds = math.max(60, remainingSeconds ~/ 2).toInt();
-    final checkAt = now.add(Duration(seconds: waitSeconds));
-    if (checkAt.isBefore(target)) {
-      await _schedule(alarm, checkAt, 'check');
-    }
-  }
-
-  Future<void> _scheduleRetry(TransportAlarm alarm, DateTime now) async {
+  /// Schedules the next arrival check one minute from now, measured after
+  /// the fetch that just finished whether it succeeded or failed, or the
+  /// window end if that comes first. The threshold "fire" callback is
+  /// separate, so a ring due sooner still happens on time.
+  Future<void> _scheduleNextCheck(TransportAlarm alarm) async {
+    final now = DateTime.now();
     final endSeconds = alarm.androidOccurrenceEndEpochSeconds;
     final end = endSeconds == null
         ? now.add(const Duration(minutes: 1))
@@ -521,6 +607,30 @@ class AndroidAlarmCoordinator {
     } else {
       await _schedule(alarm, end, 'windowEnd');
     }
+  }
+
+  /// Keeps a guaranteed check pending: 10 minutes out after a check that
+  /// got live data, 5 after one that didn't. Each check replaces it, so it
+  /// only fires once live data has been missing for that long. It's an
+  /// alarm clock alarm, which Doze can't delay and which brings the phone
+  /// out of Doze with network access, unlike the one-minute checks.
+  Future<void> _scheduleLiveCheck(
+    TransportAlarm alarm, {
+    required bool gotLiveData,
+  }) async {
+    final checkAt = DateTime.now().add(
+      gotLiveData ? const Duration(minutes: 10) : const Duration(minutes: 5),
+    );
+    final endSeconds = alarm.androidOccurrenceEndEpochSeconds;
+    if (endSeconds != null &&
+        !checkAt.isBefore(
+          DateTime.fromMillisecondsSinceEpoch(endSeconds * 1000),
+        )) {
+      // The window ends first; the regular checks cover the rest.
+      await _cancel(_liveCheckAlarmId(alarm.id));
+      return;
+    }
+    await _schedule(alarm, checkAt, 'liveCheck');
   }
 
   Future<void> _schedule(
@@ -544,13 +654,20 @@ class AndroidAlarmCoordinator {
         : now.add(const Duration(seconds: 1));
     final result = await AndroidAlarmManager.oneShotAt(
       safeTime,
-      scheduledEvent == 'fire'
-          ? _fireAlarmId(alarm.id)
-          : _checkAlarmId(alarm.id),
+      switch (scheduledEvent) {
+        'fire' => _fireAlarmId(alarm.id),
+        'liveCheck' => _liveCheckAlarmId(alarm.id),
+        _ => _checkAlarmId(alarm.id),
+      },
       androidAlarmManagerCallback,
+      // Threshold rings and the guaranteed live check use Android's alarm
+      // clock scheduling, which Doze can't delay. The minute-by-minute checks
+      // stay ordinary exact alarms, which Doze may space out while idle.
+      alarmClock: scheduledEvent == 'fire' || scheduledEvent == 'liveCheck',
       exact: true,
       allowWhileIdle: true,
       wakeup: true,
+      rescheduleOnReboot: true,
       params: {'alarmId': alarm.id, 'event': scheduledEvent},
     );
     if (!result) {
@@ -576,7 +693,7 @@ class AndroidAlarmCoordinator {
       await _storage.updateAlarm(concluded);
       if (!dueToWindowEnd) {
         await _showFinalArrival(concluded);
-      } else if (alarm.androidApiWarningActive) {
+      } else if (alarm.androidLiveNotice != null) {
         await _showWindowEndedWarning(alarm, hasNextRepeat: false);
       } else {
         await NotificationService.cancel(_statusNotificationId(alarm.id));
@@ -592,18 +709,7 @@ class AndroidAlarmCoordinator {
     );
     var nextWindow = _nextOccurrence(alarm, occurrenceEnd);
     if (!nextWindow.end.isAfter(now)) {
-      final activeWindow = _activeWindow(alarm, now);
-      final activeStartDate = activeWindow == null
-          ? null
-          : DateTime(
-              activeWindow.start.year,
-              activeWindow.start.month,
-              activeWindow.start.day,
-            );
-      nextWindow = activeWindow != null &&
-              _repeatMatches(alarm.repeat, activeStartDate!)
-          ? activeWindow
-          : _nextOccurrence(alarm, now);
+      nextWindow = _activeWindow(alarm, now) ?? _nextOccurrence(alarm, now);
     }
     final concluded = alarm.copyWith(
       spent: true,
@@ -618,7 +724,7 @@ class AndroidAlarmCoordinator {
     await _storage.updateAlarm(concluded);
     if (!dueToWindowEnd) {
       await _showFinalArrival(concluded);
-    } else if (alarm.androidApiWarningActive) {
+    } else if (alarm.androidLiveNotice != null) {
       await _showWindowEndedWarning(alarm, hasNextRepeat: true);
     } else {
       await NotificationService.cancel(_statusNotificationId(alarm.id));
@@ -673,6 +779,7 @@ class AndroidAlarmCoordinator {
   Future<void> _cancelScheduledCallbacks(String alarmId) async {
     await _cancel(_checkAlarmId(alarmId));
     await _cancel(_fireAlarmId(alarmId));
+    await _cancel(_liveCheckAlarmId(alarmId));
   }
 
   Future<void> _cancel(int id) async {
@@ -723,9 +830,12 @@ class AndroidAlarmCoordinator {
     }
   }
 
+  /// The window that contains [now], if it started on a day the alarm
+  /// repeats on. Windows crossing midnight belong to the day they start.
   WindowOccurrence? _activeWindow(TransportAlarm alarm, DateTime now) {
     for (var offset = -1; offset <= 0; offset++) {
       final date = DateTime(now.year, now.month, now.day + offset);
+      if (!_repeatMatches(alarm.repeat, date)) continue;
       final occurrence = _windowForStart(alarm, date);
       if (!now.isBefore(occurrence.start) && now.isBefore(occurrence.end)) {
         return occurrence;
@@ -789,6 +899,8 @@ class AndroidAlarmCoordinator {
 
   int _checkAlarmId(String alarmId) => _stableId(alarmId) * 2;
   int _fireAlarmId(String alarmId) => _stableId(alarmId) * 2 + 1;
+  // Negative, so it can't collide with any alarm's check or fire ID.
+  int _liveCheckAlarmId(String alarmId) => -(_stableId(alarmId) * 2) - 1;
   int _ringNotificationId(String alarmId) => _stableId(alarmId);
   int _statusNotificationId(String alarmId) => _stableId(alarmId) + 0x40000000;
   int _countdownNotificationId(String alarmId) =>
@@ -803,19 +915,24 @@ Future<void> androidAlarmManagerCallback(
 ) async {
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
-  final languageCode = await LocaleSelectionService().getAppLanguageCode();
-  await AppStrings.load(languageCode);
-  await NotificationService.initBackground();
+  final alarmId = params['alarmId'] as String?;
+  if (alarmId == null) return;
+  final coordinator = AndroidAlarmCoordinator(AlarmStorageService());
   try {
-    final alarmId = params['alarmId'] as String?;
-    if (alarmId == null) return;
-    await AndroidAlarmCoordinator(AlarmStorageService())
-        .handleScheduledCallback(
-          alarmId: alarmId,
-          event: params['event'] as String? ?? 'check',
-        );
+    final languageCode = await LocaleSelectionService().getAppLanguageCode();
+    await AppStrings.load(languageCode);
+    await NotificationService.initBackground();
+    await coordinator.handleScheduledCallback(
+      alarmId: alarmId,
+      event: params['event'] as String? ?? 'check',
+    );
   } catch (error, stackTrace) {
     debugPrint('Android alarm callback failed: $error\n$stackTrace');
+    try {
+      await coordinator.scheduleRecoveryCheck(alarmId);
+    } catch (retryError) {
+      debugPrint('Android alarm recovery check failed: $retryError');
+    }
   }
 }
 
@@ -835,12 +952,27 @@ class RouteEtaResult {
 
 class ArrivalLookup {
   final DateTime? arrivalAt;
-  final bool apiFailed;
+  final bool liveRequestFailed;
   final bool usedSchedule;
 
   const ArrivalLookup({
     required this.arrivalAt,
-    required this.apiFailed,
+    required this.liveRequestFailed,
     required this.usedSchedule,
   });
+
+  bool get liveFound => arrivalAt != null && !usedSchedule;
+}
+
+/// Why an alarm has no live arrival, shown as one status notification.
+enum AndroidLiveNotice {
+  /// A live request failed. Plays a sound.
+  requestFailed,
+
+  /// Live data works but tracks no bus yet; the timetable is in use. Silent.
+  usingTimetable,
+
+  /// Live data works but there's no live bus, and no timetable bus either
+  /// (or the alarm is live only). Plays a sound.
+  noBusFound,
 }
