@@ -148,7 +148,7 @@ class AndroidAlarmCoordinator {
         await NotificationService.cancel(_statusNotificationId(alarmId));
       }
     }
-    await _checkAlarm(alarmId);
+    await _checkAlarm(alarmId, guaranteedCheck: event == 'liveCheck');
   }
 
   /// After a check failed partway, schedules another in a minute so the
@@ -160,7 +160,12 @@ class AndroidAlarmCoordinator {
     await _scheduleNextCheck(alarm);
   }
 
-  Future<void> _checkAlarm(String alarmId) async {
+  /// [guaranteedCheck] is true for the guaranteed live check, the only
+  /// check sure to have network access; see [_updateApiWarning].
+  Future<void> _checkAlarm(
+    String alarmId, {
+    bool guaranteedCheck = false,
+  }) async {
     var alarm = await _findAlarm(alarmId);
     if (alarm == null || !alarm.enabled || alarm.spent) return;
 
@@ -221,7 +226,11 @@ class AndroidAlarmCoordinator {
       '${lookup.arrivalAt?.toIso8601String() ?? 'no arrival found'}',
     );
     alarm = await _findAlarm(alarm.id) ?? alarm;
-    alarm = await _updateApiWarning(alarm, lookup.apiFailed);
+    alarm = await _updateApiWarning(
+      alarm,
+      lookup.apiFailed,
+      canRaise: guaranteedCheck,
+    );
     if (!DateTime.now().isBefore(endsAt)) {
       await _finishOccurrence(alarm, dueToWindowEnd: true);
       return;
@@ -523,11 +532,16 @@ class AndroidAlarmCoordinator {
         alarm.androidFallbackArrivalEpochSeconds == null;
   }
 
+  /// Shows the "live times unavailable" alert only when [canRaise]: other
+  /// checks may run while Doze has cut off the network, and their failures
+  /// would raise false alarms. Any successful fetch clears the warning.
   Future<TransportAlarm> _updateApiWarning(
     TransportAlarm alarm,
-    bool apiFailed,
-  ) async {
+    bool apiFailed, {
+    required bool canRaise,
+  }) async {
     if (apiFailed == alarm.androidApiWarningActive) return alarm;
+    if (apiFailed && !canRaise) return alarm;
     final updated = alarm.copyWith(androidApiWarningActive: apiFailed);
     await _storage.updateAlarm(updated);
     if (apiFailed) {
