@@ -54,6 +54,7 @@
 		A10000000000000000000003 /* AlarmKitScheduler.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AlarmKitScheduler.swift */; };
 		A10000000000000000000004 /* libsqlite3.tbd in Extension Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* libsqlite3.tbd */; };
 		A10000000000000000000005 /* NativeTransitETAProvider.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* NativeTransitETAProvider.swift */; };
+		A10000000000000000000010 /* AlarmWindow.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* AlarmWindow.swift */; };
 		A10000000000000000000006 /* NativeTransitLocale.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* NativeTransitLocale.swift */; };
 		F10000000000000000000011 /* PingAcknowledgementHandler.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000011 /* PingAcknowledgementHandler.swift */; };
 		F10000000000000000000012 /* NativeTransitLocale.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* NativeTransitLocale.swift */; };
@@ -166,6 +167,7 @@
 		A20000000000000000000002 /* AlarmKitScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitScheduler.swift; path = Shared/AlarmKitScheduler.swift; sourceTree = SOURCE_ROOT; };
 		A20000000000000000000003 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		A20000000000000000000004 /* NativeTransitETAProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTransitETAProvider.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* AlarmWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmWindow.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* NativeTransitLocale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTransitLocale.swift; sourceTree = "<group>"; };
 		E61F4BEEB9A1D9209256EBDE /* AlarmKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AlarmKitBridge.swift; path = Shared/AlarmKitBridge.swift; sourceTree = SOURCE_ROOT; };
 		F8414685C08043353570F413 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -303,6 +305,7 @@
 				C62E5DF5D8F2FB65BE9AFEFD /* NotificationService.swift */,
 				A20000000000000000000001 /* NativePingHandler.swift */,
 				A20000000000000000000004 /* NativeTransitETAProvider.swift */,
+				A20000000000000000000010 /* AlarmWindow.swift */,
 				A20000000000000000000005 /* NativeTransitLocale.swift */,
 				F8414685C08043353570F413 /* Info.plist */,
 				1706934E936F47B5BEBC875A /* NotificationServiceExtension.entitlements */,
@@ -547,6 +550,7 @@
 				2147030837A49D38E592A116 /* NotificationService.swift in Sources */,
 				A10000000000000000000001 /* NativePingHandler.swift in Sources */,
 				A10000000000000000000005 /* NativeTransitETAProvider.swift in Extension Sources */,
+				A10000000000000000000010 /* AlarmWindow.swift in Extension Sources */,
 				A10000000000000000000006 /* NativeTransitLocale.swift in Extension Sources */,
 				E2A549C880CA9E8D5E26FF2D /* AppGroup.swift in Sources */,
 				D20000000000000000000002 /* NativeLocalization.swift in NotificationService Sources */,

@@ -59,6 +59,35 @@ final class NativePingHandler {
                     (Self.intValue($1["minutesBeforeArrival"]) ?? 0)
             }
 
+            // Outside the alarm's window: end an occurrence that was under
+            // way, or wait for the next window start.
+            let calendar = NativeTransitLocales.gregorianCalendar()
+            let now = Date()
+            if let window = AlarmWindow(alarm: alarm),
+               window.activeOccurrence(at: now, calendar: calendar) == nil {
+                let inProgress = alarm["spent"] as? Bool != true && (
+                    Self.intValue(alarm["lastEstimatedMinutesUntilThreshold"]) != nil ||
+                        thresholdStates.contains { ($0["outcome"] as? String ?? "pending") != "pending" }
+                )
+                if inProgress {
+                    return try await concludeOccurrence(
+                        alarms: &alarms,
+                        index: alarmIndex,
+                        thresholdStates: thresholdStates,
+                        pingID: pingID,
+                        windowEnded: true
+                    )
+                }
+                guard let next = window.nextOccurrence(after: now, calendar: calendar) else {
+                    throw PingHandlerError.invalidAlarmData
+                }
+                try await reschedule(pingID: pingID, at: next.start, requireAck: false)
+                return PingResult(
+                    title: NativeLocalization.text("native.waiting_for_window.title"),
+                    body: NativeLocalization.text("native.waiting_for_window.body")
+                )
+            }
+
             // A scheduled ping at the next repeat start begins a fresh occurrence.
             if alarm["spent"] as? Bool == true {
                 if repeatFrequency(of: alarm) == "none" {
@@ -86,24 +115,14 @@ final class NativePingHandler {
                 let outcome = $0["outcome"] as? String
                 return outcome == "pending" || outcome == "ringing"
             }) else {
-                if repeatFrequency(of: alarm) != "none" {
-                    let nextRepeat = try nextRepeatDate(for: alarm)
-                    try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)
-                    alarm["thresholdStates"] = thresholdStates
-                    alarm["spent"] = true
-                    alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
-                    alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
-                    alarms[alarmIndex] = alarm
-                    try saveAlarms(alarms)
-                    return PingResult(title: NativeLocalization.text("native.next_repeat.title"), body: NativeLocalization.text("native.next_repeat.body"))
-                }
-                alarm["enabled"] = false
-                alarm["spent"] = true
-                alarm["pingId"] = NSNull()
                 alarms[alarmIndex] = alarm
-                try saveAlarms(alarms)
-                try? await acknowledge(pingID: pingID)
-                return PingResult(title: NativeLocalization.text("native.alarm_complete.title"), body: NativeLocalization.text("native.alarm_complete.thresholds_done"))
+                return try await concludeOccurrence(
+                    alarms: &alarms,
+                    index: alarmIndex,
+                    thresholdStates: thresholdStates,
+                    pingID: pingID,
+                    windowEnded: false
+                )
             }
 
             // Use a fresh arrival estimate when available, otherwise retain the
@@ -211,6 +230,39 @@ final class NativePingHandler {
         }
     }
 
+    /// Ends the current occurrence, because its thresholds are done or its
+    /// window has ended: schedules the next repeat, or disables a one-off alarm.
+    private func concludeOccurrence(
+        alarms: inout [[String: Any]],
+        index: Int,
+        thresholdStates: [[String: Any]],
+        pingID: String,
+        windowEnded: Bool
+    ) async throws -> PingResult {
+        var alarm = alarms[index]
+        alarm["thresholdStates"] = thresholdStates
+        alarm["spent"] = true
+        alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
+        alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
+        if repeatFrequency(of: alarm) != "none" {
+            let nextRepeat = try nextRepeatDate(for: alarm)
+            try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)
+            alarms[index] = alarm
+            try saveAlarms(alarms)
+            return windowEnded
+                ? PingResult(title: NativeLocalization.text("native.window_ended.title"), body: NativeLocalization.text("native.window_ended.next_repeat"))
+                : PingResult(title: NativeLocalization.text("native.next_repeat.title"), body: NativeLocalization.text("native.next_repeat.body"))
+        }
+        alarm["enabled"] = false
+        alarm["pingId"] = NSNull()
+        alarms[index] = alarm
+        try saveAlarms(alarms)
+        try? await acknowledge(pingID: pingID)
+        return windowEnded
+            ? PingResult(title: NativeLocalization.text("native.window_ended.title"), body: NativeLocalization.text("native.window_ended.no_repeat"))
+            : PingResult(title: NativeLocalization.text("native.alarm_complete.title"), body: NativeLocalization.text("native.alarm_complete.thresholds_done"))
+    }
+
     private func ringResult(alarm: [String: Any], thresholdMinutes: Int, debugMessage: String? = nil) -> PingResult {
         let routeConfigs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
         let transportMode = routeConfigs.first?["mode"] as? String ?? NativeLocalization.busMode
@@ -267,9 +319,8 @@ final class NativePingHandler {
         for alarm: [String: Any],
         minimumArrivalMinutes: Int?
     ) async -> Int? {
-        guard let stopID = alarm["gtfsStopId"] as? String,
-              let routeNumbers = alarm["routeNumbers"] as? [String],
-              !routeNumbers.isEmpty else {
+        let routeNumbers = Self.routeNumbers(of: alarm)
+        guard let stopID = alarm["gtfsStopId"] as? String, !routeNumbers.isEmpty else {
             return nil
         }
 
@@ -313,8 +364,8 @@ final class NativePingHandler {
         _ alarm: [String: Any],
         locale: NativeTransitLocale
     ) -> [[String: Any]] {
-        guard let stopID = alarm["gtfsStopId"] as? String,
-              let routeNumbers = alarm["routeNumbers"] as? [String] else {
+        let routeNumbers = Self.routeNumbers(of: alarm)
+        guard let stopID = alarm["gtfsStopId"] as? String else {
             return []
         }
         let stops = operatorStops(for: stopID, locale: locale) ?? []
@@ -340,7 +391,7 @@ final class NativePingHandler {
     /// Looks up the operator-specific stop IDs mapped to a GTFS stop in the
     /// bundled database stored in the shared App Group directory.
     private func operatorStops(for gtfsStopID: String, locale: NativeTransitLocale) -> [OperatorStop]? {
-        let databaseURL = appGroupDirectory.appendingPathComponent(locale.databaseRelativePath)
+        let databaseURL = locale.databaseURL(in: appGroupDirectory)
         var database: OpaquePointer?
         guard sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
               let database else {
@@ -388,7 +439,7 @@ final class NativePingHandler {
         minimumArrivalMinutes: Int?
     ) -> Int? {
         guard !routeNumbers.isEmpty else { return nil }
-        let databaseURL = appGroupDirectory.appendingPathComponent(locale.databaseRelativePath)
+        let databaseURL = locale.databaseURL(in: appGroupDirectory)
         var database: OpaquePointer?
         guard sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
               let database else {
@@ -494,66 +545,17 @@ final class NativePingHandler {
 
     // MARK: Alarm schedule and server ping
 
-    /// Calculates the next calendar occurrence in the alarm's locale for a
-    /// daily, weekly, or monthly repeating alarm.
+    /// The start of the alarm's next occurrence after now, from its window
+    /// and repeat days in the device's timezone.
     private func nextRepeatDate(for alarm: [String: Any]) throws -> Date {
-        let repeatInfo = alarm["repeat"] as? [String: Any] ?? [:]
-        let frequency = repeatInfo["frequency"] as? String ?? "none"
-        guard let windowStart = Self.intValue(alarm["windowStart"]) else {
+        guard let window = AlarmWindow(alarm: alarm),
+              let next = window.nextOccurrence(
+                  after: Date(),
+                  calendar: NativeTransitLocales.gregorianCalendar()
+              ) else {
             throw PingHandlerError.invalidAlarmData
         }
-        let calendar = NativeTransitLocales.gregorianCalendar()
-        let now = Date()
-        let today = calendar.startOfDay(for: now)
-
-        switch frequency {
-        case "daily":
-            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: today) else {
-                throw PingHandlerError.invalidAlarmData
-            }
-            guard let nextDate = NativeTransitLocales.date(
-                windowStartMinutes: windowStart,
-                on: nextDay,
-                calendar: calendar
-            ) else {
-                throw PingHandlerError.invalidAlarmData
-            }
-            return nextDate
-        case "weekly":
-            let selectedDays = Set(repeatInfo["weekdays"] as? [Int] ?? [])
-            for offset in 1...7 {
-                guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
-                let weekday = calendar.component(.weekday, from: day)
-                let dartWeekday = weekday == 1 ? 7 : weekday - 1
-                if selectedDays.contains(dartWeekday) {
-                    if let nextDate = NativeTransitLocales.date(
-                        windowStartMinutes: windowStart,
-                        on: day,
-                        calendar: calendar
-                    ) {
-                        return nextDate
-                    }
-                }
-            }
-            throw PingHandlerError.invalidAlarmData
-        case "monthly":
-            let selectedDays = Set(repeatInfo["dayOfMonth"] as? [Int] ?? [])
-            for offset in 1...370 {
-                guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
-                if selectedDays.contains(calendar.component(.day, from: day)) {
-                    if let nextDate = NativeTransitLocales.date(
-                        windowStartMinutes: windowStart,
-                        on: day,
-                        calendar: calendar
-                    ) {
-                        return nextDate
-                    }
-                }
-            }
-            throw PingHandlerError.invalidAlarmData
-        default:
-            throw PingHandlerError.invalidAlarmData
-        }
+        return next.start
     }
 
     /// Produces a stable local-date key used to distinguish repeat occurrences.
@@ -598,6 +600,15 @@ final class NativePingHandler {
     }
 
     // MARK: SQLite and JSON scalar helpers
+
+    /// The route numbers selected on an alarm. Alarms now save a map of route
+    /// number to its destination names; older ones saved a plain list.
+    static func routeNumbers(of alarm: [String: Any]) -> [String] {
+        if let routes = alarm["routeNumbers"] as? [String: Any] {
+            return routes.keys.sorted()
+        }
+        return alarm["routeNumbers"] as? [String] ?? []
+    }
 
     /// Binds a Swift string to a SQLite statement parameter.
     private func bind(_ value: String, to statement: OpaquePointer, at index: Int32) {

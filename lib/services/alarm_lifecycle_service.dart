@@ -155,20 +155,43 @@ class AlarmLifecycleService {
   Future<TransportAlarm> _schedulePing(TransportAlarm alarm) async {
     final deviceToken = await DeviceTokenService.getToken();
     if (deviceToken == null) return alarm; // no token yet
-    final now = TimeOfDay.now();
-
-    final scheduledTime = alarm.isWithinWindow(now) ? DateTime.now().add(Duration(seconds: 10)) : _todayAt(now);
-    // if (scheduledTime.isBefore(DateTime.now())) return // todo api call arrival time if window already started
+    final scheduledTime = _firstPingTime(alarm);
 
     final pingId = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
     return alarm.copyWith(pingId: pingId);
   }
 
-  DateTime _todayAt(TimeOfDay time) {
+  /// When the first ping should arrive: shortly if the window is open now,
+  /// otherwise at the next window start on a day the alarm repeats on.
+  DateTime _firstPingTime(TransportAlarm alarm) {
     final now = DateTime.now();
-    var result = DateTime(now.year, now.month, now.day, time.hour, time.minute, now.second + 5); // add 5 seconds because .isbefore() checks seconds as well
-    if (result.isBefore(now)) result = result.add(Duration(days: 1));
-    return result;
+    if (alarm.isWithinWindow(TimeOfDay.now())) {
+      return now.add(const Duration(seconds: 10));
+    }
+    for (var offset = 0; offset <= 370; offset++) {
+      final day = DateTime(now.year, now.month, now.day + offset);
+      final start = DateTime(
+        day.year,
+        day.month,
+        day.day,
+        alarm.windowStart.hour,
+        alarm.windowStart.minute,
+      );
+      if (start.isAfter(now) && _repeatsOn(alarm.repeat, day)) return start;
+    }
+    return now.add(const Duration(seconds: 10));
+  }
+
+  bool _repeatsOn(RepeatPattern repeat, DateTime day) {
+    switch (repeat.frequency) {
+      case RepeatFrequency.none:
+      case RepeatFrequency.daily:
+        return true;
+      case RepeatFrequency.weekly:
+        return (repeat.weekdays ?? const []).contains(day.weekday);
+      case RepeatFrequency.monthly:
+        return (repeat.dayOfMonth ?? const []).contains(day.day);
+    }
   }
 
   bool _allThresholdsConcluded(TransportAlarm alarm) {
