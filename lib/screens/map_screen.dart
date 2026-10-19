@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'package:transport_alarm/transit/models/transport_route.dart';
@@ -213,7 +214,13 @@ class _MapScreenState extends State<MapScreen> {
     final screenHeight = MediaQuery.of(context).size.height;
     final sheetHeightFraction = 0.5;
     final metersPerPixel = 156543.03392 * cos(stop.lat * pi / 180) / pow(2, zoom);
-    final latOffset = ((screenHeight * sheetHeightFraction / 2) * metersPerPixel) / 111320;
+    // Keeps the stop above the bottom sheet. iOS applies the bottom map
+    // padding set below, which already centres the camera above the sheet,
+    // so shifting the target as well would aim below the stop there. The
+    // padding has no effect on Android, so it shifts the target instead.
+    final latOffset = Platform.isIOS
+        ? 0.0
+        : ((screenHeight * sheetHeightFraction / 2) * metersPerPixel) / 111320;
 
     if (widget.pickerMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
