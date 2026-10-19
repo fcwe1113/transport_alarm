@@ -581,10 +581,27 @@ final class NativePingHandler {
             FROM gtfs_stop_times st
             INNER JOIN gtfs_trips t ON st.trip_id = t.trip_id
             INNER JOIN gtfs_routes r ON t.route_id = r.route_id
-            INNER JOIN gtfs_calendar c ON t.service_id = c.service_id
             WHERE st.stop_id = ? AND r.route_short_name IN (\(placeholders))
-              AND st.arrival_time > ? AND c.\(weekdayColumn) = 1
-              AND c.start_date <= ? AND c.end_date >= ?
+              AND st.arrival_time > ?
+              -- Runs today by its weekly calendar or an added date, and isn't
+              -- removed for today in calendar_dates.
+              AND (
+                EXISTS (
+                  SELECT 1 FROM gtfs_calendar c
+                  WHERE c.service_id = t.service_id AND c.\(weekdayColumn) = 1
+                    AND c.start_date <= ? AND c.end_date >= ?
+                )
+                OR EXISTS (
+                  SELECT 1 FROM gtfs_calendar_dates added
+                  WHERE added.service_id = t.service_id
+                    AND added.date = ? AND added.exception_type = 1
+                )
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM gtfs_calendar_dates removed
+                WHERE removed.service_id = t.service_id
+                  AND removed.date = ? AND removed.exception_type = 2
+              )
             ORDER BY st.arrival_time ASC LIMIT 50
             """
         var statement: OpaquePointer?
@@ -597,8 +614,9 @@ final class NativePingHandler {
         }
         let timeBinding = Int32(routeNumbers.count + 2)
         bind(localTime, to: statement, at: timeBinding)
-        bind(dateString, to: statement, at: timeBinding + 1)
-        bind(dateString, to: statement, at: timeBinding + 2)
+        for offset in Int32(1)...Int32(4) {
+            bind(dateString, to: statement, at: timeBinding + offset)
+        }
 
         let startOfDay = calendar.startOfDay(for: now)
         var soonest: Int?
