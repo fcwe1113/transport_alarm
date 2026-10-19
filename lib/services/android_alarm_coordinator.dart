@@ -13,6 +13,7 @@ import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
+import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
@@ -354,6 +355,9 @@ class AndroidAlarmCoordinator {
     final liveDates = <DateTime>[];
     var hasHealthyApi = false;
     var hasFailedApi = false;
+    // From resolveArrivals when it was used. Its scheduled arrivals already
+    // skip trips a live feed shows as running or gone past the stop.
+    List<RouteArrival>? resolved;
 
     if (alarm.routeApiConfigs.isNotEmpty) {
       final results = await Future.wait(
@@ -375,6 +379,7 @@ class AndroidAlarmCoordinator {
               : minimumArrivalSeconds ~/ 60,
           locale: alarm.localeCode
         );
+        resolved = arrivals;
         liveDates.addAll(
           arrivals
               .where((arrival) => arrival.isLive)
@@ -426,13 +431,28 @@ class AndroidAlarmCoordinator {
     }
 
     try {
-      final departures = await GtfsDatabase.forLocale(alarm.localeCode)
-          .getUpcomingDepartures(alarm.gtfsStopId, limit: 100);
-      final matching = departures.where((departure) {
-        return alarm.routeNumbers.keys.contains(departure.routeShortName) &&
-            (minimumArrivalSeconds == null ||
-                departure.minutesFromNow * 60 >= minimumArrivalSeconds);
-      }).toList()..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
+      final List<int> scheduledMinutes;
+      if (resolved != null) {
+        scheduledMinutes = resolved
+            .where((arrival) => !arrival.isLive)
+            .map((arrival) => arrival.minutesFromNow)
+            .toList();
+      } else {
+        // Route-specific live APIs (HK) have no timetable trip IDs to skip
+        // live or passed trips with, so read the timetable directly.
+        final departures = await GtfsDatabase.forLocale(alarm.localeCode)
+            .getUpcomingDepartures(alarm.gtfsStopId, limit: 100);
+        scheduledMinutes = departures
+            .where((d) => alarm.routeNumbers.keys.contains(d.routeShortName))
+            .map((d) => d.minutesFromNow)
+            .toList();
+      }
+      final matching = scheduledMinutes
+          .where((minutes) =>
+              minimumArrivalSeconds == null ||
+              minutes * 60 >= minimumArrivalSeconds)
+          .toList()
+        ..sort();
       if (matching.isEmpty) {
         return ArrivalLookup(
           arrivalAt: null,
@@ -440,9 +460,7 @@ class AndroidAlarmCoordinator {
           usedSchedule: true,
         );
       }
-      final arrivalAt = now.add(
-        Duration(minutes: matching.first.minutesFromNow),
-      );
+      final arrivalAt = now.add(Duration(minutes: matching.first));
       final latest = await _findAlarm(alarm.id);
       if (latest != null && latest.androidFallbackArrivalEpochSeconds == null) {
         await _storage.updateAlarm(
