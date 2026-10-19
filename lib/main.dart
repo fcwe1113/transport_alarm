@@ -12,6 +12,8 @@ import 'package:transport_alarm/screens/settings_screen.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/l10n/app_language_state.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
+import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/locale/gb/providers/gb_bods_provider.dart';
@@ -62,6 +64,8 @@ Future<void> main() async {
   } else if (defaultTargetPlatform == TargetPlatform.android) {
     await AndroidAlarmManager.initialize();
     await NotificationService.init();
+    // Android drops pending alarms on a force stop or app update.
+    unawaited(AndroidAlarmCoordinator(AlarmStorageService()).resumeAll());
   }
 
   final setupDone = await selectionService

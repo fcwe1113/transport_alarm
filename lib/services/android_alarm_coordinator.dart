@@ -59,6 +59,36 @@ class AndroidAlarmCoordinator {
     }
   }
 
+  /// Re-arms every enabled alarm from its saved progress, for when Android has
+  /// dropped the app's pending callbacks: after a force stop, an app update,
+  /// or a phone maker killing background work. Unlike [startOrSchedule], it
+  /// doesn't reset thresholds the user has already acknowledged.
+  Future<void> resumeAll() async {
+    for (final alarm in await _storage.loadAlarms()) {
+      if (!alarm.enabled) continue;
+      try {
+        await _cancelScheduledCallbacks(alarm.id);
+        if (!alarm.spent) {
+          await _checkAlarm(alarm.id);
+          continue;
+        }
+        // A repeating alarm between windows is spent until its next start.
+        if (alarm.repeat.frequency == RepeatFrequency.none) continue;
+        final startSeconds = alarm.androidOccurrenceStartEpochSeconds;
+        final startsAt = startSeconds == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(startSeconds * 1000);
+        if (startsAt != null && startsAt.isAfter(DateTime.now())) {
+          await _schedule(alarm, startsAt, 'windowStart');
+        } else {
+          await handleScheduledCallback(alarmId: alarm.id, event: 'windowStart');
+        }
+      } catch (e) {
+        debugPrint('Could not resume alarm ${alarm.id}: $e');
+      }
+    }
+  }
+
   /// Stops pending callbacks and removes this alarm's local notifications.
   Future<void> disable(String alarmId) async {
     await _cancelScheduledCallbacks(alarmId);
@@ -551,6 +581,7 @@ class AndroidAlarmCoordinator {
       exact: true,
       allowWhileIdle: true,
       wakeup: true,
+      rescheduleOnReboot: true,
       params: {'alarmId': alarm.id, 'event': scheduledEvent},
     );
     if (!result) {
