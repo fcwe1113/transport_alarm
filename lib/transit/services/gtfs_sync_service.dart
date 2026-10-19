@@ -111,8 +111,10 @@ class GtfsSyncService {
     }
   }
 
-  /// Imports filtered files in dependency order, tracking relationship IDs in
-  /// disk-backed indexes so unrelated GTFS rows are never inserted.
+  /// Imports filtered files in dependency order, tracking relationship IDs so
+  /// unrelated GTFS rows are never inserted. Stop IDs are few enough (tens of
+  /// thousands) to keep in memory; trip, route and service IDs use
+  /// disk-backed indexes.
   Future<void> _importFiles(
     Map<String, File> files,
     bool Function(List<dynamic> header, List<dynamic> row)? stopFilter,
@@ -121,8 +123,7 @@ class GtfsSyncService {
   ) async {
     final indexes = <_TemporaryIndex>[];
     try {
-      final includedStopIds = await _TemporaryIndex.create('stop_id');
-      indexes.add(includedStopIds);
+      final includedStopIds = <String>{};
       final includedTripIds = await _TemporaryIndex.create('trip_id');
       indexes.add(includedTripIds);
       final includedRouteIds = await _TemporaryIndex.create('route_id');
@@ -154,7 +155,7 @@ class GtfsSyncService {
     bool Function(List<dynamic> header, List<dynamic> row)? stopFilter,
     ProgressCallback? onProgress,
     int totalFiles,
-    _TemporaryIndex includedStopIds,
+    Set<String> includedStopIds,
     _TemporaryIndex includedTripIds,
     _TemporaryIndex includedRouteIds,
     _TemporaryIndex includedServiceIds,
@@ -219,7 +220,11 @@ class GtfsSyncService {
         if (stopId.isEmpty || !allowAllStops(header, row)) return false;
         return true;
       },
-      afterBatch: includedStopIds.insertRows,
+      afterBatch: (header, rows) async {
+        for (final row in rows) {
+          includedStopIds.add(_csvField(header, row, 'stop_id'));
+        }
+      },
     );
 
     // Stop times establish which trips serve at least one included stop.
@@ -227,15 +232,19 @@ class GtfsSyncService {
       'stop_times.txt',
       _db.batchInsertStopTimes,
       filterBatch: (header, rows) async {
-        final stopIds = rows
-            .map((row) => _csvField(header, row, 'stop_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
-        final selectedStopIds = await includedStopIds.findExisting(stopIds);
+        // Column positions once per batch rather than per row.
+        final tripColumn = header.indexOf('trip_id');
+        final stopColumn = header.indexOf('stop_id');
+        if (tripColumn < 0 || stopColumn < 0) {
+          throw const FormatException(
+            'GTFS stop_times.txt is missing the trip_id or stop_id column.',
+          );
+        }
+        String field(List<dynamic> row, int column) =>
+            row.length > column ? row[column].toString().trim() : '';
         return rows.where((row) {
-          final tripId = _csvField(header, row, 'trip_id');
-          final stopId = _csvField(header, row, 'stop_id');
-          return tripId.isNotEmpty && selectedStopIds.contains(stopId);
+          return field(row, tripColumn).isNotEmpty &&
+              includedStopIds.contains(field(row, stopColumn));
         }).toList();
       },
       afterBatch: includedTripIds.insertRows,
