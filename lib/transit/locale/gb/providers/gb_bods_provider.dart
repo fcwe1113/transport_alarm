@@ -23,11 +23,17 @@ class GbBodsProvider extends TransitProvider {
   final ApiCaller _apiCaller;
   final GtfsDatabase db = LocaleRegistry.getLocale("gb").db;
 
-  /// Loads the bundled key once during startup so synchronous URL builders can use it.
+  // Compiled in at build time rather than bundled as a readable asset:
+  // flutter run/build --dart-define-from-file=config/build_secrets.json,
+  // and --obfuscate for release builds. Still extractable from the binary
+  // with effort, so keep request volume low and rotate it if it leaks.
+  static const _buildApiKey = String.fromEnvironment('UK_BODS_KEY');
+
+  /// Loads the build-time key once during startup so synchronous URL
+  /// builders can use it.
   static Future<void> loadApiKey() async {
-    final source = await rootBundle.loadString('config/secrets.json');
-    final key = (jsonDecode(source) as Map<String, dynamic>)['UK_BODS_KEY'];
-    _cachedApiKey = key is String ? key.trim() : null;
+    final key = _buildApiKey.trim();
+    _cachedApiKey = key.isEmpty ? null : key;
   }
 
   /// Returns the key loaded by [loadApiKey].

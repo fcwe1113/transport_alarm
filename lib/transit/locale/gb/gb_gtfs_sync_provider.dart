@@ -32,13 +32,6 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
   static const int _areaBatchSize = 40;
   static const Duration _ttl = Duration(days: 7);
 
-  /// Loads the BODS API key from the bundled local secrets file.
-  Future<String> _apiKey() async {
-    final source = await rootBundle.loadString('config/secrets.json');
-    final key = jsonDecode(source)['UK_BODS_KEY'];
-    return key.trim();
-  }
-
   String _preferenceKey(String region, String suffix) =>
       'gtfs_${locale}_${region}_$suffix';
 
