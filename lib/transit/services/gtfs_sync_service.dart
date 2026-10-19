@@ -225,17 +225,19 @@ class GtfsSyncService {
 
     // Resolve selected stops first, applying both the caller's ATCO filter
     // and recording their IDs for the stop_times relationship.
+    String Function(List<dynamic>)? stopIdOf;
     await parseWithHeader(
       'stops.txt',
       _db.batchInsertStops,
       filter: (header, row) {
-        final stopId = _csvField(header, row, 'stop_id');
-        if (stopId.isEmpty || !allowAllStops(header, row)) return false;
-        return true;
+        // The header is the same for every row, so find the column once.
+        stopIdOf ??= _columnReader(header, 'stop_id');
+        return stopIdOf!(row).isNotEmpty && allowAllStops(header, row);
       },
       afterBatch: (header, rows) async {
+        final stopId = _columnReader(header, 'stop_id');
         for (final row in rows) {
-          includedStopIds.add(_csvField(header, row, 'stop_id'));
+          includedStopIds.add(stopId(row));
         }
       },
     );
@@ -245,19 +247,10 @@ class GtfsSyncService {
       'stop_times.txt',
       _db.batchInsertStopTimes,
       filterBatch: (header, rows) async {
-        // Column positions once per batch rather than per row.
-        final tripColumn = header.indexOf('trip_id');
-        final stopColumn = header.indexOf('stop_id');
-        if (tripColumn < 0 || stopColumn < 0) {
-          throw const FormatException(
-            'GTFS stop_times.txt is missing the trip_id or stop_id column.',
-          );
-        }
-        String field(List<dynamic> row, int column) =>
-            row.length > column ? row[column].toString().trim() : '';
+        final tripId = _columnReader(header, 'trip_id');
+        final stopId = _columnReader(header, 'stop_id');
         return rows.where((row) {
-          return field(row, tripColumn).isNotEmpty &&
-              includedStopIds.contains(field(row, stopColumn));
+          return tripId(row).isNotEmpty && includedStopIds.contains(stopId(row));
         }).toList();
       },
       afterBatch: includedTripIds.insertRows,
@@ -273,26 +266,24 @@ class GtfsSyncService {
       'trips.txt',
       _db.batchInsertTrips,
       filterBatch: (header, rows) async {
-        final candidateIds = rows
-            .map((row) => _csvField(header, row, 'trip_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
+        final tripId = _columnReader(header, 'trip_id');
+        final routeId = _columnReader(header, 'route_id');
+        final serviceId = _columnReader(header, 'service_id');
+        final candidateIds =
+            rows.map(tripId).where((id) => id.isNotEmpty).toSet();
         final includedIds = await includedTripIds.findExisting(candidateIds);
-        final selectedRows = <List<dynamic>>[];
-        for (final row in rows) {
-          final tripId = _csvField(header, row, 'trip_id');
-          if (!includedIds.contains(tripId)) continue;
-          final routeId = _csvField(header, row, 'route_id');
-          final serviceId = _csvField(header, row, 'service_id');
-          if (routeId.isEmpty || serviceId.isEmpty) continue;
-          selectedRows.add(row);
-        }
-        return selectedRows;
+        return rows.where((row) {
+          return includedIds.contains(tripId(row)) &&
+              routeId(row).isNotEmpty &&
+              serviceId(row).isNotEmpty;
+        }).toList();
       },
       afterBatch: (header, rows) async {
+        final routeId = _columnReader(header, 'route_id');
+        final serviceId = _columnReader(header, 'service_id');
         for (final row in rows) {
-          includedRouteIds.add(_csvField(header, row, 'route_id'));
-          includedServiceIds.add(_csvField(header, row, 'service_id'));
+          includedRouteIds.add(routeId(row));
+          includedServiceIds.add(serviceId(row));
         }
       },
       // Can run to hundreds of thousands of rows, like stop_times.
@@ -304,26 +295,42 @@ class GtfsSyncService {
     await parseWithHeader(
       'routes.txt',
       _db.batchInsertRoutes,
-      filterBatch: (header, rows) async => rows
-          .where((row) => includedRouteIds.contains(_csvField(header, row, 'route_id')))
-          .toList(),
+      filterBatch: (header, rows) async {
+        final routeId = _columnReader(header, 'route_id');
+        return rows.where((row) => includedRouteIds.contains(routeId(row))).toList();
+      },
     );
 
     await parseWithHeader(
       'calendar.txt',
       _db.batchInsertCalendar,
-      filterBatch: (header, rows) async => rows
-          .where((row) => includedServiceIds.contains(_csvField(header, row, 'service_id')))
-          .toList(),
+      filterBatch: (header, rows) async {
+        final serviceId = _columnReader(header, 'service_id');
+        return rows.where((row) => includedServiceIds.contains(serviceId(row))).toList();
+      },
     );
 
     await parseWithHeader(
       'calendar_dates.txt',
       _db.batchInsertCalendarDates,
-      filterBatch: (header, rows) async => rows
-          .where((row) => includedServiceIds.contains(_csvField(header, row, 'service_id')))
-          .toList(),
+      filterBatch: (header, rows) async {
+        final serviceId = _columnReader(header, 'service_id');
+        return rows.where((row) => includedServiceIds.contains(serviceId(row))).toList();
+      },
     );
+  }
+
+  /// Reads [name] from rows of a file with [header], finding its column once
+  /// instead of on every row. Values are trimmed, as with [_csvField].
+  String Function(List<dynamic> row) _columnReader(
+    List<dynamic> header,
+    String name,
+  ) {
+    final index = header.indexOf(name);
+    if (index < 0) {
+      throw FormatException('GTFS file is missing the $name column.');
+    }
+    return (row) => row.length > index ? row[index].toString().trim() : '';
   }
 
   String _csvField(
