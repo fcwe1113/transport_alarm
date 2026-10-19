@@ -74,6 +74,7 @@ class GtfsDatabase {
   Future<void> refreshAtomically(
     Future<void> Function(GtfsDatabase stagingDatabase) populate, {
     bool deferCommit = false,
+    CancellationToken? cancelToken,
   }) async {
     final previousRefresh = _refreshTails[locale] ?? Future<void>.value();
     final refreshFinished = Completer<void>();
@@ -85,6 +86,7 @@ class GtfsDatabase {
     File? stagingFile;
     var preserveStagingFile = false;
     var populateSucceeded = false;
+    var swapping = false;
     try {
       final currentDb = await database;
       final appDir = await AppGroupStorage.directory;
@@ -114,6 +116,11 @@ class GtfsDatabase {
         preserveStagingFile = true;
         return;
       }
+
+      // From here the new snapshot is copied in and swapped for the active
+      // file, which must finish once started.
+      cancelToken?.beginUncancellable();
+      swapping = true;
 
       // Pause new database lookups while the auxiliary data is copied and the
       // active file is swapped. The existing timetable remains readable while
@@ -153,6 +160,7 @@ class GtfsDatabase {
         rethrow;
       }
     } finally {
+      if (swapping) cancelToken?.endUncancellable();
       try {
         if (stagingDb != null) await stagingDb.close();
         if (stagingFile != null &&

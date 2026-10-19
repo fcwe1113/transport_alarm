@@ -178,7 +178,7 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
                 );
               },
             );
-          }, deferCommit: !isLastRegion);
+          }, deferCommit: !isLastRegion, cancelToken: cancelToken);
         } finally {
           if (await zipFile.exists()) await zipFile.delete();
         }

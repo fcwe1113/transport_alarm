@@ -128,14 +128,22 @@ class _LoadingScreenState extends State<LoadingScreen> {
             if (_finished) ...[
               const SizedBox(height: 24,),
               ElevatedButton(onPressed: _onOkPressed, child: Text(AppStrings.text('common.ok')))
-            ] else if (widget.cancellable) ...[
-              const SizedBox(height: 24,),
-              OutlinedButton(
-                // Disabled once pressed, while the operation winds down.
-                onPressed: _cancelToken?.isCancelled ?? true ? null : _cancel,
-                child: Text(AppStrings.text('common.cancel')),
+            ] else if (widget.cancellable && _cancelToken != null)
+              // Hidden while a new snapshot is being swapped in, which has to
+              // finish once started.
+              ValueListenableBuilder<bool>(
+                valueListenable: _cancelToken!.canCancel,
+                builder: (context, canCancel, _) => !canCancel
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 24),
+                        child: OutlinedButton(
+                          // Disabled once pressed, while the operation winds down.
+                          onPressed: _cancelToken!.isCancelled ? null : _cancel,
+                          child: Text(AppStrings.text('common.cancel')),
+                        ),
+                      ),
               ),
-            ]
           ],
         ),
     );
