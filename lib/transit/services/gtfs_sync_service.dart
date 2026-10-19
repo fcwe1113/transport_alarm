@@ -215,6 +215,14 @@ class GtfsSyncService {
         batchSize: batchSize,
       );
       parsedCount++;
+      // Each file is read once. Freeing its space now, rather than when the
+      // whole archive is done, lowers peak storage while the staging
+      // database grows.
+      try {
+        await file.delete();
+      } catch (_) {
+        // The extraction folder is removed after the import either way.
+      }
     }
 
     // Resolve selected stops first, applying both the caller's ATCO filter
