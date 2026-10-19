@@ -52,10 +52,14 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
     if (selectionChanged) {
       await navigator.push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => const LoadingScreen(
+          builder: (_) => LoadingScreen(
             operation: initializeTransitData,
             returnToPrevious: true,
             showBottomNavigation: true,
+            cancellable: true,
+            // A cancelled or failed download leaves the installed data as it
+            // was, so restore the selection that matches it.
+            onAbandon: () => _selectionService.setEnabledLocales(previous),
           ),
         ),
       );

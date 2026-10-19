@@ -38,6 +38,8 @@
   "loading.failures.body": "{count}次下载错误:\n{failures}\n\n",
   "loading.completed": "作业完成",
   "loading.cancelling": "Cancelling...",
+  "locale_change.failed.title": "Couldn't load the new regions",
+  "locale_change.failed.body": "The transit data for your new region selection couldn't be downloaded, so your previous selection has been restored.\n\n{details}",
   "loading.failed": "下载错误: {error}",
   "alarm_list.title": "闹钟列表",
   "alarm_list.empty": "闹钟列表空白",

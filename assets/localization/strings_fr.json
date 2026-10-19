@@ -38,6 +38,8 @@
   "loading.failures.body": "{count} item(s) failed:\n{failures}\n\n",
   "loading.completed": "Operation completed",
   "loading.cancelling": "Cancelling...",
+  "locale_change.failed.title": "Couldn't load the new regions",
+  "locale_change.failed.body": "The transit data for your new region selection couldn't be downloaded, so your previous selection has been restored.\n\n{details}",
   "loading.failed": "Setup failed: {error}",
   "alarm_list.title": "Alarm List",
   "alarm_list.empty": "Alarm List empty",
