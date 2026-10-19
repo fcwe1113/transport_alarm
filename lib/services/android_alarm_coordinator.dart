@@ -578,7 +578,8 @@ class AndroidAlarmCoordinator {
           body: AppStrings.text('notification.using_timetable.body', mode),
         );
       case AndroidLiveNotice.noBusFound:
-        await NotificationService.showSilentStatus(
+        // Sounds like a failed request: with no bus, the alarm can't ring.
+        await NotificationService.showAlert(
           notificationId: _statusNotificationId(alarm.id),
           alarmId: alarm.id,
           title: AppStrings.text('notification.no_bus_found', mode),
@@ -965,13 +966,13 @@ class ArrivalLookup {
 
 /// Why an alarm has no live arrival, shown as one status notification.
 enum AndroidLiveNotice {
-  /// A live request failed. The only notice that plays a sound.
+  /// A live request failed. Plays a sound.
   requestFailed,
 
-  /// Live data works but tracks no bus yet; the timetable is in use.
+  /// Live data works but tracks no bus yet; the timetable is in use. Silent.
   usingTimetable,
 
   /// Live data works but there's no live bus, and no timetable bus either
-  /// (or the alarm is live only).
+  /// (or the alarm is live only). Plays a sound.
   noBusFound,
 }

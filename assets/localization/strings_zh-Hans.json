@@ -145,7 +145,7 @@
   "notification.channel.rings.description": "闹钟触发有声通知",
   "notification.channel.updates.description": "实时预测更新无声通知",
   "notification.channel.alerts": "Alarm problems",
-  "notification.channel.alerts.description": "Alerts when live arrival times can't be loaded.",
+  "notification.channel.alerts.description": "Alerts when live arrival times can't be loaded or no bus is found.",
   "notification.live_unavailable": "实时预测无法更新",
   "notification.live_failed.body": "实时预测API无法连接，将会再次尝试",
   "notification.live_failed_schedule.body": "实时预测API无法连接，再次尝试之际将以计划出发班次代替",

@@ -145,7 +145,7 @@
   "notification.channel.rings.description": "Audible notifications for alarm thresholds.",
   "notification.channel.updates.description": "Silent arrival tracking and status updates.",
   "notification.channel.alerts": "Alarm problems",
-  "notification.channel.alerts.description": "Alerts when live arrival times can't be loaded.",
+  "notification.channel.alerts.description": "Alerts when live arrival times can't be loaded or no bus is found.",
   "notification.live_unavailable": "Live arrival updates unavailable",
   "notification.live_failed.body": "Problems reaching the live arrival API. We will keep retrying during this alarm window.",
   "notification.live_failed_schedule.body": "Problems reaching the live arrival API. The timetable is being used while we retry.",

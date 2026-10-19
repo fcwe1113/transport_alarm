@@ -68,6 +68,6 @@ class AppStrings {
         'Silent arrival tracking and status updates.',
     'notification.channel.alerts': 'Alarm problems',
     'notification.channel.alerts.description':
-        'Alerts when live arrival times can\'t be loaded.',
+        'Alerts when live arrival times can\'t be loaded or no bus is found.',
   };
 }
