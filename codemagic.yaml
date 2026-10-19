@@ -11,7 +11,10 @@ workflows:
         - ~/Library/Caches/org.swift.swiftpm
     environment:
       flutter: 3.47.5
-      xcode: latest
+      # Pinned rather than latest while testing whether the time-sensitive
+      # entitlement error is an Xcode issue. 26.1 is the oldest Xcode that can
+      # build for the iOS 26.1 deployment target.
+      xcode: 26.1
       groups:
         - transport_alarm
       ios_signing:
