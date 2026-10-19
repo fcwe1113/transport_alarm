@@ -151,6 +151,15 @@ class AndroidAlarmCoordinator {
     await _checkAlarm(alarmId);
   }
 
+  /// After a check failed partway, schedules another in a minute so the
+  /// alarm isn't left without a pending callback. Each check schedules the
+  /// next one, so a check that throws first would otherwise end the alarm.
+  Future<void> scheduleRecoveryCheck(String alarmId) async {
+    final alarm = await _findAlarm(alarmId);
+    if (alarm == null || !alarm.enabled || alarm.spent) return;
+    await _scheduleRetry(alarm, DateTime.now());
+  }
+
   Future<void> _checkAlarm(String alarmId) async {
     var alarm = await _findAlarm(alarmId);
     if (alarm == null || !alarm.enabled || alarm.spent) return;
@@ -834,19 +843,24 @@ Future<void> androidAlarmManagerCallback(
 ) async {
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
-  final languageCode = await LocaleSelectionService().getAppLanguageCode();
-  await AppStrings.load(languageCode);
-  await NotificationService.initBackground();
+  final alarmId = params['alarmId'] as String?;
+  if (alarmId == null) return;
+  final coordinator = AndroidAlarmCoordinator(AlarmStorageService());
   try {
-    final alarmId = params['alarmId'] as String?;
-    if (alarmId == null) return;
-    await AndroidAlarmCoordinator(AlarmStorageService())
-        .handleScheduledCallback(
-          alarmId: alarmId,
-          event: params['event'] as String? ?? 'check',
-        );
+    final languageCode = await LocaleSelectionService().getAppLanguageCode();
+    await AppStrings.load(languageCode);
+    await NotificationService.initBackground();
+    await coordinator.handleScheduledCallback(
+      alarmId: alarmId,
+      event: params['event'] as String? ?? 'check',
+    );
   } catch (error, stackTrace) {
     debugPrint('Android alarm callback failed: $error\n$stackTrace');
+    try {
+      await coordinator.scheduleRecoveryCheck(alarmId);
+    } catch (retryError) {
+      debugPrint('Android alarm recovery check failed: $retryError');
+    }
   }
 }
 
