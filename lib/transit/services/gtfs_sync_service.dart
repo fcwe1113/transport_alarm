@@ -170,6 +170,7 @@ class GtfsSyncService {
       filterBatch,
       Future<void> Function(List<dynamic>, List<List<dynamic>>)? afterBatch,
       bool reportLines = false,
+      int batchSize = 2000,
     }) async {
       final file = files[fileName];
       if (file == null) return;
@@ -203,6 +204,7 @@ class GtfsSyncService {
         filterBatch: filterBatch,
         cancelToken: cancelToken,
         onLinesRead: onLinesRead,
+        batchSize: batchSize,
       );
       parsedCount++;
     }
@@ -238,6 +240,8 @@ class GtfsSyncService {
       },
       afterBatch: includedTripIds.insertRows,
       reportLines: true,
+      // Far fewer, larger transactions for the biggest file.
+      batchSize: 25000,
     );
 
     // Retain only trips found in the selected stops' stop times, collecting
