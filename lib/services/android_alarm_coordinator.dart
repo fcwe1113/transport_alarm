@@ -43,7 +43,7 @@ class AndroidAlarmCoordinator {
           .toList(),
       clearLastEstimatedMinutesUntilThreshold: true,
       clearAndroidFallbackArrival: true,
-      androidApiWarningActive: false,
+      clearAndroidLiveNotice: true,
       androidOccurrenceStartEpochSeconds:
           occurrence.start.millisecondsSinceEpoch ~/ 1000,
       androidOccurrenceEndEpochSeconds:
@@ -138,7 +138,7 @@ class AndroidAlarmCoordinator {
             : null,
         clearLastEstimatedMinutesUntilThreshold: startsRepeat,
         clearAndroidFallbackArrival: startsRepeat,
-        androidApiWarningActive: startsRepeat ? false : null,
+        clearAndroidLiveNotice: startsRepeat,
         androidProgressStartEpochSeconds:
             alarm.androidProgressStartEpochSeconds ??
                 DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -226,16 +226,16 @@ class AndroidAlarmCoordinator {
       '${lookup.arrivalAt?.toIso8601String() ?? 'no arrival found'}',
     );
     alarm = await _findAlarm(alarm.id) ?? alarm;
-    alarm = await _updateApiWarning(
+    alarm = await _updateLiveNotice(
       alarm,
-      lookup.apiFailed,
+      lookup,
       canRaise: guaranteedCheck,
     );
     if (!DateTime.now().isBefore(endsAt)) {
       await _finishOccurrence(alarm, dueToWindowEnd: true);
       return;
     }
-    await _scheduleLiveCheck(alarm, gotLiveData: !lookup.apiFailed);
+    await _scheduleLiveCheck(alarm, gotLiveData: lookup.liveFound);
 
     if (activeThresholdIndex >= 0) {
       final threshold = alarm.thresholdStates[activeThresholdIndex];
@@ -362,8 +362,9 @@ class AndroidAlarmCoordinator {
   }) async {
     final now = DateTime.now();
     final liveDates = <DateTime>[];
-    var hasHealthyApi = false;
-    var hasFailedApi = false;
+    // Whether a live request itself failed, as opposed to succeeding without
+    // a bus on the alarm's routes.
+    var liveRequestFailed = false;
     // From resolveArrivals when it was used. Its scheduled arrivals already
     // skip trips a live feed shows as running or gone past the stop.
     List<RouteArrival>? resolved;
@@ -373,8 +374,7 @@ class AndroidAlarmCoordinator {
         alarm.routeApiConfigs.map(_fetchRouteEta),
       );
       for (final result in results) {
-        hasHealthyApi = hasHealthyApi || result.healthy;
-        hasFailedApi = hasFailedApi || !result.healthy;
+        liveRequestFailed = liveRequestFailed || !result.healthy;
         liveDates.addAll(result.arrivals);
       }
     } else {
@@ -386,7 +386,8 @@ class AndroidAlarmCoordinator {
           minimumMinutesFromNow: minimumArrivalSeconds == null
               ? null
               : minimumArrivalSeconds ~/ 60,
-          locale: alarm.localeCode
+          locale: alarm.localeCode,
+          onLiveFetchFailed: () => liveRequestFailed = true,
         );
         resolved = arrivals;
         liveDates.addAll(
@@ -396,11 +397,8 @@ class AndroidAlarmCoordinator {
                 (arrival) => now.add(Duration(minutes: arrival.minutesFromNow)),
               ),
         );
-        hasHealthyApi = arrivals.any((arrival) => arrival.isLive);
-        hasFailedApi = !hasHealthyApi;
       } catch (_) {
-        hasHealthyApi = false;
-        hasFailedApi = true;
+        liveRequestFailed = true;
       }
     }
 
@@ -417,7 +415,7 @@ class AndroidAlarmCoordinator {
       }
       return ArrivalLookup(
         arrivalAt: eligibleLive.first,
-        apiFailed: hasFailedApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: false,
       );
     }
@@ -425,7 +423,7 @@ class AndroidAlarmCoordinator {
     if (alarm.liveOnly) {
       return ArrivalLookup(
         arrivalAt: null,
-        apiFailed: hasFailedApi || !hasHealthyApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: false,
       );
     }
@@ -434,7 +432,7 @@ class AndroidAlarmCoordinator {
     if (pinnedEpoch != null) {
       return ArrivalLookup(
         arrivalAt: DateTime.fromMillisecondsSinceEpoch(pinnedEpoch * 1000),
-        apiFailed: hasFailedApi || !hasHealthyApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: true,
       );
     }
@@ -465,7 +463,7 @@ class AndroidAlarmCoordinator {
       if (matching.isEmpty) {
         return ArrivalLookup(
           arrivalAt: null,
-          apiFailed: hasFailedApi || !hasHealthyApi,
+          liveRequestFailed: liveRequestFailed,
           usedSchedule: true,
         );
       }
@@ -481,13 +479,13 @@ class AndroidAlarmCoordinator {
       }
       return ArrivalLookup(
         arrivalAt: arrivalAt,
-        apiFailed: hasFailedApi || !hasHealthyApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: true,
       );
     } catch (_) {
       return ArrivalLookup(
         arrivalAt: null,
-        apiFailed: hasFailedApi || !hasHealthyApi,
+        liveRequestFailed: liveRequestFailed,
         usedSchedule: false,
       );
     }
@@ -532,29 +530,62 @@ class AndroidAlarmCoordinator {
         alarm.androidFallbackArrivalEpochSeconds == null;
   }
 
-  /// Shows the "live times unavailable" alert only when [canRaise]: other
-  /// checks may run while Doze has cut off the network, and their failures
-  /// would raise false alarms. Any successful fetch clears the warning.
-  Future<TransportAlarm> _updateApiWarning(
+  /// Shows why there's no live arrival, or clears the notice once there is
+  /// one. Notices are only raised or switched when [canRaise]: other checks
+  /// may run while Doze has cut off the network, and their failures would
+  /// raise false alarms. Any live arrival clears the notice.
+  Future<TransportAlarm> _updateLiveNotice(
     TransportAlarm alarm,
-    bool apiFailed, {
+    ArrivalLookup lookup, {
     required bool canRaise,
   }) async {
-    if (apiFailed == alarm.androidApiWarningActive) return alarm;
-    if (apiFailed && !canRaise) return alarm;
-    final updated = alarm.copyWith(androidApiWarningActive: apiFailed);
-    await _storage.updateAlarm(updated);
-    if (apiFailed) {
-      await NotificationService.showAlert(
-        notificationId: _statusNotificationId(alarm.id),
-        alarmId: alarm.id,
-        title: AppStrings.text('notification.live_unavailable'),
-        body: alarm.liveOnly
-            ? AppStrings.text('notification.live_failed.body')
-            : AppStrings.text('notification.live_failed_schedule.body'),
-      );
-    } else {
+    final notice = lookup.liveFound
+        ? null
+        : lookup.liveRequestFailed
+        ? AndroidLiveNotice.requestFailed
+        : lookup.arrivalAt != null
+        ? AndroidLiveNotice.usingTimetable
+        : AndroidLiveNotice.noBusFound;
+    if (notice?.name == alarm.androidLiveNotice) return alarm;
+    if (notice == null) {
+      final cleared = alarm.copyWith(clearAndroidLiveNotice: true);
+      await _storage.updateAlarm(cleared);
       await NotificationService.cancel(_statusNotificationId(alarm.id));
+      return cleared;
+    }
+    if (!canRaise) return alarm;
+
+    final updated = alarm.copyWith(androidLiveNotice: notice.name);
+    await _storage.updateAlarm(updated);
+    final mode = AppStrings.transportModeValues(alarm.transportMode);
+    switch (notice) {
+      case AndroidLiveNotice.requestFailed:
+        await NotificationService.showAlert(
+          notificationId: _statusNotificationId(alarm.id),
+          alarmId: alarm.id,
+          title: AppStrings.text('notification.live_unavailable'),
+          body: alarm.liveOnly
+              ? AppStrings.text('notification.live_failed.body')
+              : lookup.arrivalAt != null
+              ? AppStrings.text('notification.live_failed_schedule.body')
+              : AppStrings.text('notification.live_failed_no_bus.body', mode),
+        );
+      case AndroidLiveNotice.usingTimetable:
+        await NotificationService.showSilentStatus(
+          notificationId: _statusNotificationId(alarm.id),
+          alarmId: alarm.id,
+          title: AppStrings.text('notification.using_timetable'),
+          body: AppStrings.text('notification.using_timetable.body', mode),
+        );
+      case AndroidLiveNotice.noBusFound:
+        await NotificationService.showSilentStatus(
+          notificationId: _statusNotificationId(alarm.id),
+          alarmId: alarm.id,
+          title: AppStrings.text('notification.no_bus_found', mode),
+          body: alarm.liveOnly
+              ? AppStrings.text('notification.no_live_bus_found.body', mode)
+              : AppStrings.text('notification.no_bus_found.body', mode),
+        );
     }
     return updated;
   }
@@ -661,7 +692,7 @@ class AndroidAlarmCoordinator {
       await _storage.updateAlarm(concluded);
       if (!dueToWindowEnd) {
         await _showFinalArrival(concluded);
-      } else if (alarm.androidApiWarningActive) {
+      } else if (alarm.androidLiveNotice != null) {
         await _showWindowEndedWarning(alarm, hasNextRepeat: false);
       } else {
         await NotificationService.cancel(_statusNotificationId(alarm.id));
@@ -692,7 +723,7 @@ class AndroidAlarmCoordinator {
     await _storage.updateAlarm(concluded);
     if (!dueToWindowEnd) {
       await _showFinalArrival(concluded);
-    } else if (alarm.androidApiWarningActive) {
+    } else if (alarm.androidLiveNotice != null) {
       await _showWindowEndedWarning(alarm, hasNextRepeat: true);
     } else {
       await NotificationService.cancel(_statusNotificationId(alarm.id));
@@ -920,12 +951,27 @@ class RouteEtaResult {
 
 class ArrivalLookup {
   final DateTime? arrivalAt;
-  final bool apiFailed;
+  final bool liveRequestFailed;
   final bool usedSchedule;
 
   const ArrivalLookup({
     required this.arrivalAt,
-    required this.apiFailed,
+    required this.liveRequestFailed,
     required this.usedSchedule,
   });
+
+  bool get liveFound => arrivalAt != null && !usedSchedule;
+}
+
+/// Why an alarm has no live arrival, shown as one status notification.
+enum AndroidLiveNotice {
+  /// A live request failed. The only notice that plays a sound.
+  requestFailed,
+
+  /// Live data works but tracks no bus yet; the timetable is in use.
+  usingTimetable,
+
+  /// Live data works but there's no live bus, and no timetable bus either
+  /// (or the alarm is live only).
+  noBusFound,
 }

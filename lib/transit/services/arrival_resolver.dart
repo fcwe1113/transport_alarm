@@ -25,6 +25,10 @@ Future<List<RouteArrival>> resolveArrivals({
   Map<String, Map<String, String>>? routeNumberFilter,
   int? minimumMinutesFromNow,
   required String locale,
+  // Called for each live request that fails, so callers can tell a failed
+  // feed from one that's simply tracking no bus. Failures are otherwise
+  // skipped, leaving the timetable to fill in.
+  void Function()? onLiveFetchFailed,
 }) async {
   final db = GtfsDatabase.forLocale(locale);
   final allRoutes = await db.getRoutesForGtfsStop(gtfsStopId);
@@ -35,8 +39,12 @@ Future<List<RouteArrival>> resolveArrivals({
             .toList();
   final gtfsStop = await db.getGtfsStopById(gtfsStopId);
   final allLiveEtas = routeNumberFilter == null
-      ? await _fetchLiveEtaForStop(gtfsStop!, locale)
-      : await _fetchLiveEtaForFilteredRoutes(gtfsStop!, routeNumberFilter);
+      ? await _fetchLiveEtaForStop(gtfsStop!, locale, onLiveFetchFailed)
+      : await _fetchLiveEtaForFilteredRoutes(
+          gtfsStop!,
+          routeNumberFilter,
+          onLiveFetchFailed,
+        );
   final liveEtas = allLiveEtas.where((e) => e.etaTime != null).toList();
   final scheduled = withoutLiveTrips(
     await db.getUpcomingDepartures(gtfsStopId, limit: 50),
@@ -96,7 +104,11 @@ Future<List<RouteArrival>> resolveArrivals({
   return arrivals;
 }
 
-Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop, String locale) async {
+Future<List<LiveEta>> _fetchLiveEtaForStop(
+  GtfsStop stop,
+  String locale, [
+  void Function()? onFailed,
+]) async {
   final operatorStopIds = await GtfsDatabase.forLocale(locale).getOperatorStopIds(stop.id);
 
   final idsByProvider = <String, List<String>>{};
@@ -121,7 +133,7 @@ Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop, String locale) async {
         final etas = await provider.fetchLiveEta(rawId);
         allEtas.addAll(etas);
       } catch (_) {
-        // do nothing
+        onFailed?.call();
       }
     }
   }
@@ -131,8 +143,9 @@ Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop, String locale) async {
 
 Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
   GtfsStop stop,
-  Map<String, Map<String, String>> routeNumbers,
-) async {
+  Map<String, Map<String, String>> routeNumbers, [
+  void Function()? onFailed,
+]) async {
   final db = GtfsDatabase.forLocale(stop.locale);
   final operatorStops = await db.getOperatorStopIds(stop.id);
   final results = <LiveEta>[];
@@ -155,7 +168,7 @@ Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
         results.addAll(etas.where((e) =>
                 routeNumber.value[key] == e.destination[key]?.replaceAll("_", " ")));
       } catch (_) {
-        // do nothing
+        onFailed?.call();
       }
     }
   }

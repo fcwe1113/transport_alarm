@@ -35,7 +35,8 @@ class TransportAlarm {
   final int? androidProgressStartEpochSeconds;
   // Preserve a single GTFS fallback bus while live ETA calls are failing.
   final int? androidFallbackArrivalEpochSeconds;
-  final bool androidApiWarningActive;
+  // Which live-data notice is showing (an AndroidLiveNotice name), or null.
+  final String? androidLiveNotice;
 
   /// Mode used for user-facing arrival text, taken from the first selected route.
   String get transportMode =>
@@ -62,7 +63,7 @@ class TransportAlarm {
     this.androidOccurrenceEndEpochSeconds,
     this.androidProgressStartEpochSeconds,
     this.androidFallbackArrivalEpochSeconds,
-    this.androidApiWarningActive = false,
+    this.androidLiveNotice,
   });
 
   TransportAlarm copyWith({
@@ -86,7 +87,8 @@ class TransportAlarm {
     int? androidOccurrenceEndEpochSeconds,
     int? androidProgressStartEpochSeconds,
     int? androidFallbackArrivalEpochSeconds,
-    bool? androidApiWarningActive,
+    String? androidLiveNotice,
+    bool clearAndroidLiveNotice = false,
     bool clearLastEstimatedMinutesUntilThreshold = false,
     bool clearAndroidOccurrence = false,
     bool clearAndroidProgressStartEpochSeconds = false,
@@ -124,7 +126,9 @@ class TransportAlarm {
         androidFallbackArrivalEpochSeconds: clearAndroidFallbackArrival
             ? null
             : androidFallbackArrivalEpochSeconds ?? this.androidFallbackArrivalEpochSeconds,
-        androidApiWarningActive: androidApiWarningActive ?? this.androidApiWarningActive,
+        androidLiveNotice: clearAndroidLiveNotice
+            ? null
+            : androidLiveNotice ?? this.androidLiveNotice,
     );
   }
 
@@ -149,7 +153,7 @@ class TransportAlarm {
     'androidOccurrenceEndEpochSeconds': androidOccurrenceEndEpochSeconds,
     'androidProgressStartEpochSeconds': androidProgressStartEpochSeconds,
     'androidFallbackArrivalEpochSeconds': androidFallbackArrivalEpochSeconds,
-    'androidApiWarningActive': androidApiWarningActive,
+    'androidLiveNotice': androidLiveNotice,
   };
 
   static TransportAlarm fromJson(Map<String, dynamic> json) => TransportAlarm(
@@ -181,7 +185,7 @@ class TransportAlarm {
         json['androidProgressStartEpochSeconds'] as int?,
     androidFallbackArrivalEpochSeconds:
         json['androidFallbackArrivalEpochSeconds'] as int?,
-    androidApiWarningActive: json['androidApiWarningActive'] as bool? ?? false,
+    androidLiveNotice: json['androidLiveNotice'] as String?,
   );
 
   static int? _cachedMinutesUntilThreshold(Map<String, dynamic> json) {
