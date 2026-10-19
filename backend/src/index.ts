@@ -9,7 +9,8 @@ export interface Env {
 }
 
 interface ScheduledPing {
-	id: number;
+	id: string; // random UUID, so IDs can't be guessed
+	secret_hash: string; // SHA-256 of the secret returned to the client
 	device_token: string;
 	scheduled_time: number;
 	require_ack: number; // 0 or 1
@@ -27,13 +28,47 @@ interface ScheduleRequestBody {
 
 interface ScheduleUpdateBody {
 	ping_id: string;
-	scheduled_time: string;
+	ping_secret: string;
+	scheduled_time: number;
 	require_ack: number;
 	expire_on: number | null;
 }
 
 interface AckRequestBody {
-	ping_id: number | string;
+	ping_id: string;
+	ping_secret: string;
+}
+
+// A device can't hold more pending pings than this, so one client can't fill
+// the table or make the cron push to it without limit.
+const MAX_PINGS_PER_DEVICE = 25;
+// Furthest ahead a ping can be scheduled (a monthly repeat, plus margin).
+const MAX_SCHEDULE_AHEAD_SECONDS = 400 * 24 * 3600;
+
+function json(body: unknown, status = 200): Response {
+	return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+async function sha256Hex(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+	return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function randomSecret(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Checks the client owns [pingId]: a Response to return if not, or null. */
+async function rejectUnlessOwner(env: Env, pingId: unknown, secret: unknown): Promise<Response | null> {
+	if (typeof pingId !== "string" || typeof secret !== "string" || !pingId || !secret) {
+		return json({ error: "Missing ping_id or ping_secret" }, 400);
+	}
+	const row = await env.DB.prepare("SELECT secret_hash FROM scheduled_pings WHERE id = ?")
+		.bind(pingId).first<{ secret_hash: string }>();
+	if (!row) return json({ error: "ping_id not found" }, 404);
+	if (row.secret_hash !== (await sha256Hex(secret))) return json({ error: "Forbidden" }, 403);
+	return null;
 }
 
 export default {
@@ -45,14 +80,29 @@ export default {
 			try {
 				const body = (await request.json()) as ScheduleRequestBody;
 				if (!body.device_token || !body.scheduled_time) {
-					return new Response(JSON.stringify({ error: "Missing device_token or scheduled_time" }), { status: 400 });
+					return json({ error: "Missing device_token or scheduled_time" }, 400);
+				}
+				const now = Math.floor(Date.now() / 1000);
+				if (!/^[0-9a-fA-F]{64,200}$/.test(body.device_token) ||
+					typeof body.scheduled_time !== "number" ||
+					body.scheduled_time > now + MAX_SCHEDULE_AHEAD_SECONDS) {
+					return json({ error: "Invalid device_token or scheduled_time" }, 400);
+				}
+				const pending = await env.DB.prepare("SELECT COUNT(*) AS count FROM scheduled_pings WHERE device_token = ?")
+					.bind(body.device_token).first<{ count: number }>();
+				if ((pending?.count ?? 0) >= MAX_PINGS_PER_DEVICE) {
+					return json({ error: "Too many scheduled pings for this device" }, 429);
 				}
 
-				const info = await env.DB.prepare(
-					"INSERT INTO scheduled_pings (device_token, scheduled_time, require_ack, expire_on) VALUES (?, ?, ?, ?)"
-				).bind(body.device_token, body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? body.scheduled_time + retry_period).run();
+				// The secret is returned once and only its hash is stored; reschedule
+				// and ack calls must present it.
+				const pingId = crypto.randomUUID();
+				const secret = randomSecret();
+				await env.DB.prepare(
+					"INSERT INTO scheduled_pings (id, secret_hash, device_token, scheduled_time, require_ack, expire_on) VALUES (?, ?, ?, ?, ?, ?)"
+				).bind(pingId, await sha256Hex(secret), body.device_token, body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? body.scheduled_time + retry_period).run();
 
-				return new Response(JSON.stringify({ success: true, ping_id: info.meta.last_row_id }), { headers: { "Content-Type": "application/json" } });
+				return json({ success: true, ping_id: pingId, ping_secret: secret });
 			} catch (err) {
 				const message = err instanceof Error ? err.message : "Unknown Error";
 				return new Response(JSON.stringify({ error: message }), { status: 400 });
@@ -62,9 +112,11 @@ export default {
 		if (request.method == "POST" && url.pathname === "/reschedule") {
     			try {
     				const body = (await request.json()) as ScheduleUpdateBody;
-    				if (!body.ping_id || !body.scheduled_time) {
-    					return new Response(JSON.stringify({ error: "Missing ping_id or scheduled_time" }), { status: 400 });
+    				if (!body.ping_id || typeof body.scheduled_time !== "number") {
+    					return json({ error: "Missing ping_id or scheduled_time" }, 400);
     				}
+    				const rejected = await rejectUnlessOwner(env, body.ping_id, body.ping_secret);
+    				if (rejected) return rejected;
 
     				const info = await env.DB.prepare(
     					"UPDATE scheduled_pings SET scheduled_time = ?, require_ack = ?, expire_on = ?, status = 'PENDING', last_sent_at = NULL WHERE id = ?"
@@ -74,7 +126,7 @@ export default {
 						return new Response(JSON.stringify({ error: "ping_id not found" }), { status: 404 });
 					}
 
-    				return new Response(JSON.stringify({ success: true, ping_id: info.meta.last_row_id }), { headers: { "Content-Type": "application/json" } });
+    				return json({ success: true, ping_id: body.ping_id });
     			} catch (err) {
     				const message = err instanceof Error ? err.message : "Unknown Error";
     				return new Response(JSON.stringify({ error: message }), { status: 400 });
@@ -84,9 +136,8 @@ export default {
 		if (request.method == "POST" && url.pathname === "/ack") {
 			try {
 				const body = (await request.json()) as AckRequestBody;
-				if (!body.ping_id) {
-					return new Response(JSON.stringify({ error: "Missing ping_id" }), { status: 400 });
-				}
+				const rejected = await rejectUnlessOwner(env, body.ping_id, body.ping_secret);
+				if (rejected) return rejected;
 				await env.DB.prepare("DELETE FROM scheduled_pings WHERE id = ?").bind(body.ping_id).run();
 				return new Response(JSON.stringify({ acknowledged: true }), { headers: { "Content-Type": "application/json" } });
 			} catch (err) {

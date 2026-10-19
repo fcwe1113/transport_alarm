@@ -157,8 +157,9 @@ class AlarmLifecycleService {
     if (deviceToken == null) return alarm; // no token yet
     final scheduledTime = _firstPingTime(alarm);
 
-    final pingId = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
-    return alarm.copyWith(pingId: pingId);
+    final ping = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
+    if (ping == null) return alarm;
+    return alarm.copyWith(pingId: ping.id, pingSecret: ping.secret);
   }
 
   /// When the first ping should arrive: shortly if the window is open now,
@@ -204,8 +205,9 @@ class AlarmLifecycleService {
 
     final nextDate = _computeNextOccurrenceDate(alarm.repeat);
     final scheduledTime = DateTime(nextDate.year, nextDate.month, nextDate.day, alarm.windowStart.hour, alarm.windowStart.minute);
-    final pingId = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
-    return alarm.copyWith(pingId: pingId);
+    final ping = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
+    if (ping == null) return alarm;
+    return alarm.copyWith(pingId: ping.id, pingSecret: ping.secret);
   }
 
   DateTime _computeNextOccurrenceDate(RepeatPattern repeat) {

@@ -50,6 +50,9 @@ private enum PingHandlerError: Error {
 final class NativePingHandler {
     private let appGroupDirectory: URL
     private let serverBaseURL = URL(string: "https://ios-scheduler.fcwe1113.workers.dev")!
+    /// The alarm's ping secret, which the server requires to reschedule or
+    /// ack its ping. Nil when no saved alarm owns the ping.
+    private var pingSecret: String?
 
     init(appGroupDirectory: URL) {
         self.appGroupDirectory = appGroupDirectory
@@ -81,6 +84,7 @@ final class NativePingHandler {
         do {
             var alarms = try loadAlarms()
             let index = alarms.firstIndex { Self.stringValue($0["pingId"]) == pingID }
+            pingSecret = index.flatMap { alarms[$0]["pingSecret"] as? String }
             let decision = try decide(alarm: index.map { alarms[$0] }, now: Date())
             return try await act(on: decision, alarms: &alarms, index: index, pingID: pingID)
         } catch {
@@ -704,12 +708,14 @@ final class NativePingHandler {
     /// Asks the server to deliver this ping again at the supplied Unix time.
     /// Throws when the request fails or the server returns a non-success status.
     private func reschedule(pingID: String, at date: Date, requireAck: Bool) async throws {
+        guard let pingSecret else { throw PingHandlerError.serverRejected(403) }
         var request = URLRequest(url: serverBaseURL.appendingPathComponent("reschedule"))
         request.httpMethod = "POST"
         request.timeoutInterval = 4
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "ping_id": pingID,
+            "ping_secret": pingSecret,
             "scheduled_time": Int(date.timeIntervalSince1970),
             "require_ack": requireAck,
             "expire_on": NSNull(),
@@ -722,11 +728,13 @@ final class NativePingHandler {
 
     /// Marks a ping complete on the server when no further ping is needed.
     private func acknowledge(pingID: String) async throws {
+        // Without the secret the server would refuse; the ping expires on its own.
+        guard let pingSecret else { return }
         var request = URLRequest(url: serverBaseURL.appendingPathComponent("ack"))
         request.httpMethod = "POST"
         request.timeoutInterval = 4
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["ping_id": pingID])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["ping_id": pingID, "ping_secret": pingSecret])
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status) else {
             throw PingHandlerError.serverRejected((response as? HTTPURLResponse)?.statusCode ?? -1)
