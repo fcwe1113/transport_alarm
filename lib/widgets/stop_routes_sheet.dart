@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:transport_alarm/models/scheduled_departure.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
+import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
@@ -208,7 +209,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
                             fitContent: true,
                           ),
                           title: Text(
-                            a.route.destinationNameFor(AppStrings.languageCode),
+                            _arrivalDestination(a),
                           ),
                           subtitle: Text(
                             AppStrings.text(
@@ -271,6 +272,19 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     return allEtas;
   }
 
+  /// The arrival's own destination in the app language, or the route's
+  /// destination when it has none, cleaned by the route's provider.
+  String _arrivalDestination(RouteArrival arrival) {
+    final languageCode = AppStrings.languageCode;
+    final provider = LocaleRegistry.getLocale(arrival.route.locale)
+        .transitProviders
+        .firstWhere((p) => p.providerCode == arrival.route.providerCode);
+    return provider.cleanDestination(
+      arrival.destination[languageCode] ??
+          arrival.route.destinationNameFor(languageCode),
+    );
+  }
+
   Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop, {String? routeNumber}) async {
     final db = GtfsDatabase.forLocale(stop.locale);
 
@@ -281,10 +295,12 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     ]);
 
     final routes = results[0] as List<TransportRoute>;
-    final liveEtas = (results[1] as List<LiveEta>)
-        .where((e) => e.etaTime != null)
-        .toList();
-    final scheduled = results[2] as List<ScheduledDeparture>;
+    final allLiveEtas = results[1] as List<LiveEta>;
+    final liveEtas = allLiveEtas.where((e) => e.etaTime != null).toList();
+    final scheduled = withoutLiveTrips(
+      results[2] as List<ScheduledDeparture>,
+      allLiveEtas,
+    );
 
     final routeGroups = <String, List<TransportRoute>>{};
     for (final route in routes) {
@@ -306,6 +322,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
           arrivals.add(
             RouteArrival(
               route: representative,
+              destination: matchingLive.first.destination,
               minutesFromNow: matchingLive.first.minutesFromNow!,
               isLive: true,
             ),
@@ -313,6 +330,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
         } else {
           arrivals.addAll(matchingLive.map((a) => RouteArrival(
               route: representative,
+              destination: a.destination,
               minutesFromNow: a.minutesFromNow!,
               isLive: true
           )));
@@ -329,6 +347,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
         arrivals.add(
           RouteArrival(
             route: representative,
+            destination: matchingScheduled.first.destination,
             minutesFromNow: matchingScheduled.first.minutesFromNow,
             isLive: false,
           ),

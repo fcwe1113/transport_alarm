@@ -33,6 +33,11 @@ class GbBodsProvider extends TransitProvider {
   /// Returns the key loaded by [loadApiKey].
   String? _apiKey() => _cachedApiKey;
 
+  /// BODS live data uses underscores in place of spaces in destination names.
+  @override
+  String cleanDestination(String destination) =>
+      destination.replaceAll("_", " ").replaceAll(RegExp(r"\s+"), " ").trim();
+
   GbBodsProvider(this._apiCaller);
 
   @override
@@ -189,7 +194,7 @@ class GbBodsProvider extends TransitProvider {
         return LiveEta(
           routeNumber: entry['lineName']?.toString() ?? '',
           bound: entry['direction']?.toString() ?? '',
-          destination: entry["destinationName"] ?? "",
+          destination: {"en": cleanDestination(entry["destinationName"]?.toString() ?? "")},
           etaTime: timeToStation == null
               ? null
               : now.add(Duration(seconds: timeToStation)),
@@ -248,7 +253,7 @@ class GbBodsProvider extends TransitProvider {
         return LiveEta(
           routeNumber: entry['lineName']?.toString() ?? '',
           bound: entry['direction']?.toString() ?? '',
-          destination: entry["destinationName"] ?? "",
+          destination: {"en": cleanDestination(entry["destinationName"]?.toString() ?? "")},
           etaTime: timeToStation == null
               ? null
               : now.add(Duration(seconds: timeToStation)),
@@ -487,9 +492,26 @@ class GbBodsProvider extends TransitProvider {
         }
         if (bestPairIndex < 0) continue;
 
+        final tripId = selectedTrip['trip_id']?.toString();
+        final destination = {
+          "en": cleanDestination(vehicle["destinationName"]?.toString() ?? ""),
+        };
+
         // The bus has passed the requested stop if the closest pair ends at or
-        // before it in stop_sequence order.
-        if (bestPairIndex >= targetIndex) continue;
+        // before it in stop_sequence order. Report it as passed so callers can
+        // drop that trip's scheduled arrival instead of showing a gone bus.
+        if (bestPairIndex >= targetIndex) {
+          arrivals.add(
+            LiveEta(
+              routeNumber: routeNumber,
+              bound: vehicle['bound'].toString(),
+              destination: destination,
+              tripId: tripId,
+              hasPassed: true,
+            ),
+          );
+          continue;
+        }
 
         final from = stopSequence[bestPairIndex];
         final next = stopSequence[bestPairIndex + 1];
@@ -517,10 +539,11 @@ class GbBodsProvider extends TransitProvider {
           LiveEta(
             routeNumber: routeNumber,
             bound: vehicle['bound'].toString(),
-            destination: {"en": vehicle["destinationName"].toString()},
+            destination: destination,
             etaTime: DateTime.now().toUtc().add(
               Duration(seconds: remainingSeconds),
             ),
+            tripId: tripId,
           ),
         );
       }

@@ -8,6 +8,18 @@ import '../../locale_registry.dart';
 import '../models/gtfs_stop.dart';
 import '../models/live_eta.dart';
 
+/// Drops scheduled departures for trips a live feed is already tracking,
+/// including vehicles that have already passed the stop, so a bus that ran
+/// early isn't still shown as due on the timetable.
+List<ScheduledDeparture> withoutLiveTrips(
+  List<ScheduledDeparture> scheduled,
+  Iterable<LiveEta> liveEtas,
+) {
+  final liveTripIds = liveEtas.map((e) => e.tripId).whereType<String>().toSet();
+  if (liveTripIds.isEmpty) return scheduled;
+  return scheduled.where((d) => !liveTripIds.contains(d.tripId)).toList();
+}
+
 Future<List<RouteArrival>> resolveArrivals({
   required String gtfsStopId,
   Map<String, Map<String, String>>? routeNumberFilter,
@@ -22,12 +34,14 @@ Future<List<RouteArrival>> resolveArrivals({
             .where((r) => routeNumberFilter.keys.contains(r.routeNumber))
             .toList();
   final gtfsStop = await db.getGtfsStopById(gtfsStopId);
-  final liveEtas = routeNumberFilter == null
-      ? (await _fetchLiveEtaForStop(gtfsStop!, locale))
-            .where((e) => e.etaTime != null)
-            .toList()
+  final allLiveEtas = routeNumberFilter == null
+      ? await _fetchLiveEtaForStop(gtfsStop!, locale)
       : await _fetchLiveEtaForFilteredRoutes(gtfsStop!, routeNumberFilter);
-  final scheduled = await db.getUpcomingDepartures(gtfsStopId, limit: 50);
+  final liveEtas = allLiveEtas.where((e) => e.etaTime != null).toList();
+  final scheduled = withoutLiveTrips(
+    await db.getUpcomingDepartures(gtfsStopId, limit: 50),
+    allLiveEtas,
+  );
 
   final routeGroups = <String, List<TransportRoute>>{};
   for (final route in routes) {
@@ -48,6 +62,7 @@ Future<List<RouteArrival>> resolveArrivals({
       arrivals.add(
         RouteArrival(
           route: representative,
+          destination: matchingLive.first.destination,
           minutesFromNow: matchingLive.first.minutesFromNow!,
           isLive: true,
         ),
@@ -70,6 +85,7 @@ Future<List<RouteArrival>> resolveArrivals({
         RouteArrival(
           route: representative,
           minutesFromNow: matchingScheduled.first.minutesFromNow,
+          destination: matchingScheduled.first.destination,
           isLive: false,
         ),
       );
@@ -133,9 +149,11 @@ Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
       try {
         final currentLang = await LocaleSelectionService().getAppLanguageCode();
         final etas = (await provider.fetchLiveEtaForRoute(rawId, routeNumber.key));
-        final destinationText = routeNumber.value[currentLang];
+        // Compare both sides in the same language, so a name only the live
+        // data has (e.g. zh-Hans) can't be compared against an English one.
+        final key = routeNumber.value.containsKey(currentLang) ? currentLang : "en";
         results.addAll(etas.where((e) =>
-                e.etaTime != null && ((destinationText ?? routeNumber.value["en"]) == (e.destination[currentLang] ?? e.destination["en"])?.replaceAll("_", " "))));
+                routeNumber.value[key] == e.destination[key]?.replaceAll("_", " ")));
       } catch (_) {
         // do nothing
       }

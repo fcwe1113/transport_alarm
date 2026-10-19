@@ -35,6 +35,9 @@ class KmbProvider extends TransitProvider {
   String get providerName => "KMB";
 
   @override
+  String cleanDestination(String destination) => destination;
+
+  @override
   Color get defaultIconColor => const Color(0xDAFF291C);
 
   @override
@@ -181,7 +184,7 @@ class KmbProvider extends TransitProvider {
       return LiveEta(
         routeNumber: entry["route"] as String,
         bound: entry["dir"] as String,
-        destination: {"en": entry["dest_en"] as String, "zh-HanT": entry["dest_tc"] as String, "zh-HanS": entry["dest_sc"] as String},
+        destination: {"en": entry["dest_en"] as String, "zh-Hant": entry["dest_tc"] as String, "zh-Hans": entry["dest_sc"] as String},
         etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
         remark: entry["rmk_en"] as String?,
       );
@@ -207,7 +210,7 @@ class KmbProvider extends TransitProvider {
       return LiveEta(
         routeNumber: entry["route"] as String,
         bound: entry["dir"] as String? ?? "",
-        destination: {"en": entry["dest_en"] as String, "zh-HanT": entry["dest_tc"] as String, "zh-HanS": entry["dest_sc"] as String},
+        destination: {"en": entry["dest_en"] as String, "zh-Hant": entry["dest_tc"] as String, "zh-Hans": entry["dest_sc"] as String},
         etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
         remark: entry["rmk_en"] as String?,
       );
