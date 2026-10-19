@@ -177,6 +177,9 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
       }
     } finally {
       client.close();
+      if (await workDirectory.exists()) {
+        await workDirectory.delete(recursive: true);
+      }
     }
   }
 }

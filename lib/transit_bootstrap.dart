@@ -3,6 +3,7 @@ import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
+import 'package:transport_alarm/transit/services/temp_file_cleaner.dart';
 
 /// Runs the data refresh routine for a given provider.
 Future<List<String>> initializeTransitData({
@@ -48,6 +49,9 @@ Future<List<String>> initializeTransitData({
     }
   }
 
+  // Each provider's errors are caught above, so this always runs once every
+  // sync has finished.
+  await TempFileCleaner.sweep();
   onProgress?.call(AppStrings.text('transit.setup_complete'), 1.0);
   return allFailures;
 }
@@ -112,6 +116,7 @@ Future<List<String>> refreshStaleProviders({
     }
   }
 
+  await TempFileCleaner.sweep();
   onProgress?.call(AppStrings.text('transit.refresh_complete'), 1.0);
   return allFailures;
 }

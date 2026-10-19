@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
@@ -15,6 +16,7 @@ import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/locale/gb/providers/gb_bods_provider.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
+import 'package:transport_alarm/transit/services/temp_file_cleaner.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +28,9 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await GbBodsProvider.loadApiKey();
   await AppGroupStorage.migrateLegacyDocuments();
+  // Clear scratch files from a sync that was killed last run. No sync can be
+  // running yet, and it isn't awaited so startup isn't held up.
+  unawaited(TempFileCleaner.sweep());
   final selectionService = LocaleSelectionService();
   final appLanguageCode = await selectionService.getAppLanguageCode();
   await AppStrings.load(appLanguageCode);
