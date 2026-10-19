@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:live_update_countdown/live_update_countdown.dart';
@@ -14,10 +15,24 @@ class NotificationService {
   static final FlutterLocalNotificationsPlugin plugin =
       FlutterLocalNotificationsPlugin();
 
-  static const String ringChannelId = 'transport_alarm_ring_channel';
+  // v2: the ring moved to the alarm stream. A channel's sound can't change
+  // once created, so it needed a new ID; the old channel is deleted.
+  static const String ringChannelId = 'transport_alarm_ring_channel_v2';
+  static const String _legacyRingChannelId = 'transport_alarm_ring_channel';
   static String get ringChannelName => AppStrings.text('notification.channel.rings');
   static const String statusChannelId = 'transport_alarm_status_channel';
   static String get statusChannelName => AppStrings.text('notification.channel.updates');
+  // Makes a sound once, for problems the user should know about, such as
+  // live arrival times failing to load.
+  static const String alertChannelId = 'transport_alarm_alert_channel';
+  static String get alertChannelName => AppStrings.text('notification.channel.alerts');
+
+  static const _alarmSound = UriAndroidNotificationSound(
+    'content://settings/system/alarm_alert',
+  );
+  // Android's FLAG_INSISTENT: repeat the sound until the notification is
+  // acknowledged or dismissed.
+  static final _insistentFlag = Int32List.fromList(<int>[4]);
 
   static Future<void> init() async {
     const androidSettings = AndroidInitializationSettings(
@@ -80,12 +95,25 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >();
+    await android?.deleteNotificationChannel(channelId: _legacyRingChannelId);
     await android?.createNotificationChannel(
         AndroidNotificationChannel(
           ringChannelId,
           ringChannelName,
           description: AppStrings.text('notification.channel.rings.description'),
         importance: Importance.max,
+        playSound: true,
+        sound: _alarmSound,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        enableVibration: true,
+      ),
+    );
+    await android?.createNotificationChannel(
+        AndroidNotificationChannel(
+          alertChannelId,
+          alertChannelName,
+          description: AppStrings.text('notification.channel.alerts.description'),
+        importance: Importance.high,
         playSound: true,
         enableVibration: true,
       ),
@@ -119,6 +147,9 @@ class NotificationService {
           importance: Importance.max,
           priority: Priority.max,
           playSound: true,
+          sound: _alarmSound,
+          audioAttributesUsage: AudioAttributesUsage.alarm,
+          additionalFlags: _insistentFlag,
           enableVibration: true,
           ongoing: true,
           autoCancel: false,
@@ -220,6 +251,34 @@ class NotificationService {
           priority: Priority.defaultPriority,
           playSound: false,
           enableVibration: false,
+          ongoing: false,
+          autoCancel: true,
+        ),
+      ),
+      payload: 'status:$alarmId',
+    );
+  }
+
+  /// Like [showSilentStatus], but plays the default notification sound once.
+  static Future<void> showAlert({
+    required int notificationId,
+    required String alarmId,
+    required String title,
+    required String body,
+  }) async {
+    await plugin.show(
+      id: notificationId,
+      title: title,
+      body: body,
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          alertChannelId,
+          alertChannelName,
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+          onlyAlertOnce: true,
           ongoing: false,
           autoCancel: true,
         ),

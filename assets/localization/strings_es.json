@@ -140,6 +140,8 @@
   "notification.channel.updates": "Actualizaciones de alarma",
   "notification.channel.rings.description": "Notificaciones sonoras para los avisos de la alarma.",
   "notification.channel.updates.description": "Seguimiento silencioso de llegadas y actualizaciones de estado.",
+  "notification.channel.alerts": "Alarm problems",
+  "notification.channel.alerts.description": "Alerts when live arrival times can't be loaded.",
   "notification.live_unavailable": "Actualizaciones de llegada en tiempo real no disponibles",
   "notification.live_failed.body": "Problemas al conectar con la API de llegadas en tiempo real. Se seguirá reintentando durante el rango de tiempo de esta alarma.",
   "notification.live_failed_schedule.body": "Problemas al conectar con la API de llegadas en tiempo real. Se utilizará el horario programado mientras se reintenta.",

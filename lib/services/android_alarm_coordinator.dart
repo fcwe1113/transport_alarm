@@ -513,7 +513,7 @@ class AndroidAlarmCoordinator {
     final updated = alarm.copyWith(androidApiWarningActive: apiFailed);
     await _storage.updateAlarm(updated);
     if (apiFailed) {
-      await NotificationService.showSilentStatus(
+      await NotificationService.showAlert(
         notificationId: _statusNotificationId(alarm.id),
         alarmId: alarm.id,
         title: AppStrings.text('notification.live_unavailable'),

@@ -140,6 +140,8 @@
   "notification.channel.updates": "鬧鐘更新",
   "notification.channel.rings.description": "鬧鐘觸發有聲通知",
   "notification.channel.updates.description": "實時預測更新無聲通知",
+  "notification.channel.alerts": "Alarm problems",
+  "notification.channel.alerts.description": "Alerts when live arrival times can't be loaded.",
   "notification.live_unavailable": "實時預測無法更新",
   "notification.live_failed.body": "實時預測API無法連接，將會再次嘗試",
   "notification.live_failed_schedule.body": "實時預測API無法連接，再次嘗試之際將以計劃出發班次代替",
