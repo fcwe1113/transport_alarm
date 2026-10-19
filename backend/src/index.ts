@@ -301,7 +301,8 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 			aps: {
 				alert: { title: "server cronjob ping", body: "you should not be able to see this lol" },
 				category: "ping",
-				sound: "default",
+				// No sound here: the notification service extension picks one
+				// per notice, keeping update pings silent.
 				"mutable-content": 1,
 // 				"content-available": 1,
 			},
@@ -318,6 +319,9 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 				"apns-topic": env.APNS_TOPIC!,
 				"apns-push-type": "alert",
 				"apns-priority": "10",
+				// Each ping replaces the alarm's previous notification rather than
+				// stacking up in Notification Center.
+				"apns-collapse-id": String(job.id),
 				"content-type": "application/json"
 			},
 			body: JSON.stringify(payload)

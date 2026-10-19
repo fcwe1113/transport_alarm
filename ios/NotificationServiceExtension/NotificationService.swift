@@ -23,6 +23,7 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let pingID = Self.pingID(from: request.content.userInfo) else {
             content.title = NativeLocalization.text("native.update_unavailable.title")
             content.body = NativeLocalization.text("native.update_unavailable.ping")
+            Self.apply(.problem, to: content)
             finish(content)
             return
         }
@@ -30,6 +31,7 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let container = AppGroup.containerURL else {
             content.title = NativeLocalization.text("native.update_unavailable.title")
             content.body = NativeLocalization.text("native.update_unavailable.storage")
+            Self.apply(.problem, to: content)
             finish(content)
             return
         }
@@ -38,6 +40,7 @@ final class NotificationService: UNNotificationServiceExtension {
             guard let self, let content = self.bestAttemptContent else { return }
             content.title = NativeLocalization.text("native.update_timeout.title")
             content.body = NativeLocalization.text("native.update_timeout.body")
+            Self.apply(.problem, to: content)
             self.finish(content)
         }
         timeoutWorkItem = timeout
@@ -50,6 +53,7 @@ final class NotificationService: UNNotificationServiceExtension {
             content.title = result.title
             content.body = result.body
             content.categoryIdentifier = result.categoryIdentifier ?? ""
+            Self.apply(result.style, to: content)
             if let debugMessage = result.debugMessage {
                 content.body += "\n\nAlarm update detail: \(debugMessage)"
             }
@@ -84,6 +88,24 @@ final class NotificationService: UNNotificationServiceExtension {
         guard let content = bestAttemptContent else { return }
         content.title = NativeLocalization.text("native.update_timeout.title")
         content.body = NativeLocalization.text("native.update_timeout.body")
+        Self.apply(.problem, to: content)
         finish(content)
+    }
+
+    /// Sets the sound and interruption level for a notice. The Worker sends
+    /// pings without a sound, so updates stay silent unless chosen here.
+    private static func apply(_ style: PingAlertStyle, to content: UNMutableNotificationContent) {
+        switch style {
+        case .update:
+            content.sound = nil
+            content.interruptionLevel = .passive
+        case .problem:
+            content.sound = .default
+            content.interruptionLevel = .active
+        case .ring:
+            // Bundled in the app (Runner/ring.caf); iOS plays up to 30 seconds.
+            content.sound = UNNotificationSound(named: UNNotificationSoundName("ring.caf"))
+            content.interruptionLevel = .timeSensitive
+        }
     }
 }

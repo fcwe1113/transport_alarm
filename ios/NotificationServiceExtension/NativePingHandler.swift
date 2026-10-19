@@ -6,17 +6,36 @@ private struct OperatorStop {
     let stopID: String
 }
 
+/// How a ping's notification should get the user's attention.
+enum PingAlertStyle {
+    /// A routine status update: silent, and doesn't light the screen.
+    case update
+    /// Something the user should know went wrong, such as no estimate: plays
+    /// the default sound.
+    case problem
+    /// A threshold ring: the bundled ring sound, breaking through Focus.
+    case ring
+}
+
 struct PingResult {
     let title: String
     let body: String
     let debugMessage: String?
     let categoryIdentifier: String?
+    let style: PingAlertStyle
 
-    init(title: String, body: String, debugMessage: String? = nil, categoryIdentifier: String? = nil) {
+    init(
+        title: String,
+        body: String,
+        debugMessage: String? = nil,
+        categoryIdentifier: String? = nil,
+        style: PingAlertStyle = .update
+    ) {
         self.title = title
         self.body = body
         self.debugMessage = debugMessage
         self.categoryIdentifier = categoryIdentifier
+        self.style = style
     }
 }
 
@@ -65,7 +84,7 @@ final class NativePingHandler {
             let decision = try decide(alarm: index.map { alarms[$0] }, now: Date())
             return try await act(on: decision, alarms: &alarms, index: index, pingID: pingID)
         } catch {
-            return PingResult(title: NativeLocalization.text("native.update_failed.title"), body: NativeLocalization.text("native.update_failed.body"))
+            return PingResult(title: NativeLocalization.text("native.update_failed.title"), body: NativeLocalization.text("native.update_failed.body"), style: .problem)
         }
     }
 
@@ -201,7 +220,7 @@ final class NativePingHandler {
             let retryAt = Date().addingTimeInterval(5 * 60)
             try await reschedule(pingID: pingID, at: retryAt, requireAck: false)
             try saveAlarms(alarms)
-            return PingResult(title: NativeLocalization.text("native.estimate_unavailable.title"), body: NativeLocalization.text("native.estimate_unavailable.body"))
+            return PingResult(title: NativeLocalization.text("native.estimate_unavailable.title"), body: NativeLocalization.text("native.estimate_unavailable.body"), style: .problem)
         }
 
         if estimateUntilThreshold > 5 {
@@ -351,7 +370,8 @@ final class NativePingHandler {
             title: title,
             body: NativeLocalization.text("native.ring.body", values: bodyValues),
             debugMessage: debugMessage,
-            categoryIdentifier: "transport_alarm_ring"
+            categoryIdentifier: "transport_alarm_ring",
+            style: .ring
         )
     }
 
