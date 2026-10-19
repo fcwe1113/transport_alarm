@@ -1,6 +1,7 @@
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
+import 'package:transport_alarm/widgets/data_usage_warning.dart';
 import 'package:flutter/material.dart';
 
 class SetupScreen extends StatefulWidget {
@@ -66,21 +67,10 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _confirmSelection() async {
-    final shouldProceed = await _showWifiReminder();
-    if (shouldProceed != true) return; // user clicked no on the popup
+    final shouldProceed = await showDataUsageWarning(context);
+    if (!shouldProceed) return; // user clicked no on the popup
 
     await _selectionService.commitLocaleSelectionDraft();
     if (mounted) Navigator.pushReplacementNamed(context, "/loading");
-  }
-
-  Future<bool?> _showWifiReminder() {
-    return showDialog(context: context, barrierDismissible: false, builder: (context) => AlertDialog(
-      title: Text(AppStrings.text('setup.heads_up')),
-      content: Text(AppStrings.text('setup.download_warning')),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('common.go_back'))),
-        TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('common.continue'))),
-      ],
-    ));
   }
 }
