@@ -6,6 +6,7 @@ import '../../l10n/app_strings.dart';
 import '../../transit/services/locale_selection_service.dart';
 import '../../transit_bootstrap.dart';
 import '../../widgets/app_shell.dart';
+import '../../widgets/data_usage_warning.dart';
 import '../loading_screen.dart';
 
 /// Controls which regional transit databases and providers the app uses.
@@ -44,6 +45,15 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
     final previous = await _selectionService.getEnabledLocales();
     final draft = await _selectionService.getLocaleSelectionDraft();
     final selectionChanged = !mapEquals(previous, draft);
+    // A changed selection downloads data, so warn first. Going back keeps the
+    // user on this screen with their unsaved changes.
+    if (selectionChanged) {
+      if (!mounted) return;
+      if (!await showDataUsageWarning(context)) {
+        if (mounted) setState(() => _saving = false);
+        return;
+      }
+    }
     await _selectionService.commitLocaleSelectionDraft();
     if (!mounted) return;
 
