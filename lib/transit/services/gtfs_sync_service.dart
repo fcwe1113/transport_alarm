@@ -65,7 +65,14 @@ class GtfsSyncService {
             }),
             progress / 100,
           );
-          return FlutterArchive.ZipFileOperation.includeItem;
+          // Only write the files the import reads. Feeds can include large
+          // extras such as shapes.txt; skipping them saves the time and
+          // storage writes, still in this single native extraction pass.
+          if (zipEntry.isDirectory ||
+              requiredFiles.contains(p.basename(zipEntry.name))) {
+            return FlutterArchive.ZipFileOperation.includeItem;
+          }
+          return FlutterArchive.ZipFileOperation.skipItem;
         },
       );
 
