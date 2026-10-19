@@ -119,9 +119,9 @@ class GtfsSyncService {
   }
 
   /// Imports filtered files in dependency order, tracking relationship IDs so
-  /// unrelated GTFS rows are never inserted. Stop IDs are few enough (tens of
-  /// thousands) to keep in memory; trip, route and service IDs use
-  /// disk-backed indexes.
+  /// unrelated GTFS rows are never inserted. Stop, route and service IDs are
+  /// few enough (tens of thousands at most) to keep in memory; trip IDs,
+  /// which can run to hundreds of thousands, use a disk-backed index.
   Future<void> _importFiles(
     Map<String, File> files,
     bool Function(List<dynamic> header, List<dynamic> row)? stopFilter,
@@ -133,10 +133,8 @@ class GtfsSyncService {
       final includedStopIds = <String>{};
       final includedTripIds = await _TemporaryIndex.create('trip_id');
       indexes.add(includedTripIds);
-      final includedRouteIds = await _TemporaryIndex.create('route_id');
-      indexes.add(includedRouteIds);
-      final includedServiceIds = await _TemporaryIndex.create('service_id');
-      indexes.add(includedServiceIds);
+      final includedRouteIds = <String>{};
+      final includedServiceIds = <String>{};
       await _importFilesWithTempIdIndex(
         files,
         stopFilter,
@@ -164,8 +162,8 @@ class GtfsSyncService {
     int totalFiles,
     Set<String> includedStopIds,
     _TemporaryIndex includedTripIds,
-    _TemporaryIndex includedRouteIds,
-    _TemporaryIndex includedServiceIds,
+    Set<String> includedRouteIds,
+    Set<String> includedServiceIds,
   ) async {
     final allowAllStops = stopFilter ?? (header, row) => true;
     var parsedCount = 0;
@@ -292,8 +290,10 @@ class GtfsSyncService {
         return selectedRows;
       },
       afterBatch: (header, rows) async {
-        await includedRouteIds.insertRows(header, rows);
-        await includedServiceIds.insertRows(header, rows);
+        for (final row in rows) {
+          includedRouteIds.add(_csvField(header, row, 'route_id'));
+          includedServiceIds.add(_csvField(header, row, 'service_id'));
+        }
       },
     );
 
@@ -302,54 +302,25 @@ class GtfsSyncService {
     await parseWithHeader(
       'routes.txt',
       _db.batchInsertRoutes,
-      filterBatch: (header, rows) async {
-        final ids = rows
-            .map((row) => _csvField(header, row, 'route_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
-        final includedIds = await includedRouteIds.findExisting(ids);
-        return rows
-            .where(
-              (row) => includedIds.contains(_csvField(header, row, 'route_id')),
-            )
-            .toList();
-      },
+      filterBatch: (header, rows) async => rows
+          .where((row) => includedRouteIds.contains(_csvField(header, row, 'route_id')))
+          .toList(),
     );
 
     await parseWithHeader(
       'calendar.txt',
       _db.batchInsertCalendar,
-      filterBatch: (header, rows) async {
-        final ids = rows
-            .map((row) => _csvField(header, row, 'service_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
-        final includedIds = await includedServiceIds.findExisting(ids);
-        return rows
-            .where(
-              (row) =>
-                  includedIds.contains(_csvField(header, row, 'service_id')),
-            )
-            .toList();
-      },
+      filterBatch: (header, rows) async => rows
+          .where((row) => includedServiceIds.contains(_csvField(header, row, 'service_id')))
+          .toList(),
     );
 
     await parseWithHeader(
       'calendar_dates.txt',
       _db.batchInsertCalendarDates,
-      filterBatch: (header, rows) async {
-        final ids = rows
-            .map((row) => _csvField(header, row, 'service_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
-        final includedIds = await includedServiceIds.findExisting(ids);
-        return rows
-            .where(
-              (row) =>
-                  includedIds.contains(_csvField(header, row, 'service_id')),
-            )
-            .toList();
-      },
+      filterBatch: (header, rows) async => rows
+          .where((row) => includedServiceIds.contains(_csvField(header, row, 'service_id')))
+          .toList(),
     );
   }
 
