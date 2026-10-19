@@ -8,6 +8,7 @@ import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/transit/services/download_progress.dart';
 import 'package:transport_alarm/transit/services/gtfs_sync_service.dart';
 import 'package:transport_alarm/transit/services/staleness_tracker.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
@@ -138,9 +139,12 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
           );
         }
 
-        await response.stream
-            .timeout(ApiCaller.requestTimeout)
-            .pipe(zipFile.openWrite());
+        await downloadToFile(
+          response,
+          zipFile,
+          fileName: '$region.zip',
+          onProgress: onProgress,
+        );
 
         // Process/filter/import this ZIP here before the loop downloads the
         // next region. The archive is retained in workDirectory for that step.

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
+import 'package:transport_alarm/transit/services/download_progress.dart';
 import 'package:transport_alarm/transit/services/gtfs_sync_service.dart';
 import 'package:transport_alarm/transit/services/staleness_tracker.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
@@ -102,8 +103,12 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
     }
 
     try {
-      final sink = zipFile.openWrite();
-      await response.stream.timeout(ApiCaller.requestTimeout).pipe(sink);
+      await downloadToFile(
+        response,
+        zipFile,
+        fileName: 'gtfs.zip',
+        onProgress: onProgress,
+      );
     } catch (_) {
       if (await zipFile.exists()) await zipFile.delete();
       rethrow;

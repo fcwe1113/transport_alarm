@@ -169,10 +169,30 @@ class GtfsSyncService {
       Future<List<List<dynamic>>> Function(List<dynamic>, List<List<dynamic>>)?
       filterBatch,
       Future<void> Function(List<dynamic>, List<List<dynamic>>)? afterBatch,
+      bool reportLines = false,
     }) async {
       final file = files[fileName];
       if (file == null) return;
       await _reportParsing(onProgress, fileName, totalFiles, parsedCount);
+      void Function(int)? onLinesRead;
+      if (reportLines && onProgress != null) {
+        onProgress(
+          AppStrings.text('transit.gtfs_counting_lines', {'file': fileName}),
+          null,
+        );
+        final totalLines = await countCsvDataLines(
+          file,
+          cancelToken: cancelToken,
+        );
+        onLinesRead = (linesRead) => onProgress(
+          AppStrings.text('transit.gtfs_reading_lines', {
+            'file': fileName,
+            'done': linesRead,
+            'total': totalLines,
+          }),
+          totalLines == 0 ? null : linesRead / totalLines,
+        );
+      }
       await streamParseAndInsertWithHeader(
         file,
         (header, rows) async {
@@ -182,6 +202,7 @@ class GtfsSyncService {
         filter: filter,
         filterBatch: filterBatch,
         cancelToken: cancelToken,
+        onLinesRead: onLinesRead,
       );
       parsedCount++;
     }
@@ -216,6 +237,7 @@ class GtfsSyncService {
         }).toList();
       },
       afterBatch: includedTripIds.insertRows,
+      reportLines: true,
     );
 
     // Retain only trips found in the selected stops' stop times, collecting
