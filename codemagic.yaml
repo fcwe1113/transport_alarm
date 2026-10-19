@@ -60,6 +60,16 @@ workflows:
         script: cd ios && pod install
       - name: Apply signing
         script: xcode-project use-profiles --archive-method=app-store
+      - name: Inspect signing setup
+        # Debugging the time-sensitive entitlement error: shows the export
+        # options and the profile Runner is set to sign with.
+        script: |
+          echo "=== export_options.plist ==="
+          plutil -p /Users/builder/export_options.plist || true
+          echo "=== Runner signing settings ==="
+          xcodebuild -showBuildSettings \
+            -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release 2>/dev/null \
+            | grep -E "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|PROVISIONING_PROFILE|CODE_SIGN_ENTITLEMENTS|DEVELOPMENT_TEAM" || true
       - name: Build ipa
         script: |
           flutter build ipa --release \
