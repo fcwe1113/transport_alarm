@@ -7,6 +7,7 @@ import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../widgets/app_shell.dart';
 import '../widgets/stop_routes_sheet.dart';
@@ -41,6 +42,9 @@ class _MapScreenState extends State<MapScreen> {
   BitmapDescriptor? _stopIcon;
   GtfsStop? _selectedPickerStop;
   final GlobalKey<NavigatorState> _nestedNavKey = GlobalKey<NavigatorState>();
+  // Set once the camera has been moved to the user or to a tapped stop, so a
+  // slow location fix never pulls the camera away afterwards.
+  bool _cameraPlaced = false;
 
   static const _stopIconAsset = "assets/icons/icon.png";
 
@@ -68,6 +72,44 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// Moves the camera to the user's location when it's available. Without
+  /// location access or a fix, the map keeps its default view.
+  Future<void> _centerOnUserLocation() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission != LocationPermission.whileInUse &&
+          permission != LocationPermission.always) {
+        return;
+      }
+      // Rebuild so the map turns on its location dot now access is granted.
+      if (mounted) setState(() {});
+
+      final position = await Geolocator.getLastKnownPosition() ??
+          await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.medium,
+              timeLimit: Duration(seconds: 10),
+            ),
+          );
+      // 0,0 is what some devices report before they have a real fix.
+      if (position.latitude == 0 && position.longitude == 0) return;
+      if (!mounted || _cameraPlaced || _mapController == null) return;
+      _cameraPlaced = true;
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(
+          LatLng(position.latitude, position.longitude),
+          16,
+        ),
+      );
+    } catch (e) {
+      debugPrint("Could not centre map on user location: $e");
+    }
+  }
+
   Future<BitmapDescriptor> _loadStopIcon() async {
     if (_stopIcon != null) return _stopIcon!;
     _stopIcon = await BitmapDescriptor.asset(const ImageConfiguration(size: Size(32, 32)), _stopIconAsset);
@@ -85,6 +127,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _onStopTapped(GtfsStop stop) async {
+    _cameraPlaced = true;
 
     const zoom = 19.0;
     final screenHeight = MediaQuery.of(context).size.height;
@@ -189,6 +232,7 @@ class _MapScreenState extends State<MapScreen> {
           onMapCreated: (controller) {
             _mapController = controller;
             _updateVisibleMarkers();
+            _centerOnUserLocation();
           },
           onCameraIdle: _updateVisibleMarkers,
           myLocationEnabled: true, // enables phone location services
