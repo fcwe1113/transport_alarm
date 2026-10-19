@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:transport_alarm/locale_registry.dart';
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/models/scheduled_departure.dart';
 import 'package:transport_alarm/services/geo_utils.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
@@ -675,7 +676,9 @@ class GtfsDatabase {
     await batch.commit();
   }
 
-  Future<void> interpolateMissingArrivalTimes() async {
+  Future<void> interpolateMissingArrivalTimes({
+    CancellationToken? cancelToken,
+  }) async {
     final db = await database;
     final tripIds = await db.rawQuery(
       "SELECT DISTINCT trip_id FROM gtfs_stop_times",
@@ -684,6 +687,7 @@ class GtfsDatabase {
     var processedTrips = 0;
 
     for (final tripRow in tripIds) {
+      cancelToken?.throwIfCancelled();
       final tripId = tripRow["trip_id"] as String;
       final stopTimes = await db.query(
         "gtfs_stop_times",

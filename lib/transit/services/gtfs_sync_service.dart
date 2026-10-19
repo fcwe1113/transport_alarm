@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/csv_stream_parser.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
@@ -12,16 +13,23 @@ import 'package:flutter_archive/flutter_archive.dart' as FlutterArchive;
 abstract class GtfsSyncProvider {
   String get locale;
   String get feedUrl;
-  Future<void> syncFeed({ProgressCallback? onProgress});
+  Future<void> syncFeed({
+    ProgressCallback? onProgress,
+    CancellationToken? cancelToken,
+  });
   Future<bool> checkIsStale();
 }
 
 class GtfsSyncService {
   final String locale;
   final GtfsDatabase _db;
+  final CancellationToken? cancelToken;
 
-  GtfsSyncService({required this.locale, GtfsDatabase? database})
-    : _db = database ?? GtfsDatabase.forLocale(locale);
+  GtfsSyncService({
+    required this.locale,
+    GtfsDatabase? database,
+    this.cancelToken,
+  }) : _db = database ?? GtfsDatabase.forLocale(locale);
 
   /// Extracts and inserts the GTFS archive, pruning dependent rows when a stop
   /// filter is supplied. With no filter, files keep the legacy import behavior.
@@ -94,7 +102,7 @@ class GtfsSyncService {
 
       if (interpolateMissingArrivalTimes) {
         onProgress?.call(AppStrings.text('transit.gtfs_interpolating'), null);
-        await _db.interpolateMissingArrivalTimes();
+        await _db.interpolateMissingArrivalTimes(cancelToken: cancelToken);
       }
     } finally {
       if (await extractionDir.exists()) {
@@ -173,6 +181,7 @@ class GtfsSyncService {
         },
         filter: filter,
         filterBatch: filterBatch,
+        cancelToken: cancelToken,
       );
       parsedCount++;
     }

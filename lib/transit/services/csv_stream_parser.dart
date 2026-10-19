@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:csv/csv.dart';
+import 'package:transport_alarm/transit/cancellation.dart';
 
 Future<void> streamParseAndInsert(
   File csvFile,
@@ -14,6 +15,7 @@ Future<void> streamParseAndInsert(
   )?
   filterBatch,
   List<dynamic> Function(List<dynamic> header, List<dynamic> row)? transformRow,
+  CancellationToken? cancelToken,
 }) => _streamParseAndInsert(
   csvFile,
   (header, batch) => insertBatch(batch),
@@ -21,6 +23,7 @@ Future<void> streamParseAndInsert(
   filter: filter,
   filterBatch: filterBatch,
   transformRow: transformRow,
+  cancelToken: cancelToken,
 );
 
 Future<void> streamParseAndInsertWithHeader(
@@ -35,6 +38,7 @@ Future<void> streamParseAndInsertWithHeader(
   )?
   filterBatch,
   List<dynamic> Function(List<dynamic> header, List<dynamic> row)? transformRow,
+  CancellationToken? cancelToken,
 }) => _streamParseAndInsert(
   csvFile,
   insertBatch,
@@ -42,6 +46,7 @@ Future<void> streamParseAndInsertWithHeader(
   filter: filter,
   filterBatch: filterBatch,
   transformRow: transformRow,
+  cancelToken: cancelToken,
 );
 
 Future<void> _streamParseAndInsert(
@@ -57,6 +62,7 @@ Future<void> _streamParseAndInsert(
   filterBatch,
   required List<dynamic> Function(List<dynamic> header, List<dynamic> row)?
   transformRow,
+  CancellationToken? cancelToken,
 }) async {
   final lines = csvFile
       .openRead()
@@ -69,6 +75,7 @@ Future<void> _streamParseAndInsert(
   var headerRead = false;
 
   Future<void> flushBatch() async {
+    cancelToken?.throwIfCancelled();
     if (batch.isEmpty) return;
     final rows = filterBatch == null
         ? batch

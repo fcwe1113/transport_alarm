@@ -35,6 +35,7 @@
   "loading.failures.title": "发生下载错误",
   "loading.failures.body": "{count}次下载错误:\n{failures}\n\n",
   "loading.completed": "作业完成",
+  "loading.cancelling": "Cancelling...",
   "loading.failed": "下载错误: {error}",
   "alarm_list.title": "闹钟列表",
   "alarm_list.empty": "闹钟列表空白",

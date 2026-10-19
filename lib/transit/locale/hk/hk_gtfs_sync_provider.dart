@@ -1,3 +1,4 @@
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'dart:io';
 
 import 'package:transport_alarm/transit/progress_callback.dart';
@@ -69,23 +70,32 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
   }
 
   @override
-  Future<void> syncFeed({ProgressCallback? onProgress}) async {
+  Future<void> syncFeed({
+    ProgressCallback? onProgress,
+    CancellationToken? cancelToken,
+  }) async {
     final dir = await AppGroupStorage.directory;
     final zipFile = File(
       "${dir.path}/gtfs_download_$locale.${DateTime.now().microsecondsSinceEpoch}.tmp",
     );
     final request = http.Request("GET", Uri.parse(feedUrl));
     final client = http.Client();
+    // Closing the client aborts an in-progress download on cancel.
+    final removeCancelListener = cancelToken?.onCancel(client.close);
+    void closeClient() {
+      removeCancelListener?.call();
+      client.close();
+    }
     final http.StreamedResponse response;
     try {
       response = await client.send(request).timeout(ApiCaller.requestTimeout);
     } catch (e) {
-      client.close();
+      closeClient();
       rethrow;
     }
 
     if (response.statusCode != 200) {
-      client.close();
+      closeClient();
       throw Exception(
         "failed to download GTFS feed. HTTP ${response.statusCode}",
       );
@@ -98,15 +108,17 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
       if (await zipFile.exists()) await zipFile.delete();
       rethrow;
     } finally {
-      client.close();
+      closeClient();
     }
 
     try {
+      cancelToken?.throwIfCancelled();
       final db = GtfsDatabase.forLocale(locale);
       await db.refreshAtomically((stagingDatabase) async {
         final syncService = GtfsSyncService(
           locale: locale,
           database: stagingDatabase,
+          cancelToken: cancelToken,
         );
         await syncService.parseAndStoreGtfsArchive(zipFile, onProgress);
       });

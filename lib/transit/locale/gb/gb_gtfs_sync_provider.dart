@@ -1,3 +1,4 @@
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -66,7 +67,10 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
 
   /// Downloads only datasets returned for selected areas and atomically installs them.
   @override
-  Future<void> syncFeed({ProgressCallback? onProgress}) async { // todo adapt temp db for data import to prevent oom crash
+  Future<void> syncFeed({
+    ProgressCallback? onProgress,
+    CancellationToken? cancelToken,
+  }) async { // todo adapt temp db for data import to prevent oom crash
     final selectedAreas =
         (await LocaleSelectionService().getEnabledLocales())[locale]
             ?.split(",")
@@ -107,11 +111,14 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
     final workDirectory = await Directory(appDirectory.path)
         .createTemp('gb_gtfs_');
     final client = http.Client();
+    // Closing the client aborts an in-progress download on cancel.
+    final removeCancelListener = cancelToken?.onCancel(client.close);
     try {
       // Download each region in order. The archive processing belongs inside
       // this loop so it completes before the next region is downloaded.
       final regions = requiredRegions.toList();
       for (var regionIndex = 0; regionIndex < regions.length; regionIndex++) {
+        cancelToken?.throwIfCancelled();
         final region = regions[regionIndex];
         final isLastRegion = regionIndex == regions.length - 1;
         final regionKey = region.toLowerCase().replaceAll(RegExp(r'\s+'), '_');
@@ -149,6 +156,7 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
             final syncService = GtfsSyncService(
               locale: locale,
               database: stagingDatabase,
+              cancelToken: cancelToken,
             );
             await syncService.parseAndStoreGtfsArchive(
               zipFile,
@@ -176,6 +184,7 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
         }
       }
     } finally {
+      removeCancelListener?.call();
       client.close();
       if (await workDirectory.exists()) {
         await workDirectory.delete(recursive: true);

@@ -75,6 +75,7 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
           operation: refreshStaleProviders,
           returnToPrevious: true,
           showBottomNavigation: true,
+          cancellable: true,
         ),
       ),
     );

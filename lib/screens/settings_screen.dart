@@ -95,6 +95,7 @@ Future<void> _openDataOperation(
         forceRefresh: forceRefresh,
         returnToPrevious: true,
         showBottomNavigation: true,
+        cancellable: true,
       ),
     ),
   );

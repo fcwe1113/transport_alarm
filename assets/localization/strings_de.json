@@ -35,6 +35,7 @@
   "loading.failures.title": "Some data failed to update",
   "loading.failures.body": "{count} item(s) failed:\n{failures}\n\n",
   "loading.completed": "Operation completed",
+  "loading.cancelling": "Cancelling...",
   "loading.failed": "Setup failed: {error}",
   "alarm_list.title": "Alarm List",
   "alarm_list.empty": "Alarm List empty",

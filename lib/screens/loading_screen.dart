@@ -1,3 +1,4 @@
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/stale_data_reminder.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
@@ -10,12 +11,15 @@ class LoadingScreen extends StatefulWidget {
   final TransitOperation operation;
   final bool returnToPrevious;
   final bool showBottomNavigation;
+  // Off for first-time setup, which has no data to fall back on.
+  final bool cancellable;
   const LoadingScreen({
     super.key,
     this.forceRefresh = false,
     this.operation = initializeTransitData,
     this.returnToPrevious = false,
     this.showBottomNavigation = false,
+    this.cancellable = false,
   });
 
   @override
@@ -27,6 +31,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
   double? _progress;
   String? _error;
   bool _finished = false;
+  CancellationToken? _cancelToken;
 
   @override
   void initState() {
@@ -35,15 +40,18 @@ class _LoadingScreenState extends State<LoadingScreen> {
   }
 
   Future<void> _runOperation() async {
+    final cancelToken = CancellationToken();
     setState(() {
       _error = null;
       _finished = false;
+      _cancelToken = cancelToken;
     });
     try {
       final failures = await widget.operation(
         forceRefresh: widget.forceRefresh,
+        cancelToken: cancelToken,
         onProgress: (message, progress) {
-          if (!mounted) return;
+          if (!mounted || cancelToken.isCancelled) return;
           setState(() {
             _message = message;
             _progress = progress;
@@ -71,6 +79,9 @@ class _LoadingScreenState extends State<LoadingScreen> {
           _finished = true;
         });
       }
+    } on OperationCancelledException {
+      // The operation has already removed its staging and temp files.
+      if (mounted) _onOkPressed();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -78,6 +89,14 @@ class _LoadingScreenState extends State<LoadingScreen> {
         });
       }
     }
+  }
+
+  void _cancel() {
+    setState(() {
+      _cancelToken?.cancel();
+      _message = AppStrings.text('loading.cancelling');
+      _progress = null;
+    });
   }
 
   void _onOkPressed() {
@@ -109,6 +128,13 @@ class _LoadingScreenState extends State<LoadingScreen> {
             if (_finished) ...[
               const SizedBox(height: 24,),
               ElevatedButton(onPressed: _onOkPressed, child: Text(AppStrings.text('common.ok')))
+            ] else if (widget.cancellable) ...[
+              const SizedBox(height: 24,),
+              OutlinedButton(
+                // Disabled once pressed, while the operation winds down.
+                onPressed: _cancelToken?.isCancelled ?? true ? null : _cancel,
+                child: Text(AppStrings.text('common.cancel')),
+              ),
             ]
           ],
         ),
