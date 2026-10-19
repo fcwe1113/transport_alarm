@@ -159,32 +159,4 @@ class ApiCaller {
       failedKeys: pending.map((i) => i.key).toList(),
     );
   }
-
-  Future<bool> isEndpointStale(
-    String providerCode,
-    String endpointName, {
-    Duration maxAge = _defaultMaxAge,
-  }) {
-    return _isStale(providerCode, endpointName, maxAge);
-  }
-
-  /// Checks a set of known endpoint timestamps with one preferences read.
-  /// Missing timestamps count as stale, so newly added endpoints are fetched.
-  Future<bool> areAnyEndpointsStale(
-    String providerCode,
-    Iterable<String> endpointNames, {
-    Duration maxAge = _defaultMaxAge,
-  }) async {
-    final names = endpointNames.toSet();
-    if (names.isEmpty) return false;
-    final prefs = await SharedPreferences.getInstance();
-    final now = DateTime.now();
-    for (final name in names) {
-      final millis = prefs.getInt('${providerCode}_${name}_last_fetched');
-      if (millis == null) return true;
-      final age = now.difference(DateTime.fromMillisecondsSinceEpoch(millis));
-      if (age.isNegative || age > maxAge) return true;
-    }
-    return false;
-  }
 }

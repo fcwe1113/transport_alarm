@@ -239,14 +239,6 @@ class GtfsDatabase {
     }
   }
 
-  /// When the active database file was last written, which for a GTFS-only
-  /// locale is when its current snapshot was installed.
-  Future<DateTime?> activeFileModified() async {
-    final dir = await AppGroupStorage.directory;
-    final file = File('${dir.path}/gtfs/$locale.db');
-    return await file.exists() ? await file.lastModified() : null;
-  }
-
   Future<void> close() async {
     final db = _databases.remove(_cacheKey);
     if (db != null && db.isOpen) await db.close();

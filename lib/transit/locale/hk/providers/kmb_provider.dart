@@ -7,6 +7,7 @@ import 'package:transport_alarm/transit/models/route_colour_scheme.dart';
 import 'package:transport_alarm/transit/refresh_result.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
+import 'package:transport_alarm/transit/services/staleness_tracker.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:flutter/material.dart';
 
@@ -161,9 +162,12 @@ class KmbProvider extends TransitProvider {
       1.0,
     );
 
-    return RefreshResult(
-      failedItems: batchResult.failedKeys.map((r) => r.routeNumber).toList(),
-    );
+    final failed = batchResult.failedKeys.map((r) => r.routeNumber).toList();
+    // Only a complete refresh resets the age; a partial one is retried.
+    if (failed.isEmpty) {
+      await StalenessTracker().markRefreshed('hk', providerCode);
+    }
+    return RefreshResult(failedItems: failed);
   }
 
   @override
@@ -297,13 +301,9 @@ class KmbProvider extends TransitProvider {
 
   @override
   Future<bool> isStale() async {
-    if (await _apiCaller.areAnyEndpointsStale(providerCode, [
-      _stopsEndpointName,
-      _routesEndpointName,
-    ])) {
-      return true;
-    }
+    if (await StalenessTracker().isStale('hk', providerCode)) return true;
 
+    // Also stale if a refresh left data missing, whatever its age.
     final db = GtfsDatabase.forLocale('hk');
     if (!await db.hasOperatorStops(providerCode) ||
         !await db.hasOperatorRouteStops(providerCode)) {
@@ -315,9 +315,6 @@ class KmbProvider extends TransitProvider {
     for (final route in routes) {
       if (!await db.hasRouteStops(route.id)) return true;
     }
-    final routeStopEndpoints = routes.map(
-      (route) => 'route_stop_${route.routeNumber}_${route.bound}_1',
-    );
-    return _apiCaller.areAnyEndpointsStale(providerCode, routeStopEndpoints);
+    return false;
   }
 }

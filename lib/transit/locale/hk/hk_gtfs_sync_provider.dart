@@ -5,6 +5,7 @@ import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_sync_service.dart';
+import 'package:transport_alarm/transit/services/staleness_tracker.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,18 +25,19 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
       return true;
     }
 
+    final tracker = StalenessTracker();
+    if (!await tracker.isStale(
+      locale,
+      StalenessTracker.gtfsProviderCode,
+      maxAge: ttlThreshhold,
+    )) {
+      return false;
+    }
+
+    // Past the age limit: ask the server whether the feed actually changed.
     final prefs = await SharedPreferences.getInstance();
-    final lastCheckedStr = prefs.getString("gtfs_last_checked_$locale");
     final cachedEtag = prefs.getString("gtfs_etag_$locale");
     final cacheLastModified = prefs.getString("gtfs_last_modified_$locale");
-
-    if (lastCheckedStr != null) {
-      final lastChecked = DateTime.tryParse(lastCheckedStr);
-      if (lastChecked != null) {
-        final age = DateTime.now().difference(lastChecked);
-        if (!age.isNegative && age < ttlThreshhold) return false;
-      }
-    }
 
     try {
       final response = await ApiCaller.head(Uri.parse(feedUrl));
@@ -54,10 +56,8 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
       // matches a successfully installed feed. A changed or missing validator
       // must proceed to download, and a failed download remains retryable.
       if (etagMatches || (serverEtag == null && modifiedMatches)) {
-        await prefs.setString(
-          "gtfs_last_checked_$locale",
-          DateTime.now().toIso8601String(),
-        );
+        // Unchanged, so the installed feed counts as freshly refreshed.
+        await tracker.markRefreshed(locale, StalenessTracker.gtfsProviderCode);
         return false;
       }
     } catch (_) {
@@ -133,9 +133,9 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
     if (etag != null) await prefs.setString("gtfs_etag_$locale", etag);
     if (lastModified != null)
       await prefs.setString("gtfs_last_modified_$locale", lastModified);
-    await prefs.setString(
-      "gtfs_last_checked_$locale",
-      DateTime.now().toIso8601String(),
+    await StalenessTracker().markRefreshed(
+      locale,
+      StalenessTracker.gtfsProviderCode,
     );
   }
 }

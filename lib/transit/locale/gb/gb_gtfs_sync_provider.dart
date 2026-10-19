@@ -9,9 +9,9 @@ import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/gtfs_sync_service.dart';
+import 'package:transport_alarm/transit/services/staleness_tracker.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
 /// Downloads and combines the UK GTFS archives selected in Settings.
 class GbGtfsSyncProvider implements GtfsSyncProvider {
@@ -45,38 +45,25 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
   @override
   Future<bool> checkIsStale() async {
     if (!await GtfsDatabase.forLocale(locale).hasUsableGtfsData()) return true;
+    final signature = await _areaSignature();
+    if (signature == null) return true;
+    return StalenessTracker().isStale(
+      locale,
+      StalenessTracker.gtfsProviderCode,
+      maxAge: _ttl,
+      signature: signature,
+    );
+  }
+
+  /// The selected ATCO areas, so changing them makes the data stale.
+  Future<String?> _areaSignature() async {
     final selectedAreas =
         (await LocaleSelectionService().getEnabledLocales())[locale]
             ?.split(",")
+            .where((area) => area.isNotEmpty)
             .toSet();
-    if (selectedAreas!.isEmpty) return true;
-    final prefs = await SharedPreferences.getInstance();
-    final selectionSignature = (selectedAreas.toList()..sort()).join(',');
-    // Databases built before syncs recorded these keys have neither. Treat the
-    // file's last write as the sync time, for the current selection, rather
-    // than calling a working database stale.
-    if (!prefs.containsKey('gtfs_last_checked_$locale') &&
-        !prefs.containsKey('gtfs_atco_selection_$locale')) {
-      final builtAt = await GtfsDatabase.forLocale(locale).activeFileModified();
-      if (builtAt != null) {
-        await prefs.setString('gtfs_atco_selection_$locale', selectionSignature);
-        await prefs.setString(
-          'gtfs_last_checked_$locale',
-          builtAt.toIso8601String(),
-        );
-      }
-    }
-    if (prefs.getString('gtfs_atco_selection_$locale') != selectionSignature) {
-      return true;
-    }
-    final checkedAt = DateTime.tryParse(
-      prefs.getString('gtfs_last_checked_$locale') ?? '',
-    );
-    if (checkedAt != null) {
-      final age = DateTime.now().difference(checkedAt);
-      if (!age.isNegative && age < _ttl) return false;
-    }
-    return true;
+    if (selectedAreas == null || selectedAreas.isEmpty) return null;
+    return (selectedAreas.toList()..sort()).join(',');
   }
 
   /// Downloads only datasets returned for selected areas and atomically installs them.
@@ -205,15 +192,10 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
       }
     }
 
-    // Record what was synced and when; checkIsStale compares against these.
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'gtfs_atco_selection_$locale',
-      (selectedAreas.toList()..sort()).join(','),
-    );
-    await prefs.setString(
-      'gtfs_last_checked_$locale',
-      DateTime.now().toIso8601String(),
+    await StalenessTracker().markRefreshed(
+      locale,
+      StalenessTracker.gtfsProviderCode,
+      signature: await _areaSignature(),
     );
   }
 }
