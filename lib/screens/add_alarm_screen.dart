@@ -19,6 +19,7 @@ import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
 import '../locale_registry.dart';
@@ -351,7 +352,36 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       }
       return;
     }
+    if (Platform.isAndroid) await _askForBatteryExemption();
     if (mounted) Navigator.pop(context);
+  }
+
+  static const _batteryPromptDeclinedKey = 'battery_exemption_prompt_declined';
+
+  /// Alarm checks run in the background, where Android's battery saving (and
+  /// some phone makers' stricter versions of it) can delay or stop them. Asks
+  /// once to be exempted; "Not now" isn't asked again.
+  Future<void> _askForBatteryExemption() async {
+    if (await Permission.ignoreBatteryOptimizations.isGranted) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_batteryPromptDeclinedKey) ?? false) return;
+    if (!mounted) return;
+    final allow = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('alarm.battery.title')),
+        content: Text(AppStrings.text('alarm.battery.body')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('alarm.battery.not_now'))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('alarm.battery.allow'))),
+        ],
+      ),
+    );
+    if (allow == true) {
+      await Permission.ignoreBatteryOptimizations.request();
+    } else {
+      await prefs.setBool(_batteryPromptDeclinedKey, true);
+    }
   }
 
   Future<bool> _requestAndroidAlarmPermissions() async {
