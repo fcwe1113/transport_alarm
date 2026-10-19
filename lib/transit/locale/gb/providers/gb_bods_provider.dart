@@ -36,6 +36,50 @@ class GbBodsProvider extends TransitProvider {
     _cachedApiKey = key.isEmpty ? null : key;
   }
 
+  // One operator and route's live vehicle feed is shared for this long by
+  // every lookup in this isolate (alarm checks, stop sheets, alarm cards),
+  // to keep requests on the shared key down.
+  static const _feedCacheAge = Duration(seconds: 30);
+  static final _feedCache = <String, ({DateTime fetchedAt, Future<String> xml})>{};
+
+  /// The SIRI-VM vehicle feed for [routeNumber] run by [noc], from the cache
+  /// when it's under [_feedCacheAge] old. A request still in flight is
+  /// shared too, and a failed one isn't cached.
+  Future<String> _vehicleFeed(String noc, String routeNumber, String apiKey) {
+    final key = '$noc|$routeNumber';
+    final cached = _feedCache[key];
+    if (cached != null &&
+        DateTime.now().difference(cached.fetchedAt) < _feedCacheAge) {
+      return cached.xml;
+    }
+    final xml = _requestVehicleFeed(noc, routeNumber, apiKey);
+    _feedCache[key] = (fetchedAt: DateTime.now(), xml: xml);
+    xml.then<void>((_) {}, onError: (_) {
+      if (identical(_feedCache[key]?.xml, xml)) _feedCache.remove(key);
+    });
+    return xml;
+  }
+
+  Future<String> _requestVehicleFeed(
+    String noc,
+    String routeNumber,
+    String apiKey,
+  ) async {
+    final uri = Uri.https('data.bus-data.dft.gov.uk', '/api/v1/datafeed/', {
+      'api_key': apiKey,
+      'lineRef': routeNumber,
+      'operatorRef': noc,
+    });
+    final response = await ApiCaller.get(uri);
+    if (response.statusCode != 200) {
+      throw Exception(
+        'BODS live feed request failed for $noc/$routeNumber: '
+        'HTTP ${response.statusCode}',
+      );
+    }
+    return response.body;
+  }
+
   /// Returns the key loaded by [loadApiKey].
   String? _apiKey() => _cachedApiKey;
 
@@ -293,23 +337,12 @@ class GbBodsProvider extends TransitProvider {
         throw StateError('BODS API key has not been loaded.');
       }
 
-      final uri = Uri.https('data.bus-data.dft.gov.uk', '/api/v1/datafeed/', {
-        'api_key': apiKey,
-        'lineRef': routeNumber,
-        'operatorRef': noc,
-      });
-      final response = await ApiCaller.get(uri);
-      if (response.statusCode != 200) {
-        throw Exception(
-          'BODS live feed request failed for $noc/$routeNumber: '
-          'HTTP ${response.statusCode}',
-        );
-      }
+      final feedXml = await _vehicleFeed(noc, routeNumber, apiKey);
 
       // Each VehicleMonitoringDelivery can contain multiple VehicleActivity
       // entries, so extract the requested values independently for every bus.
       final now = DateTime.now();
-      final vehicleActivities = XmlDocument.parse(response.body)
+      final vehicleActivities = XmlDocument.parse(feedXml)
           .findAllElements('VehicleActivity')
           .map((activity) {
             final journey = activity.getElement('MonitoredVehicleJourney');
