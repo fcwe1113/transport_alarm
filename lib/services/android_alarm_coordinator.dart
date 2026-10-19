@@ -226,6 +226,7 @@ class AndroidAlarmCoordinator {
       await _finishOccurrence(alarm, dueToWindowEnd: true);
       return;
     }
+    await _scheduleLiveCheck(alarm, gotLiveData: !lookup.apiFailed);
 
     if (activeThresholdIndex >= 0) {
       final threshold = alarm.thresholdStates[activeThresholdIndex];
@@ -562,6 +563,30 @@ class AndroidAlarmCoordinator {
     }
   }
 
+  /// Keeps a guaranteed check pending: 10 minutes out after a check that
+  /// got live data, 5 after one that didn't. Each check replaces it, so it
+  /// only fires once live data has been missing for that long. It's an
+  /// alarm clock alarm, which Doze can't delay and which brings the phone
+  /// out of Doze with network access, unlike the one-minute checks.
+  Future<void> _scheduleLiveCheck(
+    TransportAlarm alarm, {
+    required bool gotLiveData,
+  }) async {
+    final checkAt = DateTime.now().add(
+      gotLiveData ? const Duration(minutes: 10) : const Duration(minutes: 5),
+    );
+    final endSeconds = alarm.androidOccurrenceEndEpochSeconds;
+    if (endSeconds != null &&
+        !checkAt.isBefore(
+          DateTime.fromMillisecondsSinceEpoch(endSeconds * 1000),
+        )) {
+      // The window ends first; the regular checks cover the rest.
+      await _cancel(_liveCheckAlarmId(alarm.id));
+      return;
+    }
+    await _schedule(alarm, checkAt, 'liveCheck');
+  }
+
   Future<void> _schedule(
     TransportAlarm alarm,
     DateTime time,
@@ -583,14 +608,16 @@ class AndroidAlarmCoordinator {
         : now.add(const Duration(seconds: 1));
     final result = await AndroidAlarmManager.oneShotAt(
       safeTime,
-      scheduledEvent == 'fire'
-          ? _fireAlarmId(alarm.id)
-          : _checkAlarmId(alarm.id),
+      switch (scheduledEvent) {
+        'fire' => _fireAlarmId(alarm.id),
+        'liveCheck' => _liveCheckAlarmId(alarm.id),
+        _ => _checkAlarmId(alarm.id),
+      },
       androidAlarmManagerCallback,
-      // Threshold rings use Android's alarm clock scheduling, which Doze
-      // can't delay. The minute-by-minute checks stay ordinary exact alarms,
-      // which Doze may space out while the phone is idle.
-      alarmClock: scheduledEvent == 'fire',
+      // Threshold rings and the guaranteed live check use Android's alarm
+      // clock scheduling, which Doze can't delay. The minute-by-minute checks
+      // stay ordinary exact alarms, which Doze may space out while idle.
+      alarmClock: scheduledEvent == 'fire' || scheduledEvent == 'liveCheck',
       exact: true,
       allowWhileIdle: true,
       wakeup: true,
@@ -706,6 +733,7 @@ class AndroidAlarmCoordinator {
   Future<void> _cancelScheduledCallbacks(String alarmId) async {
     await _cancel(_checkAlarmId(alarmId));
     await _cancel(_fireAlarmId(alarmId));
+    await _cancel(_liveCheckAlarmId(alarmId));
   }
 
   Future<void> _cancel(int id) async {
@@ -825,6 +853,8 @@ class AndroidAlarmCoordinator {
 
   int _checkAlarmId(String alarmId) => _stableId(alarmId) * 2;
   int _fireAlarmId(String alarmId) => _stableId(alarmId) * 2 + 1;
+  // Negative, so it can't collide with any alarm's check or fire ID.
+  int _liveCheckAlarmId(String alarmId) => -(_stableId(alarmId) * 2) - 1;
   int _ringNotificationId(String alarmId) => _stableId(alarmId);
   int _statusNotificationId(String alarmId) => _stableId(alarmId) + 0x40000000;
   int _countdownNotificationId(String alarmId) =>
