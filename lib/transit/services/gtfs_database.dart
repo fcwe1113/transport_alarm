@@ -985,14 +985,66 @@ class GtfsDatabase {
     return rows.map((row) => row['operator_stop_id'] as String).toList();
   }
 
+  /// The next [limit] timetabled departures from [stopId], on the locale's
+  /// clock. Trips from yesterday's service day still running after midnight
+  /// (GTFS times of 24:00:00 and later) are included, with their times
+  /// brought back to today's.
   Future<List<ScheduledDeparture>> getUpcomingDepartures(
     String stopId, {
     int limit = 5,
   }) async {
     final db = await database;
     final now = LocaleRegistry.getLocale(locale).config.nowInLocale();
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final yesterday = DateTime.utc(now.year, now.month, now.day - 1);
 
-    final weekDays = [
+    final rows = [
+      ...await _departuresOnServiceDay(
+        db,
+        stopId,
+        today,
+        after: _secondsToTime(now.hour * 3600 + now.minute * 60 + now.second),
+        limit: limit,
+      ),
+      for (final row in await _departuresOnServiceDay(
+        db,
+        stopId,
+        yesterday,
+        after: _secondsToTime((now.hour + 24) * 3600 + now.minute * 60 + now.second),
+        limit: limit,
+      ))
+        {
+          ...row,
+          "arrival_time": _secondsToTime(
+            _timeToSeconds(row["arrival_time"] as String) - 24 * 3600,
+          ),
+        },
+    ]..sort((a, b) => (a["arrival_time"] as String).compareTo(b["arrival_time"] as String));
+
+    return rows.take(limit).map((row) {
+      final destinationName = row["destination_name"] as String?;
+      return ScheduledDeparture(
+        routeShortName: row["route_short_name"] as String,
+        arrivalTime: row["arrival_time"] as String,
+        // todo fix multilang support
+        destination: destinationName == null ? {} : {"en": destinationName},
+        directionId: row["direction_id"] as int?,
+        tripId: row["trip_id"] as String?,
+        locale: locale,
+      );
+    }).toList();
+  }
+
+  /// Departures from [stopId] after the GTFS time [after] on the service
+  /// day [day], with each trip's last stop as its destination.
+  Future<List<Map<String, Object?>>> _departuresOnServiceDay(
+    Database db,
+    String stopId,
+    DateTime day, {
+    required String after,
+    required int limit,
+  }) {
+    const weekDays = [
       "monday",
       "tuesday",
       "wednesday",
@@ -1001,14 +1053,11 @@ class GtfsDatabase {
       "saturday",
       "sunday",
     ];
-    final currentDayColumn = weekDays[now.weekday - 1];
-
-    final timeStr =
-        "${now.hour.toString().padLeft(2, "0")}:${now.minute.toString().padLeft(2, "0")}:${now.second.toString().padLeft(2, "0")}";
+    final dayColumn = weekDays[day.weekday - 1];
     final dateStr =
-        "${now.year}${now.month.toString().padLeft(2, "0")}${now.day.toString().padLeft(2, "0")}";
+        "${day.year}${day.month.toString().padLeft(2, "0")}${day.day.toString().padLeft(2, "0")}";
 
-    final List<Map<String, dynamic>> rows = await db.rawQuery(
+    return db.rawQuery(
       '''
     WITH upcoming AS (
       SELECT r.route_short_name, st.arrival_time, t.direction_id, t.trip_id
@@ -1018,7 +1067,7 @@ class GtfsDatabase {
       INNER JOIN gtfs_calendar AS c ON t.service_id = c.service_id
       WHERE st.stop_id = ?
         AND st.arrival_time > ?
-        AND c.$currentDayColumn = 1
+        AND c.$dayColumn = 1
         AND c.start_date <= ?
         AND c.end_date >= ?
       ORDER BY st.arrival_time ASC
@@ -1034,21 +1083,8 @@ class GtfsDatabase {
     FROM upcoming AS u
     ORDER BY u.arrival_time ASC
     ''',
-      [stopId, timeStr, dateStr, dateStr, limit],
+      [stopId, after, dateStr, dateStr, limit],
     );
-
-    return rows.map((row) {
-      final destinationName = row["destination_name"] as String?;
-      return ScheduledDeparture(
-        routeShortName: row["route_short_name"] as String,
-        arrivalTime: row["arrival_time"] as String,
-        // todo fix multilang support
-        destination: destinationName == null ? {} : {"en": destinationName},
-        directionId: row["direction_id"] as int?,
-        tripId: row["trip_id"] as String?,
-        locale: locale,
-      );
-    }).toList();
   }
 
   Future<List<GtfsStop>> getAllGtfsStops({String? languageCode}) async {
