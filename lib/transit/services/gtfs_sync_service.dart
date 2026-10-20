@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/csv_stream_parser.dart';
@@ -8,18 +10,25 @@ import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
-import 'package:flutter_archive/flutter_archive.dart' as FlutterArchive;
+import 'package:flutter_archive/flutter_archive.dart' as flutter_archive;
 
+/// Where a locale's GTFS timetable comes from, and how it's downloaded and
+/// imported.
 abstract class GtfsSyncProvider {
   String get locale;
   String get feedUrl;
+
+  /// Downloads the feed and swaps it into the locale database.
   Future<void> syncFeed({
     ProgressCallback? onProgress,
     CancellationToken? cancelToken,
   });
+
+  /// Whether the installed timetable is missing or due for a refresh.
   Future<bool> checkIsStale();
 }
 
+/// Imports one GTFS archive into a (usually staging) database.
 class GtfsSyncService {
   final String locale;
   final GtfsDatabase _db;
@@ -53,7 +62,7 @@ class GtfsSyncService {
     final extractionDir = await Directory(appDir.path)
         .createTemp('gtfs_${locale}_');
     try {
-      await FlutterArchive.ZipFile.extractToDirectory(
+      await flutter_archive.ZipFile.extractToDirectory(
         zipFile: zipFile,
         destinationDir: extractionDir,
         onExtracting: (zipEntry, progress) {
@@ -70,9 +79,9 @@ class GtfsSyncService {
           // storage writes, still in this single native extraction pass.
           if (zipEntry.isDirectory ||
               requiredFiles.contains(p.basename(zipEntry.name))) {
-            return FlutterArchive.ZipFileOperation.includeItem;
+            return flutter_archive.ZipFileOperation.includeItem;
           }
-          return FlutterArchive.ZipFileOperation.skipItem;
+          return flutter_archive.ZipFileOperation.skipItem;
         },
       );
 
@@ -146,7 +155,7 @@ class GtfsSyncService {
         includedServiceIds,
       );
     } catch (e) {
-      print("import files with temp id index error: ${e.toString()}");
+      debugPrint("GTFS import failed: $e");
       rethrow;
     } finally {
       for (final index in indexes.reversed) {
@@ -332,73 +341,6 @@ class GtfsSyncService {
     }
     return (row) => row.length > index ? row[index].toString().trim() : '';
   }
-
-  String _csvField(
-    List<dynamic> header,
-    List<dynamic> row,
-    String name, {
-    bool required = true,
-  }) {
-    final index = header.indexOf(name);
-    if (index < 0) {
-      if (required) {
-        throw FormatException('GTFS file is missing the $name column.');
-      }
-      return '';
-    }
-    return row.length > index ? row[index].toString().trim() : '';
-  }
-
-  Future<void> _parseAgencies(
-    File file,
-    Map<String, String> agencyNames, {
-    Set<String>? agencyIds,
-  }) async {
-    await streamParseAndInsertWithHeader(
-      file,
-      _db.batchInsertAgencies,
-      filter: agencyIds == null
-          ? null
-          : (header, row) {
-              final agencyId = _csvField(
-                header,
-                row,
-                'agency_id',
-                required: false,
-              );
-              // A single-agency feed may omit agency_id from routes.txt.
-              return agencyIds.contains(agencyId) || agencyIds.contains('');
-            },
-      transformRow: (header, row) {
-        final agencyId = _csvField(header, row, 'agency_id', required: false);
-        final agencyName = _csvField(header, row, 'agency_name');
-        if (agencyName.isEmpty) {
-          throw const FormatException(
-            'GTFS agency.txt contains an empty agency_name.',
-          );
-        }
-        agencyNames[agencyId] = agencyName;
-        return [agencyId, agencyName];
-      },
-    );
-  }
-
-  List<dynamic> Function(List<dynamic>, List<dynamic>) _routeRowTransform(
-    Map<String, String> agencyNames,
-  ) => (header, row) {
-    final agencyId = _csvField(header, row, 'agency_id', required: false);
-    final agencyName =
-        agencyNames[agencyId] ??
-        (agencyId.isEmpty && agencyNames.length == 1
-            ? agencyNames.values.single
-            : '');
-    return [
-      _csvField(header, row, 'route_id'),
-      agencyId,
-      _csvField(header, row, 'route_short_name'),
-      agencyName,
-    ];
-  };
 
   Future<void> _reportParsing(
     ProgressCallback? onProgress,
