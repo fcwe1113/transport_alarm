@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:core';
 
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
@@ -15,17 +14,18 @@ import '../../../models/transport_stop.dart';
 import '../../../progress_callback.dart';
 import '../../../transit_provider.dart';
 
-/// KMB's implementation of transit provider
-/// includes all KMB related data and API handling
-///
-/// KMB offers a full stop list and full route list API endpoint so we will be using that
+/// KMB (and Long Win), through data.etabus.gov.hk. KMB has endpoints for
+/// every stop and every route, so a refresh fetches those two lists and
+/// then each route's stop list.
 class KmbProvider extends TransitProvider {
-  // implements means to follow the provided interface, not extending bc theres nothing to build upon
   final ApiCaller _apiCaller;
+  static const _baseUrl = 'https://data.etabus.gov.hk/v1/transport/kmb';
   static const _stopsEndpointName = "stops";
-  static const _stopsUrl = 'https://data.etabus.gov.hk/v1/transport/kmb/stop';
+  static const _stopsUrl = '$_baseUrl/stop';
   static const _routesEndpointName = "routes";
-  static const _routesUrl = "https://data.etabus.gov.hk/v1/transport/kmb/route";
+  static const _routesUrl = '$_baseUrl/route';
+
+  GtfsDatabase get _db => GtfsDatabase.forLocale("hk");
 
   KmbProvider(this._apiCaller);
 
@@ -77,7 +77,7 @@ class KmbProvider extends TransitProvider {
     bool forceRefresh = false,
     ProgressCallback? onProgress,
   }) async {
-    final db = GtfsDatabase.forLocale("hk");
+    final db = _db;
     final hasStops = await db.hasOperatorStops(providerCode);
     final cachedRoutes = await db.getOperatorRoutes(providerCode);
     onProgress?.call(
@@ -122,8 +122,7 @@ class KmbProvider extends TransitProvider {
         BatchCallItem<TransportRoute, List<String>>(
           key: route,
           endpointName: "route_stop_${route.routeNumber}_${route.bound}_1",
-          url:
-              'https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route.routeNumber}/$direction/1',
+          url: '$_baseUrl/route-stop/${route.routeNumber}/$direction/1',
           parseRaw: _parseRouteStopIdsRaw,
           forceRefresh: !await db.hasRouteStops(route.id),
         ),
@@ -170,53 +169,42 @@ class KmbProvider extends TransitProvider {
     return RefreshResult(failedItems: failed);
   }
 
+  /// Every route's arrivals at a KMB stop.
   @override
-  Future<List<LiveEta>> fetchLiveEta(String rawStopId) async {
-    final url =
-        'https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/$rawStopId';
-    final response = await ApiCaller.get(Uri.parse(url));
+  Future<List<LiveEta>> fetchLiveEta(String rawStopId) =>
+      _fetchEtas(Uri.parse('$_baseUrl/stop-eta/$rawStopId'));
 
-    if (response.statusCode != 200) {
-      throw Exception("Live ETA fetch failed: ${response.statusCode}");
-    }
-
-    final decoded = jsonDecode(response.body);
-    final data = decoded["data"] as List;
-
-    return data.map((entry) {
-      final etaString = entry["eta"] as String?;
-      return LiveEta(
-        routeNumber: entry["route"] as String,
-        bound: entry["dir"] as String,
-        destination: {"en": entry["dest_en"] as String, "zh-Hant": entry["dest_tc"] as String, "zh-Hans": entry["dest_sc"] as String},
-        etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
-        remark: entry["rmk_en"] as String?,
-      );
-    }).toList();
-  }
-
+  /// One route's arrivals at a KMB stop. [serviceType] picks the variant;
+  /// "1" is the normal service.
   @override
   Future<List<LiveEta>> fetchLiveEtaForRoute(
     String rawStopId,
     String routeNumber, {
     String serviceType = "1",
-  }) async {
-    final url =
-        "https://data.etabus.gov.hk/v1/transport/kmb/eta/${rawStopId}/${routeNumber}/${serviceType}";
-    final response = await ApiCaller.get(Uri.parse(url));
-    if (response.statusCode != 200)
-      throw Exception("Live ETA fetch failed: ${response.statusCode}");
+  }) =>
+      _fetchEtas(Uri.parse('$_baseUrl/eta/$rawStopId/$routeNumber/$serviceType'));
 
+  /// Reads a KMB ETA response. An entry with missing fields or no "eta" (no
+  /// prediction) is read as far as it goes, rather than failing the rest.
+  Future<List<LiveEta>> _fetchEtas(Uri url) async {
+    final response = await ApiCaller.get(url);
+    if (response.statusCode != 200) {
+      throw Exception("Live ETA fetch failed: ${response.statusCode}");
+    }
     final decoded = jsonDecode(response.body);
-    final data = decoded["data"] as List;
-    return data.map((entry) {
-      final etaString = entry["eta"] as String?;
+    final data = decoded is Map<String, dynamic> && decoded["data"] is List
+        ? decoded["data"] as List
+        : throw const FormatException("KMB ETA response has no data list.");
+
+    String text(Object? value) => value?.toString() ?? "";
+    return data.whereType<Map<String, dynamic>>().map((entry) {
+      final etaString = entry["eta"]?.toString();
       return LiveEta(
-        routeNumber: entry["route"] as String,
-        bound: entry["dir"] as String? ?? "",
-        destination: {"en": entry["dest_en"] as String, "zh-Hant": entry["dest_tc"] as String, "zh-Hans": entry["dest_sc"] as String},
-        etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
-        remark: entry["rmk_en"] as String?,
+        routeNumber: text(entry["route"]),
+        bound: text(entry["dir"]),
+        destination: {"en": text(entry["dest_en"]), "zh-Hant": text(entry["dest_tc"]), "zh-Hans": text(entry["dest_sc"])},
+        etaTime: etaString == null || etaString.isEmpty ? null : DateTime.tryParse(etaString)?.toUtc(),
+        remark: entry["rmk_en"]?.toString(),
       );
     }).toList();
   }
@@ -237,9 +225,6 @@ class KmbProvider extends TransitProvider {
     ).toString();
   }
 
-  /// transforms stops data into forms the app requires
-  /// in this case just slotting the different fields the api
-  /// responded into the correct slot
   List<TransportStop> _parseStopsRaw(String rawJson) {
     final decoded = jsonDecode(rawJson);
     final List<dynamic> data = decoded["data"];
@@ -261,9 +246,8 @@ class KmbProvider extends TransitProvider {
         .toList();
   }
 
-  /// transforms route data into forms the app requires
-  /// in this case in addition to slotting data into the correct var
-  /// placeholder bus stop objects were created to fill origin and destination
+  /// Each route direction and service type, with an ID of
+  /// "kmb:route_bound_serviceType".
   List<TransportRoute> _parseRoutesRaw(String rawJson) {
     final decoded = jsonDecode(rawJson);
     final List<dynamic> data = decoded["data"];
@@ -278,14 +262,14 @@ class KmbProvider extends TransitProvider {
         routeNumber: routeNumber,
         bound: bound,
         originText: {
-          "en": r["orig_en"],
-          "zh-Hant": r["orig_tc"],
-          "zh-Hans": r["orig_sc"],
+          "en": r["orig_en"] as String? ?? "",
+          "zh-Hant": r["orig_tc"] as String? ?? "",
+          "zh-Hans": r["orig_sc"] as String? ?? "",
         },
         destinationText: {
-          "en": r["dest_en"],
-          "zh-Hant": r["dest_tc"],
-          "zh-Hans": r["dest_sc"],
+          "en": r["dest_en"] as String? ?? "",
+          "zh-Hant": r["dest_tc"] as String? ?? "",
+          "zh-Hans": r["dest_sc"] as String? ?? "",
         },
         providerCode: providerCode,
         locale: "hk",
@@ -304,7 +288,7 @@ class KmbProvider extends TransitProvider {
     if (await StalenessTracker().isStale('hk', providerCode)) return true;
 
     // Also stale if a refresh left data missing, whatever its age.
-    final db = GtfsDatabase.forLocale('hk');
+    final db = _db;
     if (!await db.hasOperatorStops(providerCode) ||
         !await db.hasOperatorRouteStops(providerCode)) {
       return true;
