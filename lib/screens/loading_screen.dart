@@ -210,14 +210,18 @@ class _LoadingScreenState extends State<LoadingScreen> {
           children: _error != null ? _buildError() : _buildProgress(),
         ),
     );
-    if (widget.showBottomNavigation) {
-      return AppShell(
-        title: AppStrings.text('settings.title'),
-        selectedTab: 2,
-        body: content,
-      );
-    }
-    return Scaffold(body: content);
+    // Back can't leave while the operation runs: it would carry on with no
+    // progress shown and no way to cancel. The cancel button leaves instead.
+    return PopScope(
+      canPop: _finished || _error != null,
+      child: widget.showBottomNavigation
+          ? AppShell(
+              title: AppStrings.text('settings.title'),
+              selectedTab: 2,
+              body: content,
+            )
+          : Scaffold(body: content),
+    );
   }
 
   List<Widget> _buildError() => [

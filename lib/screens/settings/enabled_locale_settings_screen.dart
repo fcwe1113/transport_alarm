@@ -73,7 +73,9 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
           builder: (_) => LoadingScreen(
             operation: initializeTransitData,
             returnToPrevious: true,
-            showBottomNavigation: true,
+            // No tabs to leave by: the change must finish, fail or be
+            // cancelled here, so it can be undone if it doesn't succeed.
+            showBottomNavigation: false,
             cancellable: true,
             // A cancelled or failed download leaves the installed data as it
             // was, so restore the selection that matches it.
