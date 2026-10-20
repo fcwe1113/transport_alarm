@@ -122,12 +122,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
                   (r) => ListTile(
                     // Sized to its label: a ListTile's leading
                     // widget can't fill the tile's width.
-                    leading: _RoutePill(
-                      route: r,
-                      selected: _selectedRouteNumber == r.routeNumber,
-                      onTap: () => _toggleRouteSelection(r),
-                      fitContent: true,
-                    ),
+                    leading: _RoutePill(route: r, fitContent: true),
                     title: Text(
                       r.destinationNameFor(AppStrings.languageCode),
                     ),
@@ -197,12 +192,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
           child: ListView(
             children: arrivals.map((a) {
               return ListTile(
-                leading: _RoutePill(
-                  route: a.route,
-                  selected:
-                      _selectedRouteNumber == a.route.routeNumber,
-                  fitContent: true,
-                ),
+                leading: _RoutePill(route: a.route, fitContent: true),
                 title: Text(
                   _arrivalDestination(a),
                 ),
@@ -363,7 +353,8 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 }
 
-/// A tappable route pill, outlined when it's the selected route.
+/// A route pill. Given [onTap] (the route strip's pills), it's tappable and
+/// ringed when [selected]; otherwise it's a plain label.
 class _RoutePill extends StatelessWidget {
   final TransportRoute route;
   final bool selected;
@@ -385,6 +376,23 @@ class _RoutePill extends StatelessWidget {
     final colours = LocaleRegistry.provider(route.locale, route.providerCode)?.coloursForRoute(route) ??
         RouteColourScheme(iconColour: scheme.secondaryContainer, textColour: scheme.onSecondaryContainer);
 
+    final label = Container(
+      height: _pillHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      alignment: fitContent ? null : Alignment.center,
+      child: fitContent
+          ? Center(widthFactor: 1, child: _label(colours.textColour))
+          : _label(colours.textColour),
+    );
+    final tap = onTap;
+    if (tap == null) {
+      return Material(
+        color: colours.iconColour,
+        borderRadius: BorderRadius.circular(_pillRadius),
+        child: label,
+      );
+    }
+
     // The selection ring sits a gap outside the pill, so it never touches the
     // pill's colour and shows against the sheet on every operator, in light
     // or dark mode. The space is kept when unselected so nothing shifts.
@@ -401,16 +409,9 @@ class _RoutePill extends StatelessWidget {
         color: colours.iconColour,
         borderRadius: BorderRadius.circular(_pillRadius),
         child: InkWell(
-          onTap: onTap,
+          onTap: tap,
           borderRadius: BorderRadius.circular(_pillRadius),
-          child: Container(
-            height: _pillHeight,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            alignment: fitContent ? null : Alignment.center,
-            child: fitContent
-                ? Center(widthFactor: 1, child: _label(colours.textColour))
-                : _label(colours.textColour),
-          ),
+          child: label,
         ),
       ),
     );
