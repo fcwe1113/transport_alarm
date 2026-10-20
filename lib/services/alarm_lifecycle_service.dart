@@ -12,7 +12,9 @@ import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 
-///
+/// Creates, edits, turns on and off, and deletes alarms, keeping each
+/// platform's scheduling in step with storage: local alarms through
+/// [AndroidAlarmCoordinator] on Android, and server pings on iOS.
 class AlarmLifecycleService {
   final AlarmStorageService _storage;
   final AlarmServerService _server;
@@ -70,47 +72,51 @@ class AlarmLifecycleService {
     }
   }
 
+  /// Saves a new alarm, or replaces the saved alarm with the same ID, and
+  /// schedules it. On failure the previous version is left as it was.
   Future<AlarmActionResult> createAlarm(TransportAlarm alarm) async {
-    if (Platform.isAndroid) {
-      final existing = (await _storage.loadAlarms())
-          .where((saved) => saved.id == alarm.id)
-          .firstOrNull;
-      try {
-        if (existing == null) {
-          await _storage.addAlarm(alarm);
-        } else {
-          if (existing.pingId != null) {
-            try {
-              await _server.cancelPing(existing.pingId!);
-            } catch (_) {
-              // Local Android alarms do not depend on the old server ping.
-            }
-          }
-          await _storage.updateAlarm(alarm);
-        }
-        await AndroidAlarmCoordinator(_storage).startOrSchedule(alarm);
-        return const AlarmActionResult.success();
-      } catch (e) {
-        if (existing == null) {
-          await AndroidAlarmCoordinator(_storage).disable(alarm.id);
-          await _storage.deleteAlarm(alarm.id);
-        } else {
-          await _storage.updateAlarm(existing);
-          if (!e.toString().contains('Allow Transport Alarm')) {
-            try {
-              await AndroidAlarmCoordinator(_storage).startOrSchedule(existing);
-            } catch (_) {
-              // Preserve the prior alarm if Android refuses to rearm it.
-            }
-          }
-        }
-        return AlarmActionResult.failure(e.toString());
-      }
-    }
+    final existing = await _find(alarm.id);
+    return Platform.isAndroid
+        ? _createAndroidAlarm(alarm, existing)
+        : _createIosAlarm(alarm, existing);
+  }
+
+  Future<AlarmActionResult> _createAndroidAlarm(TransportAlarm alarm, TransportAlarm? existing) async {
     try {
-      final existing = (await _storage.loadAlarms())
-          .where((saved) => saved.id == alarm.id)
-          .firstOrNull;
+      if (existing == null) {
+        await _storage.addAlarm(alarm);
+      } else {
+        if (existing.pingId != null) {
+          try {
+            await _server.cancelPing(existing.pingId!);
+          } catch (_) {
+            // Local Android alarms do not depend on the old server ping.
+          }
+        }
+        await _storage.updateAlarm(alarm);
+      }
+      await AndroidAlarmCoordinator(_storage).startOrSchedule(alarm);
+      return const AlarmActionResult.success();
+    } catch (e) {
+      if (existing == null) {
+        await AndroidAlarmCoordinator(_storage).disable(alarm.id);
+        await _storage.deleteAlarm(alarm.id);
+      } else {
+        await _storage.updateAlarm(existing);
+        if (!e.toString().contains('Allow Transport Alarm')) {
+          try {
+            await AndroidAlarmCoordinator(_storage).startOrSchedule(existing);
+          } catch (_) {
+            // Preserve the prior alarm if Android refuses to rearm it.
+          }
+        }
+      }
+      return AlarmActionResult.failure(e.toString());
+    }
+  }
+
+  Future<AlarmActionResult> _createIosAlarm(TransportAlarm alarm, TransportAlarm? existing) async {
+    try {
       // An edit replaces the saved alarm only after its new ping is
       // scheduled, so a failure leaves the old alarm working.
       final scheduled = await _schedulePing(alarm);
@@ -134,69 +140,73 @@ class AlarmLifecycleService {
     }
   }
 
-  Future<AlarmActionResult> setEnabled(String alarmId, bool enabled) async { // todo show popup if a bus is found within the threshold, user can skip the bus or skip the alarm state to cathc the bus
-    final alarms = await _storage.loadAlarms();
-    final alarm = alarms.where((a) => a.id == alarmId).firstOrNull;
+  // todo show popup if a bus is found within the threshold, user can skip the bus or skip the alarm state to cathc the bus
+  /// Turns an alarm on, starting its next occurrence afresh, or off.
+  Future<AlarmActionResult> setEnabled(String alarmId, bool enabled) async {
+    final alarm = await _find(alarmId);
     if (alarm == null) return AlarmActionResult.failure("Alarm not found");
-
     try {
-      if (enabled) {
-        final reenabled = alarm.copyWith(
-          enabled: true,
-          spent: false,
-          thresholdStates: alarm.thresholdStates
-              .map((t) => ThresholdState(minutesBeforeArrival: t.minutesBeforeArrival))
-              .toList(),
-          clearLastEstimatedMinutesUntilThreshold: true,
-          clearPingId: Platform.isAndroid,
-        );
-        if (Platform.isAndroid) {
-          if (alarm.pingId != null) {
-            try {
-              await _server.cancelPing(alarm.pingId!);
-            } catch (_) {
-              // A legacy server ping is independent of the new local schedule.
-            }
-          }
-          await _storage.updateAlarm(reenabled);
-          try {
-            await AndroidAlarmCoordinator(_storage).startOrSchedule(reenabled);
-          } catch (e) {
-            await _storage.updateAlarm(
-              reenabled.copyWith(enabled: false, clearAndroidOccurrence: true),
-            );
-            return AlarmActionResult.failure(e.toString());
-          }
-          return const AlarmActionResult.success();
-        }
-        final scheduled = await _schedulePing(reenabled);
-        await _storage.updateAlarm(scheduled);
-      } else {
-        if (Platform.isAndroid) {
-          await AndroidAlarmCoordinator(_storage).disable(alarmId);
-        }
-        if (alarm.pingId != null) {
-          await _server.cancelPing(alarm.pingId!);
-        }
-        await PingWatchdogService.disarm(alarmId);
-        await _storage.updateAlarm(
-          alarm.copyWith(
-            enabled: false,
-            clearPingId: true,
-            clearAndroidOccurrence: true,
-            clearAndroidFallbackArrival: true,
-          ),
-        );
-      }
-      return AlarmActionResult.success();
+      return enabled ? await _enable(alarm) : await _disable(alarm);
     } catch (e) {
       return AlarmActionResult.failure(e.toString());
     }
   }
 
+  Future<AlarmActionResult> _enable(TransportAlarm alarm) async {
+    final reenabled = alarm.copyWith(
+      enabled: true,
+      spent: false,
+      thresholdStates: alarm.thresholdStates
+          .map((t) => ThresholdState(minutesBeforeArrival: t.minutesBeforeArrival))
+          .toList(),
+      clearLastEstimatedMinutesUntilThreshold: true,
+      clearPingId: Platform.isAndroid,
+    );
+    if (!Platform.isAndroid) {
+      await _storage.updateAlarm(await _schedulePing(reenabled));
+      return const AlarmActionResult.success();
+    }
+
+    if (alarm.pingId != null) {
+      try {
+        await _server.cancelPing(alarm.pingId!);
+      } catch (_) {
+        // A legacy server ping is independent of the new local schedule.
+      }
+    }
+    await _storage.updateAlarm(reenabled);
+    try {
+      await AndroidAlarmCoordinator(_storage).startOrSchedule(reenabled);
+    } catch (e) {
+      await _storage.updateAlarm(
+        reenabled.copyWith(enabled: false, clearAndroidOccurrence: true),
+      );
+      return AlarmActionResult.failure(e.toString());
+    }
+    return const AlarmActionResult.success();
+  }
+
+  Future<AlarmActionResult> _disable(TransportAlarm alarm) async {
+    if (Platform.isAndroid) {
+      await AndroidAlarmCoordinator(_storage).disable(alarm.id);
+    }
+    if (alarm.pingId != null) {
+      await _server.cancelPing(alarm.pingId!);
+    }
+    await PingWatchdogService.disarm(alarm.id);
+    await _storage.updateAlarm(
+      alarm.copyWith(
+        enabled: false,
+        clearPingId: true,
+        clearAndroidOccurrence: true,
+        clearAndroidFallbackArrival: true,
+      ),
+    );
+    return const AlarmActionResult.success();
+  }
+
   Future<void> deleteAlarm(String alarmId) async {
-    final alarms = await _storage.loadAlarms();
-    final alarm = alarms.where((a) => a.id == alarmId).firstOrNull;
+    final alarm = await _find(alarmId);
     if (Platform.isAndroid) {
       await AndroidAlarmCoordinator(_storage).disable(alarmId);
     }
@@ -207,6 +217,12 @@ class AlarmLifecycleService {
     await _storage.deleteAlarm(alarmId);
   }
 
+  Future<TransportAlarm?> _find(String alarmId) async =>
+      (await _storage.loadAlarms()).where((a) => a.id == alarmId).firstOrNull;
+
+  /// Schedules the alarm's first server ping and arms its watchdog. Returns
+  /// the alarm with the new ping's ID and secret, or unchanged when there's
+  /// no push token yet or the server refuses; [resyncPings] retries those.
   Future<TransportAlarm> _schedulePing(TransportAlarm alarm) async {
     final deviceToken = await DeviceTokenService.getToken();
     if (deviceToken == null) return alarm; // no token yet
@@ -239,7 +255,7 @@ class AlarmLifecycleService {
     return now.add(const Duration(seconds: 10));
   }
 
-  bool _repeatsOn(RepeatPattern repeat, DateTime day) {
+  static bool _repeatsOn(RepeatPattern repeat, DateTime day) {
     switch (repeat.frequency) {
       case RepeatFrequency.none:
       case RepeatFrequency.daily:
@@ -252,6 +268,7 @@ class AlarmLifecycleService {
   }
 }
 
+/// Whether an alarm change worked, with the error to show if not.
 class AlarmActionResult {
   final bool succeeded;
   final String? errorMessage;
