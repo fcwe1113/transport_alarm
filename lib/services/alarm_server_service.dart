@@ -33,6 +33,20 @@ class AlarmServerService { // todo handle api errors later
     );
   }
 
+  /// Moves a ping to the device's current push token. Returns false when
+  /// the server no longer has the ping, so the caller can schedule a new one;
+  /// throws on other failures.
+  Future<bool> updateToken({required String pingId, required String secret, required String deviceToken}) async {
+    final response = await http.post(Uri.parse("${_baseUrl}/update_token"), headers: {"content-type": "application/json"}, body: jsonEncode({
+      "ping_id": pingId,
+      "ping_secret": secret,
+      "device_token": deviceToken,
+    }));
+    if (response.statusCode == 404) return false;
+    if (response.statusCode != 200) throw Exception("update_token failed with HTTP ${response.statusCode}");
+    return true;
+  }
+
   Future<void> cancelPing(String pingId) async {
     final secret = await _secretFor(pingId);
     if (secret == null) return; // not ours to cancel; it expires on its own

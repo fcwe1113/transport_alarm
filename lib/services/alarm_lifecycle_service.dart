@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/device_token_service.dart';
 import 'package:transport_alarm/services/ping_watchdog_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
@@ -16,6 +18,57 @@ class AlarmLifecycleService {
   final AlarmServerService _server;
 
   const AlarmLifecycleService({required this._storage, required this._server});
+
+  static AppLifecycleListener? _resyncListener;
+  static Future<void> _resyncing = Future.value();
+  static String? _lastSyncedToken;
+  static DateTime? _lastSyncedAt;
+
+  /// iOS: keeps every enabled alarm's server ping pointed at this device's
+  /// current push token, and replaces any ping the server has dropped. Runs
+  /// now, whenever iOS issues a token, and when the app comes back to the
+  /// foreground, which is what the ping watchdog notification asks for.
+  static void startIosPingResync() {
+    if (!Platform.isIOS || _resyncListener != null) return;
+    final lifecycle = AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService());
+    void run() {
+      _resyncing = _resyncing.then((_) async {
+        final token = await DeviceTokenService.getToken();
+        if (token == null) return;
+        // Resuming often shouldn't call the server for every alarm each time.
+        final recent = _lastSyncedAt != null && DateTime.now().difference(_lastSyncedAt!) < const Duration(minutes: 5);
+        if (token == _lastSyncedToken && recent) return;
+        await lifecycle.resyncPings(token);
+        _lastSyncedToken = token;
+        _lastSyncedAt = DateTime.now();
+      }).catchError((_) {});
+    }
+    ApnsTokenService.instance.onToken.listen((_) => run());
+    _resyncListener = AppLifecycleListener(onResume: run);
+    run();
+  }
+
+  /// Moves each enabled alarm's ping to [deviceToken], scheduling a new ping
+  /// for any alarm without one or whose ping the server no longer has (its
+  /// chain of pings stopped). The alarm's progress is kept, so the
+  /// notification extension carries on from where it stopped.
+  Future<void> resyncPings(String deviceToken) async {
+    final alarms = await _storage.loadAlarms();
+    for (final alarm in alarms.where((a) => a.enabled)) {
+      try {
+        final pingId = alarm.pingId;
+        final secret = alarm.pingSecret;
+        if (pingId != null && secret != null &&
+            await _server.updateToken(pingId: pingId, secret: secret, deviceToken: deviceToken)) {
+          continue;
+        }
+        final scheduled = await _schedulePing(alarm);
+        if (scheduled.pingId != pingId) await _storage.updateAlarm(scheduled);
+      } catch (_) {
+        // Tried again on the next launch or resume.
+      }
+    }
+  }
 
   Future<AlarmActionResult> createAlarm(TransportAlarm alarm) async {
     if (Platform.isAndroid) {
