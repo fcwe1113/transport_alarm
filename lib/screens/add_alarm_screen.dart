@@ -12,7 +12,6 @@ import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
-import 'package:transport_alarm/transit/transport_mode.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:transport_alarm/widgets/route_pill_strip.dart';
@@ -63,8 +62,6 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   bool _liveOnly = false;
   bool _isSaving = false;
 
-  final alarmStorage = AlarmStorageService();
-
   @override
   void initState() {
     super.initState();
@@ -102,6 +99,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       final destinationText = alarm.routeNumbers.values.first[currentLang] ?? alarm.routeNumbers.values.first["en"];
       final selectedRoutes = routes.where((r) => alarm.routeNumbers.keys.contains(r.routeNumber) && destinationText == (r.destinationText[currentLang] ?? r.destinationText["en"])).toSet();
 
+      if (!mounted) return;
       setState(() {
         _selectedStop = stop;
         _availableRoutes = routes.toSet();
@@ -141,25 +139,14 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     for (final locale in (await LocaleSelectionService().getEnabledLocales()).keys) {
       stopsList.addAll(await GtfsDatabase.forLocale(locale).getAllGtfsStops());
     }
+    if (!mounted) return;
     setState(() {
       _loadedStops = stopsList;
       _isLoadingStops = false;
     });
   }
 
-  String get _currentTransportMode {
-    final selectedRoute = _selectedRoutes.firstOrNull;
-    final providerCode = selectedRoute?.providerCode;
-    return LocaleRegistry.getLocale(_selectedStop!.locale).transitProviders
-            .where((provider) => provider.providerCode == providerCode)
-            .firstOrNull
-            ?.transportMode ??
-        LocaleRegistry.getLocale(_selectedStop!.locale).transitProviders.firstOrNull?.transportMode ??
-        TransportMode.bus;
-  }
-
   void _onLeftTimeChanged(TimeOfDay newLeft) {
-    // if (newLeft.isAfter(_rightTime)) newLeft.subtract(Duration(days: 1));
     final diff = _calculateDurationInMinutes(_leftTime, _rightTime);
     setState(() {
       _rightTime = _fromMinutes(_toMinutes(newLeft) + diff);
@@ -168,7 +155,6 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   }
 
   void _onRightTimeChanged(TimeOfDay newRight) {
-    // if (newRight.isBefore(_leftTime)) newRight = newRight.add(Duration(days: 1)); // add one day if newRight is "before" the left time
     final diff = _calculateDurationInMinutes(_leftTime, newRight);
     _onSliderChanged((diff > 60 ? 60 : diff).toDouble());
     setState(() {
@@ -183,10 +169,11 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     });
   }
 
-  void _openMapPicker() async {
+  Future<void> _openMapPicker() async {
     final picked = await Navigator.push<GtfsStop>(context, MaterialPageRoute(builder: (context) => const MapScreen(pickerMode: true,)));
     if (picked == null) return; // user did not select stop
     final routeList = Set<TransportRoute>.from(await GtfsDatabase.forLocale(picked.locale).getRoutesForGtfsStop(picked.id));
+    if (!mounted) return;
     setState(() {
       _selectedStop = picked;
       _availableRoutes = TransportRoute.dedupeByRouteAndDestination(routeList.toList()).toSet();
@@ -198,48 +185,41 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   Future<void> _compileAndSave() async {
     if (_isSaving) return;
 
-    // errors
-    bool error = false;
-    String errorMsg = "";
-    if (!(_formKey.currentState?.validate() ?? false)) {
-      error = true;
-    }
+    // Field errors show under their fields; the rest are collected here and
+    // shown together in one dialog.
+    final formValid = _formKey.currentState?.validate() ?? false;
+    final errors = <String>[];
     if (_selectedStop == null) {
-      error = true;
-      errorMsg += "${AppStrings.text('alarm.validation.no_stop')}\n";
+      errors.add(AppStrings.text('alarm.validation.no_stop'));
     } else if (_selectedRoutes.isEmpty) {
-      error = true;
-      errorMsg += "${AppStrings.text('alarm.validation.no_routes')}\n";
+      errors.add(AppStrings.text('alarm.validation.no_routes'));
     }
 
     final days = _monthlyDayController.text;
     final splitDays = days.split(",").map((d) => int.tryParse(d)!).whereType<int>().toSet();
     if (_repeatPattern.frequency == RepeatFrequency.weekly) {
       if (_selectedWeekdays.isEmpty) {
-        error = true;
-        errorMsg += "${AppStrings.text('alarm.validation.no_weekdays')}\n";
+        errors.add(AppStrings.text('alarm.validation.no_weekdays'));
       }
     } else if (_repeatPattern.frequency == RepeatFrequency.monthly) {
       if (days.trim().isEmpty) {
-        error = true;
-        errorMsg += "${AppStrings.text('alarm.validation.no_month_days')}\n";
+        errors.add(AppStrings.text('alarm.validation.no_month_days'));
       } else {
         final invalidDays = days.split(",").any((d) {
           final parsed = int.tryParse(d.trim());
           return parsed == null || parsed < 1 || parsed > 31;
         });
         if (invalidDays) {
-          error = true;
-          errorMsg += "${AppStrings.text('alarm.validation.invalid_month_days')}\n";
+          errors.add(AppStrings.text('alarm.validation.invalid_month_days'));
         }
       }
     }
 
-    if (error) {
-      if (errorMsg != "") {
+    if (!formValid || errors.isNotEmpty) {
+      if (errors.isNotEmpty) {
         showDialog(context: context, builder: (context) => AlertDialog(
           title: Text(AppStrings.text('alarm.error.title')),
-          content: Text(errorMsg),
+          content: Text(errors.join("\n")),
           actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok')))],
         ));
       }
@@ -286,16 +266,13 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     final gtfsDatabase = GtfsDatabase.forLocale(_selectedStop!.locale);
     final routeApiConfigs = <AlarmRouteConfig>[]; // todo fill in gb api call
     for (final route in _selectedRoutes) {
-      late final operatorStopId;
-      if (LocaleRegistry.getLocale(_selectedStop!.locale).gtfsOnly){
-        operatorStopId = _selectedStop!.id;
-      } else {
-        operatorStopId = await gtfsDatabase
-            .getOperatorStopIdForRouteAtGtfsStop(
-          operatorRouteId: route.id,
-          gtfsStopId: _selectedStop!.id,
-        );
-      }
+      // GTFS-only locales' live APIs use the GTFS stop ID directly.
+      final String? operatorStopId = LocaleRegistry.getLocale(_selectedStop!.locale).gtfsOnly
+          ? _selectedStop!.id
+          : await gtfsDatabase.getOperatorStopIdForRouteAtGtfsStop(
+              operatorRouteId: route.id,
+              gtfsStopId: _selectedStop!.id,
+            );
       if (operatorStopId == null) continue;
       final config = _buildAlarmRouteConfig(route, operatorStopId);
       if (config != null) routeApiConfigs.add(config);
@@ -312,11 +289,10 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       return;
     }
 
-    final routeInput = <String, Map<String, String>>{};
-
-    for (final route in _selectedRoutes) {
-      routeInput[route.routeNumber] = route.destinationText; // todo maybe fix hardcode
-    }
+    // Route number to its destination names, in every language the data has.
+    final routeInput = {
+      for (final route in _selectedRoutes) route.routeNumber: route.destinationText,
+    };
 
     final newAlarm = TransportAlarm(
         id: widget.alarmToEdit?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -345,11 +321,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     final result = await lifecycle.createAlarm(newAlarm);
     if (mounted) setState(() => _isSaving = false);
     if (!result.succeeded) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppStrings.text('alarm.save_failed', {'error': result.errorMessage}))),
-        );
-      }
+      _showSnackBar(AppStrings.text('alarm.save_failed', {'error': result.errorMessage}));
       return;
     }
     if (Platform.isAndroid) await _askForBatteryExemption();
@@ -390,13 +362,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       notifications = await Permission.notification.request();
     }
     if (!notifications.isGranted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppStrings.text('alarm.permission.notifications')),
-          ),
-        );
-      }
+      _showSnackBar(AppStrings.text('alarm.permission.notifications'));
       return false;
     }
 
@@ -408,15 +374,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       exactAlarms = await Permission.scheduleExactAlarm.status;
     }
     if (!exactAlarms.isGranted) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppStrings.text('alarm.permission.exact'),
-            ),
-          ),
-        );
-      }
+      _showSnackBar(AppStrings.text('alarm.permission.exact'));
       return false;
     }
 
@@ -426,18 +384,15 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         >()
         ?.requestFullScreenIntentPermission();
     if (fullScreenAccess != true) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppStrings.text('alarm.permission.full_screen'),
-            ),
-          ),
-        );
-      }
+      _showSnackBar(AppStrings.text('alarm.permission.full_screen'));
       return false;
     }
     return true;
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   AlarmRouteConfig? _buildAlarmRouteConfig(TransportRoute route, String operatorStopId) {
@@ -493,253 +448,19 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
           ),
         ],
         body: Form(key: _formKey, child: ListView(padding: const EdgeInsets.all(16), children: [
-          // time range selector slider
-          Card(child: Padding(padding: const EdgeInsetsGeometry.all(16), child:
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(AppStrings.text('alarm.time_window'), style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12,),
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-
-                // left time button
-                OutlinedButton.icon(onPressed: () async {
-                  final picked = await showTimePicker(context: context, initialTime: _leftTime);
-                  if (picked != null) _onLeftTimeChanged(picked);
-                }, label: Text("${_leftTime.hour.toString().padLeft(2, "0")}:${_leftTime.minute.toString().padLeft(2, "0")}"), icon: const Icon(Icons.access_time),),
-
-                // middle arrow / time diff
-                Column(mainAxisSize: MainAxisSize.min, children: [Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, borderRadius: BorderRadius.circular(10)),
-                  child: Text(AppStrings.text('alarm.duration', {'minutes': _calculateDurationInMinutes(_leftTime, _rightTime)}), style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),),
-                ), const SizedBox(height: 2,), const Icon(Icons.arrow_forward, size: 20,)
-                ],),
-
-                // right time button
-                OutlinedButton.icon(onPressed: () async {
-                  final picked = await showTimePicker(context: context, initialTime: _rightTime);
-                  if (picked != null) _onRightTimeChanged(picked);
-                }, label: Text("${_rightTime.hour.toString().padLeft(2, "0")}:${_rightTime.minute.toString().padLeft(2, "0")}"), icon: const Icon(Icons.access_time))
-              ],),
-              const SizedBox(height: 12,),
-              Row(children: [Text(AppStrings.text('alarm.slider.zero')), Expanded(child: Slider(
-                value: _sliderMinutes + 0.0,
-                onChanged: _onSliderChanged,
-                min: 0,
-                max: 60,
-                divisions: 60,
-                label: AppStrings.text('alarm.slider.minutes', {'minutes': _sliderMinutes}),
-              )), Text(AppStrings.text('alarm.slider.maximum'))],)
-            ],)
-          ,),),
-
+          _buildTimeWindowCard(),
           const SizedBox(height: 12,),
-
-          // bus stop search bar
-          Row(children: [Expanded(child: _isLoadingStops ? TextFormField(
-            enabled: false,
-            decoration: InputDecoration(hintText: AppStrings.text('common.loading'), prefixIcon: const SizedBox(
-              width: 20,
-              height: 20,
-              child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2,),),
-            ), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))
-          ) : Autocomplete<GtfsStop>(
-            displayStringForOption: (GtfsStop option) => option.displayNameFor(AppStrings.languageCode),
-            optionsBuilder: (TextEditingValue value) {
-              if (value.text.isEmpty) return _loadedStops;
-              final query = value.text.toLowerCase().trim();
-              return _loadedStops.where((s) => s.displayNameFor(AppStrings.languageCode).toLowerCase().contains(query));
-            },
-            onSelected: (GtfsStop selection) async {
-              FocusScope.of(context).unfocus();
-              final routeList = TransportRoute.dedupeByRouteAndDestination(
-                await GtfsDatabase.forLocale(selection.locale).getRoutesForGtfsStop(selection.id),
-                languageCode: AppStrings.languageCode,
-              ).toSet();
-              setState(() {
-                _selectedStop = selection;
-                _availableRoutes = routeList;
-                _selectedRoutes = {};
-              });
-            },
-            fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-              _searchController = controller;
-              return TextField(
-                controller: controller,
-                focusNode: focusNode,
-                decoration: InputDecoration(
-                    // hintText: AppStrings.text('alarm.stop_search', {
-                    //   'transportMode': AppStrings.transportMode(
-                    //     _currentTransportMode,
-                    //   ),
-                    // }),
-                    prefixIcon: const Icon(Icons.search),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
-                ),
-              );
-            },
-          )),
-            const SizedBox(width: 8),
-            IconButton.filledTonal(
-              onPressed: _openMapPicker,
-              icon: const Icon(Icons.location_searching),
-              tooltip: AppStrings.text('alarm.choose_map'),
-            )],),
+          _buildStopSearch(),
           const SizedBox(height: 16,),
-
-          // routes checkbox list
           if (_selectedStop != null) ...[
-            Card(clipBehavior: Clip.antiAlias, child: ExpansionTile(
-              initiallyExpanded: false,
-              title: Text(
-                AppStrings.text('alarm.routes_serving', {'stop': _selectedStop!.displayNameFor(AppStrings.languageCode)}),
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              subtitle: Text(_selectedRoutes.isEmpty
-                  ? AppStrings.text('alarm.validation.no_routes')
-                  : AppStrings.text(
-                      _selectedRoutes.length == 1
-                          ? 'alarm.routes_selected.one'
-                          : 'alarm.routes_selected.other',
-                      {'count': _selectedRoutes.length},
-                    ),
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),),
-              children: _availableRoutes.map((r) {
-                return CheckboxListTile(
-                  title: Row(
-                    children: [
-                      RoutePill(route: r),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          r.destinationNameFor(AppStrings.languageCode),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                  value: _selectedRoutes.contains(r),
-                  onChanged: (bool? checked) {
-                    setState(() {
-                      if (checked == true) {
-                        _selectedRoutes.add(r);
-                      } else {
-                        _selectedRoutes.remove(r);
-                      }
-                    });
-                  },
-                );
-              }).toList(),
-            ),),
+            _buildRouteList(),
             const SizedBox(height: 16,)
           ],
-
-          // how early to ring
-          Row(children: [
-            Text(AppStrings.text('alarm.threshold_minutes_label'), style: const TextStyle(fontWeight: FontWeight.bold),),
-            Expanded(child: TextFormField(controller: _thresholdController, decoration: InputDecoration(
-                isDense: true, border: UnderlineInputBorder(),
-                hintText: AppStrings.text('alarm.threshold_hint')
-            ),
-              keyboardType: TextInputType.text,
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[0-9,]"))],
-              validator: (val) {
-                if (val == null || val == "") {
-                  return AppStrings.text('alarm.validation.required');
-                }
-
-                final currentWindow = _calculateDurationInMinutes(_leftTime, _rightTime);
-                final items = val.split(",");
-
-                for (final item in items) {
-                  final minutes = int.tryParse(item);
-                  if (minutes == null) {
-                    return AppStrings.text('alarm.validation.comma');
-                  }
-                  if (minutes >= currentWindow) {
-                    return AppStrings.text('alarm.validation.window_exceeded');
-                  }
-                }
-
-                return null;
-              },
-            ))
-          ],),
+          _buildThresholdField(),
           const SizedBox(height: 24,),
-
-          // max ring attempts
-          Row(children: [
-            Text(AppStrings.text('alarm.ring_attempts_label'), style: const TextStyle(fontWeight: FontWeight.bold),),
-            Expanded(child: TextFormField(controller: _attemptsController, decoration: const InputDecoration(
-                isDense: true,
-                border: UnderlineInputBorder()
-            ), keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              validator: (val) => val == null || val == "" ? AppStrings.text('alarm.validation.required') : int.parse(val) > 15 ? AppStrings.text('alarm.validation.max_rings') : null,
-            ))
-          ],),
+          _buildRingAttemptsField(),
           const SizedBox(height: 24,),
-
-          // horizontal 4 way repeat selector
-          Text(AppStrings.text('alarm.repeat_pattern'), style: const TextStyle(fontWeight: FontWeight.bold),),
-          const SizedBox(height: 8,),
-          SegmentedButton(segments: [
-            ButtonSegment(value: RepeatPattern.none, label: Text(AppStrings.text('repeat.none'))),
-            ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.daily), label: Text(AppStrings.text('repeat.daily'))),
-            ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.weekly), label: Text(AppStrings.text('repeat.weekly'))),
-            ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.monthly), label: Text(AppStrings.text('repeat.monthly'))),
-          ], selected: {_repeatPattern}, onSelectionChanged: (Set<RepeatPattern> selected) {
-            setState(() {
-              _repeatPattern = selected.first;
-            });
-          },),
-
-          // weekly options
-          if (_repeatPattern.frequency == RepeatFrequency.weekly) ...[
-            const SizedBox(height: 12,),
-            Wrap(
-              spacing: 4,
-              children: List.generate(7, (i) {
-                final day = i + 1;
-                final labels = [
-                  AppStrings.text('repeat.day.short.mon'),
-                  AppStrings.text('repeat.day.short.tue'),
-                  AppStrings.text('repeat.day.short.wed'),
-                  AppStrings.text('repeat.day.short.thu'),
-                  AppStrings.text('repeat.day.short.fri'),
-                  AppStrings.text('repeat.day.short.sat'),
-                  AppStrings.text('repeat.day.short.sun'),
-                ];
-                final isSelected = _selectedWeekdays.contains(day);
-                return FilterChip(label: Text(labels[i]), selected: isSelected, onSelected: (bool selected) {
-                  setState(() {
-                    if (selected) {
-                      _selectedWeekdays.add(day);
-                    } else {
-                      _selectedWeekdays.remove(day);
-                    }
-                  });
-                });
-              }),
-            )
-          ],
-
-          // const SizedBox(height: 12,),
-
-          // monthly options
-          if (_repeatPattern.frequency == RepeatFrequency.monthly) ...[
-            const SizedBox(height: 12,),
-            Row(children: [
-              Text(AppStrings.text('alarm.day_of_month'),),
-              Expanded(child: SizedBox(child: TextField(
-                controller: _monthlyDayController,
-                keyboardType: TextInputType.text,
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[0-9,]"))],
-                decoration: InputDecoration(isDense: true, border: const OutlineInputBorder(), hintText: AppStrings.text('alarm.day_of_month_hint')),
-              ),))
-            ],)
-          ],
-
+          ..._buildRepeatSelector(),
           const SizedBox(height: 12,),
 
           // ignore schedule checkbox
@@ -754,19 +475,260 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             }
           ),
           const SizedBox(height: 12,),
-
-          // max ring attempts
-          Row(children: [
-            Text(AppStrings.text('alarm.custom_message'), style: const TextStyle(fontWeight: FontWeight.bold),),
-            Expanded(child: TextFormField(controller: _messageController, decoration: const InputDecoration(
-                isDense: true,
-                border: UnderlineInputBorder()
-            ), validator: (val) => val == null || val == "" ? AppStrings.text('alarm.validation.required') : null,
-            ))
-          ],),
+          _buildMessageField(),
         ],))
     );
   }
+
+  /// The window's start and end times, the time between them, and a slider
+  /// for the window's length.
+  Widget _buildTimeWindowCard() {
+    return Card(child: Padding(padding: const EdgeInsetsGeometry.all(16), child:
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(AppStrings.text('alarm.time_window'), style: const TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12,),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+
+          // left time button
+          OutlinedButton.icon(onPressed: () async {
+            final picked = await showTimePicker(context: context, initialTime: _leftTime);
+            if (picked != null) _onLeftTimeChanged(picked);
+          }, label: Text(_formatTime(_leftTime)), icon: const Icon(Icons.access_time),),
+
+          // middle arrow / time diff
+          Column(mainAxisSize: MainAxisSize.min, children: [Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, borderRadius: BorderRadius.circular(10)),
+            child: Text(AppStrings.text('alarm.duration', {'minutes': _calculateDurationInMinutes(_leftTime, _rightTime)}), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),),
+          ), const SizedBox(height: 2,), const Icon(Icons.arrow_forward, size: 20,)
+          ],),
+
+          // right time button
+          OutlinedButton.icon(onPressed: () async {
+            final picked = await showTimePicker(context: context, initialTime: _rightTime);
+            if (picked != null) _onRightTimeChanged(picked);
+          }, label: Text(_formatTime(_rightTime)), icon: const Icon(Icons.access_time))
+        ],),
+        const SizedBox(height: 12,),
+        Row(children: [Text(AppStrings.text('alarm.slider.zero')), Expanded(child: Slider(
+          value: _sliderMinutes + 0.0,
+          onChanged: _onSliderChanged,
+          min: 0,
+          max: 60,
+          divisions: 60,
+          label: AppStrings.text('alarm.slider.minutes', {'minutes': _sliderMinutes}),
+        )), Text(AppStrings.text('alarm.slider.maximum'))],)
+      ],)
+    ,),);
+  }
+
+  /// The stop search box, or a loading placeholder while stops load, with
+  /// the button that picks a stop on the map instead.
+  Widget _buildStopSearch() {
+    return Row(children: [Expanded(child: _isLoadingStops ? TextFormField(
+      enabled: false,
+      decoration: InputDecoration(hintText: AppStrings.text('common.loading'), prefixIcon: const SizedBox(
+        width: 20,
+        height: 20,
+        child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2,),),
+      ), border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))
+    ) : Autocomplete<GtfsStop>(
+      displayStringForOption: (GtfsStop option) => option.displayNameFor(AppStrings.languageCode),
+      optionsBuilder: (TextEditingValue value) {
+        if (value.text.isEmpty) return _loadedStops;
+        final query = value.text.toLowerCase().trim();
+        return _loadedStops.where((s) => s.displayNameFor(AppStrings.languageCode).toLowerCase().contains(query));
+      },
+      onSelected: (GtfsStop selection) async {
+        FocusScope.of(context).unfocus();
+        final routeList = TransportRoute.dedupeByRouteAndDestination(
+          await GtfsDatabase.forLocale(selection.locale).getRoutesForGtfsStop(selection.id),
+          languageCode: AppStrings.languageCode,
+        ).toSet();
+        if (!mounted) return;
+        setState(() {
+          _selectedStop = selection;
+          _availableRoutes = routeList;
+          _selectedRoutes = {};
+        });
+      },
+      fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+        _searchController = controller;
+        return TextField(
+          controller: controller,
+          focusNode: focusNode,
+          decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+          ),
+        );
+      },
+    )),
+      const SizedBox(width: 8),
+      IconButton.filledTonal(
+        onPressed: _openMapPicker,
+        icon: const Icon(Icons.location_searching),
+        tooltip: AppStrings.text('alarm.choose_map'),
+      )],);
+  }
+
+  /// A checkbox for each route serving the selected stop.
+  Widget _buildRouteList() {
+    return Card(clipBehavior: Clip.antiAlias, child: ExpansionTile(
+      initiallyExpanded: false,
+      title: Text(
+        AppStrings.text('alarm.routes_serving', {'stop': _selectedStop!.displayNameFor(AppStrings.languageCode)}),
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+      ),
+      subtitle: Text(_selectedRoutes.isEmpty
+          ? AppStrings.text('alarm.validation.no_routes')
+          : AppStrings.text(
+              _selectedRoutes.length == 1
+                  ? 'alarm.routes_selected.one'
+                  : 'alarm.routes_selected.other',
+              {'count': _selectedRoutes.length},
+            ),
+      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),),
+      children: _availableRoutes.map((r) {
+        return CheckboxListTile(
+          title: Row(
+            children: [
+              RoutePill(route: r),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  r.destinationNameFor(AppStrings.languageCode),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          value: _selectedRoutes.contains(r),
+          onChanged: (bool? checked) {
+            setState(() {
+              if (checked == true) {
+                _selectedRoutes.add(r);
+              } else {
+                _selectedRoutes.remove(r);
+              }
+            });
+          },
+        );
+      }).toList(),
+    ),);
+  }
+
+  /// How many minutes before arrival to ring, as a comma-separated list.
+  Widget _buildThresholdField() {
+    return Row(children: [
+      Text(AppStrings.text('alarm.threshold_minutes_label'), style: const TextStyle(fontWeight: FontWeight.bold),),
+      Expanded(child: TextFormField(controller: _thresholdController, decoration: InputDecoration(
+          isDense: true, border: const UnderlineInputBorder(),
+          hintText: AppStrings.text('alarm.threshold_hint')
+      ),
+        keyboardType: TextInputType.text,
+        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[0-9,]"))],
+        validator: (val) {
+          if (val == null || val == "") {
+            return AppStrings.text('alarm.validation.required');
+          }
+
+          final currentWindow = _calculateDurationInMinutes(_leftTime, _rightTime);
+          for (final item in val.split(",")) {
+            final minutes = int.tryParse(item);
+            if (minutes == null) {
+              return AppStrings.text('alarm.validation.comma');
+            }
+            if (minutes >= currentWindow) {
+              return AppStrings.text('alarm.validation.window_exceeded');
+            }
+          }
+
+          return null;
+        },
+      ))
+    ],);
+  }
+
+  Widget _buildRingAttemptsField() {
+    return Row(children: [
+      Text(AppStrings.text('alarm.ring_attempts_label'), style: const TextStyle(fontWeight: FontWeight.bold),),
+      Expanded(child: TextFormField(controller: _attemptsController, decoration: const InputDecoration(
+          isDense: true,
+          border: UnderlineInputBorder()
+      ), keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        validator: (val) => val == null || val == "" ? AppStrings.text('alarm.validation.required') : int.parse(val) > 15 ? AppStrings.text('alarm.validation.max_rings') : null,
+      ))
+    ],);
+  }
+
+  /// The four-way repeat selector, plus the weekday chips or month-day field
+  /// for weekly and monthly repeats.
+  List<Widget> _buildRepeatSelector() {
+    const weekdayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    return [
+      Text(AppStrings.text('alarm.repeat_pattern'), style: const TextStyle(fontWeight: FontWeight.bold),),
+      const SizedBox(height: 8,),
+      SegmentedButton(segments: [
+        ButtonSegment(value: RepeatPattern.none, label: Text(AppStrings.text('repeat.none'))),
+        ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.daily), label: Text(AppStrings.text('repeat.daily'))),
+        ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.weekly), label: Text(AppStrings.text('repeat.weekly'))),
+        ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.monthly), label: Text(AppStrings.text('repeat.monthly'))),
+      ], selected: {_repeatPattern}, onSelectionChanged: (Set<RepeatPattern> selected) {
+        setState(() {
+          _repeatPattern = selected.first;
+        });
+      },),
+
+      if (_repeatPattern.frequency == RepeatFrequency.weekly) ...[
+        const SizedBox(height: 12,),
+        Wrap(
+          spacing: 4,
+          children: List.generate(7, (i) {
+            final day = i + 1; // 1 = Monday, as DateTime.weekday
+            return FilterChip(label: Text(AppStrings.text('repeat.day.short.${weekdayKeys[i]}')), selected: _selectedWeekdays.contains(day), onSelected: (bool selected) {
+              setState(() {
+                if (selected) {
+                  _selectedWeekdays.add(day);
+                } else {
+                  _selectedWeekdays.remove(day);
+                }
+              });
+            });
+          }),
+        )
+      ],
+
+      if (_repeatPattern.frequency == RepeatFrequency.monthly) ...[
+        const SizedBox(height: 12,),
+        Row(children: [
+          Text(AppStrings.text('alarm.day_of_month'),),
+          Expanded(child: TextField(
+            controller: _monthlyDayController,
+            keyboardType: TextInputType.text,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r"[0-9,]"))],
+            decoration: InputDecoration(isDense: true, border: const OutlineInputBorder(), hintText: AppStrings.text('alarm.day_of_month_hint')),
+          ))
+        ],)
+      ],
+    ];
+  }
+
+  Widget _buildMessageField() {
+    return Row(children: [
+      Text(AppStrings.text('alarm.custom_message'), style: const TextStyle(fontWeight: FontWeight.bold),),
+      Expanded(child: TextFormField(controller: _messageController, decoration: const InputDecoration(
+          isDense: true,
+          border: UnderlineInputBorder()
+      ), validator: (val) => val == null || val == "" ? AppStrings.text('alarm.validation.required') : null,
+      ))
+    ],);
+  }
+
+  String _formatTime(TimeOfDay time) =>
+      "${time.hour.toString().padLeft(2, "0")}:${time.minute.toString().padLeft(2, "0")}";
 
   int _toMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
   TimeOfDay _fromMinutes(int m) => TimeOfDay(hour: (m ~/ 60) % 24, minute: m % 60);
