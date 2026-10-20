@@ -207,6 +207,7 @@ final class NativePingHandler {
         alarms[index]["thresholdStates"] = thresholdStates
         alarms[index]["spent"] = false
         alarms[index]["lastEstimatedMinutesUntilThreshold"] = NSNull()
+        alarms[index]["ignoreArrivalsBeforeEpochSeconds"] = NSNull()
         try saveAlarms(alarms)
     }
 
@@ -331,9 +332,14 @@ final class NativePingHandler {
         let isFreshOccurrence = cachedEstimateUntilThreshold == nil &&
             !thresholdStates.isEmpty &&
             thresholdStates.allSatisfy { ($0["outcome"] as? String ?? "pending") == "pending" }
-        let minimumArrivalMinutes = isFreshOccurrence
-            ? thresholdStates.compactMap { Self.intValue($0["minutesBeforeArrival"]) }.max()
-            : nil
+        // The first check skips buses too close to make the first threshold,
+        // and the cutoff is kept so later checks don't latch on to them either.
+        let now = Int(Date().timeIntervalSince1970)
+        let ignoreArrivalsBefore = Self.intValue(alarms[index]["ignoreArrivalsBeforeEpochSeconds"]) ??
+            (isFreshOccurrence
+                ? thresholdStates.compactMap { Self.intValue($0["minutesBeforeArrival"]) }.max().map { now + $0 * 60 }
+                : nil)
+        let minimumArrivalMinutes = ignoreArrivalsBefore.map { max(0, ($0 - now + 59) / 60) }
         let freshArrivalEstimate = await estimateWithinBudget(
             for: alarms[index],
             minimumArrivalMinutes: minimumArrivalMinutes
@@ -341,6 +347,9 @@ final class NativePingHandler {
         let freshEstimateUntilThreshold = freshArrivalEstimate.map { $0 - thresholdMinutes }
         if let freshEstimateUntilThreshold {
             alarms[index]["lastEstimatedMinutesUntilThreshold"] = freshEstimateUntilThreshold
+            if let ignoreArrivalsBefore {
+                alarms[index]["ignoreArrivalsBeforeEpochSeconds"] = ignoreArrivalsBefore
+            }
         }
         return (thresholdMinutes, freshEstimateUntilThreshold ?? cachedEstimateUntilThreshold)
     }
@@ -409,6 +418,7 @@ final class NativePingHandler {
         alarm["thresholdStates"] = thresholdStates
         alarm["spent"] = true
         alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
+        alarm["ignoreArrivalsBeforeEpochSeconds"] = NSNull()
         if repeatFrequency(of: alarm) != "none" {
             let nextRepeat = try nextRepeatDate(for: alarm)
             try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)

@@ -64,6 +64,7 @@ enum PingAcknowledgementHandler {
                 alarm["thresholdStates"] = thresholds
                 alarm["spent"] = true
                 alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
+                alarm["ignoreArrivalsBeforeEpochSeconds"] = NSNull()
                 alarms[alarmIndex] = alarm
                 try save(alarms, to: alarmsURL)
             } catch {
