@@ -2,7 +2,12 @@ import AlarmKit
 import CryptoKit
 import SwiftUI
 
+/// Schedules and cancels AlarmKit countdown alarms. Only the app can use
+/// AlarmKit; the notification extension can't, as AlarmKit's authorization
+/// doesn't carry over to it.
 enum AlarmKitScheduler {
+    /// A UUID derived from [alarmID] (its SHA-256, shaped as a version 5
+    /// UUID), the same on every launch, so an alarm can be cancelled later.
     static func stableID(for alarmID: String) -> UUID {
         var bytes = Array(SHA256.hash(data: Data(alarmID.utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0f) | 0x50
@@ -14,9 +19,8 @@ enum AlarmKitScheduler {
     }
 
     static func schedule(alarmID: UUID, secondsUntilFire: TimeInterval, title: String) async throws {
-        // Permission is requested from the foreground app when the alarm is
-        // created. Push handling runs in an extension, where requesting a new
-        // user authorization can fail because there is no foreground UI.
+        // Authorization must already be granted, through requestAuthorization
+        // while the app is open; scheduling never asks.
         let authorizationState = AlarmManager.shared.authorizationState
         guard authorizationState == .authorized else {
             throw SchedulerError.notAuthorized(String(describing: authorizationState))
@@ -57,8 +61,8 @@ enum AlarmKitScheduler {
         try AlarmManager.shared.cancel(id: alarmID)
     }
 
-    /// Keeps the failing AlarmKit phase and underlying NSError details in the
-    /// notification text, where extension-process logs may not be available.
+    /// The underlying NSError's domain, code and message, for the error
+    /// returned to Dart.
     private static func describe(_ error: Error) -> String {
         let nsError = error as NSError
         return "\(nsError.domain) code \(nsError.code): \(nsError.localizedDescription)"
