@@ -47,6 +47,11 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
     setState(() => _saving = true);
     final previous = await _selectionService.getEnabledLocales();
     final draft = await _selectionService.getLocaleSelectionDraft();
+    // The app needs at least one region; the check button is disabled too.
+    if (draft.isEmpty) {
+      if (mounted) setState(() => _saving = false);
+      return;
+    }
     final selectionChanged = !mapEquals(previous, draft);
     // A changed selection downloads data, so warn first. Going back keeps the
     // user on this screen with their unsaved changes.
@@ -85,16 +90,20 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
       title: AppStrings.text('settings.enabled_locales'),
       selectedTab: 2,
       actions: [
-        IconButton(
-          tooltip: AppStrings.text('common.done'),
-          onPressed: _loading || _saving ? null : _saveSelection,
-          icon: _saving
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.check),
+        // Disabled while no region is picked, as the app needs at least one.
+        ValueListenableBuilder<Map<String, String>>(
+          valueListenable: LocaleSelectionService.localeSelectionDraftListenable,
+          builder: (context, draft, _) => IconButton(
+            tooltip: AppStrings.text('common.done'),
+            onPressed: _loading || _saving || draft.isEmpty ? null : _saveSelection,
+            icon: _saving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check),
+          ),
         ),
       ],
       body: _loading
