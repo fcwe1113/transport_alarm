@@ -5,6 +5,7 @@ import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/device_token_service.dart';
+import 'package:transport_alarm/services/ping_watchdog_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
@@ -106,6 +107,7 @@ class AlarmLifecycleService {
         if (alarm.pingId != null) {
           await _server.cancelPing(alarm.pingId!);
         }
+        await PingWatchdogService.disarm(alarmId);
         await _storage.updateAlarm(
           alarm.copyWith(
             enabled: false,
@@ -130,6 +132,7 @@ class AlarmLifecycleService {
     if (alarm?.pingId != null) {
       await _server.cancelPing(alarm!.pingId!);
     }
+    await PingWatchdogService.disarm(alarmId);
     await _storage.deleteAlarm(alarmId);
   }
 
@@ -140,6 +143,7 @@ class AlarmLifecycleService {
       if (alarm.pingId != null) {
         await _server.cancelPing(alarm.pingId!); // todo check if can null ping id on last ping given server will delete ping entry on expiry
       }
+      await PingWatchdogService.disarm(alarm.id);
       await _storage.updateAlarm(alarm.copyWith(enabled: false, pingId: null, spent: true));
       return;
     }
@@ -159,6 +163,7 @@ class AlarmLifecycleService {
 
     final ping = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
     if (ping == null) return alarm;
+    await PingWatchdogService.arm(alarm.id, scheduledTime);
     return alarm.copyWith(pingId: ping.id, pingSecret: ping.secret);
   }
 
@@ -207,6 +212,7 @@ class AlarmLifecycleService {
     final scheduledTime = DateTime(nextDate.year, nextDate.month, nextDate.day, alarm.windowStart.hour, alarm.windowStart.minute);
     final ping = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
     if (ping == null) return alarm;
+    await PingWatchdogService.arm(alarm.id, scheduledTime);
     return alarm.copyWith(pingId: ping.id, pingSecret: ping.secret);
   }
 

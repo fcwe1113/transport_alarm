@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		D20000000000000000000001 /* NativeLocalization.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000001 /* NativeLocalization.swift */; };
 		D20000000000000000000002 /* NativeLocalization.swift in NotificationService Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000001 /* NativeLocalization.swift */; };
+		E50000000000000000000002 /* PingWatchdog.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = E50000000000000000000001 /* PingWatchdog.swift */; };
+		E50000000000000000000003 /* PingWatchdog.swift in NotificationService Sources */ = {isa = PBXBuildFile; fileRef = E50000000000000000000001 /* PingWatchdog.swift */; };
 		D20000000000000000000003 /* NativeLocalization.swift in Widget Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000001 /* NativeLocalization.swift */; };
 		D20000000000000000000004 /* AppGroup.swift in Widget Sources */ = {isa = PBXBuildFile; fileRef = DDA842F78E2A33F2110979FE /* AppGroup.swift */; };
 		D20000000000000000000011 /* strings_en.json in Runner Resources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000002 /* strings_en.json */; };
@@ -123,6 +125,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E50000000000000000000001 /* PingWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PingWatchdog.swift; path = Shared/PingWatchdog.swift; sourceTree = SOURCE_ROOT; };
 		D10000000000000000000001 /* NativeLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeLocalization.swift; path = Shared/NativeLocalization.swift; sourceTree = SOURCE_ROOT; };
 		D10000000000000000000002 /* strings_en.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_en.json; path = ../assets/localization/strings_en.json; sourceTree = SOURCE_ROOT; };
 		D10000000000000000000003 /* strings_zh-Hant.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = strings_zh-Hant.json; path = ../assets/localization/strings_zh-Hant.json; sourceTree = SOURCE_ROOT; };
@@ -251,6 +254,7 @@
 				A20000000000000000000002 /* AlarmKitScheduler.swift */,
 				B20000000000000000000004 /* TransportAlarmMetadata.swift */,
 				D10000000000000000000001 /* NativeLocalization.swift */,
+				E50000000000000000000001 /* PingWatchdog.swift */,
 				D10000000000000000000002 /* strings_en.json */,
 				D10000000000000000000003 /* strings_zh-Hant.json */,
 				D10000000000000000000004 /* strings_zh-Hans.json */,
@@ -550,6 +554,7 @@
 				F10000000000000000000011 /* PingAcknowledgementHandler.swift in Runner Sources */,
 				F10000000000000000000012 /* NativeTransitLocale.swift in Runner Sources */,
 				D20000000000000000000001 /* NativeLocalization.swift in Runner Sources */,
+				E50000000000000000000002 /* PingWatchdog.swift in Runner Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -566,6 +571,7 @@
 				A10000000000000000000006 /* NativeTransitLocale.swift in Extension Sources */,
 				E2A549C880CA9E8D5E26FF2D /* AppGroup.swift in Sources */,
 				D20000000000000000000002 /* NativeLocalization.swift in NotificationService Sources */,
+				E50000000000000000000003 /* PingWatchdog.swift in NotificationService Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

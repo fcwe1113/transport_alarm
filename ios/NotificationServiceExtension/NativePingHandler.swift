@@ -53,6 +53,8 @@ final class NativePingHandler {
     /// The alarm's ping secret, which the server requires to reschedule or
     /// ack its ping. Nil when no saved alarm owns the ping.
     private var pingSecret: String?
+    /// The ID of the alarm that owns the ping, for its watchdog notification.
+    private var alarmID: String?
     /// When the ping arrived, for the live fetch's deadline.
     private let receivedAt = Date()
     /// How long after the ping arrives the arrival lookup may run, leaving
@@ -93,6 +95,7 @@ final class NativePingHandler {
             var alarms = try loadAlarms()
             let index = alarms.firstIndex { Self.stringValue($0["pingId"]) == pingID }
             pingSecret = index.flatMap { alarms[$0]["pingSecret"] as? String }
+            alarmID = index.flatMap { Self.stringValue(alarms[$0]["id"]) }
             let decision = try decide(alarm: index.map { alarms[$0] }, now: Date())
             let result = try await act(on: decision, alarms: &alarms, index: index, pingID: pingID)
             guard estimateTimedOut, result.style == .update else { return result }
@@ -813,10 +816,13 @@ final class NativePingHandler {
         guard let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status) else {
             throw PingHandlerError.serverRejected((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
+        if let alarmID { await PingWatchdog.arm(alarmID: alarmID, nextPingAt: date) }
     }
 
     /// Marks a ping complete on the server when no further ping is needed.
     private func acknowledge(pingID: String) async throws {
+        // No more pings are coming, whether or not the server hears this.
+        if let alarmID { PingWatchdog.disarm(alarmID: alarmID) }
         // Without the secret the server would refuse; the ping expires on its own.
         guard let pingSecret else { return }
         var request = URLRequest(url: serverBaseURL.appendingPathComponent("ack"))

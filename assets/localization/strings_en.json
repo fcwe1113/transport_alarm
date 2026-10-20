@@ -180,6 +180,8 @@
   "native.estimate_unavailable.body": "Another update is scheduled in 5 minutes.",
   "native.estimate_slow.title": "Live arrivals took too long",
   "native.estimate_slow.body": "Using the last estimate instead.",
+  "native.watchdog.title": "Alarm checks stopped",
+  "native.watchdog.body": "Open Transport Alarm to restart them.",
   "native.update_scheduled.title": "Alarm update scheduled",
   "native.update_scheduled.body": "The threshold is about {minutes} minutes away. Another check is scheduled in {delay} minutes.",
   "native.alarm_approaching.title": "Alarm approaching",
