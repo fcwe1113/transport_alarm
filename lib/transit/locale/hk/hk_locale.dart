@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/transit/locale/hk/providers/ctb_provider.dart';
 import 'package:transport_alarm/transit/locale/hk/providers/kmb_provider.dart';
 import 'package:transport_alarm/transit/models/locale_config.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
-import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/gtfs_sync_service.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:transport_alarm/transit/transit_provider.dart';
@@ -11,33 +11,37 @@ import 'package:transport_alarm/transit/transit_provider.dart';
 import '../transit_locale.dart';
 import 'hk_gtfs_sync_provider.dart';
 
+/// Hong Kong: the Transport Department's GTFS timetable, with KMB and
+/// Citybus for routes, stops and live arrivals. Operator stops are matched
+/// to GTFS stops after each refresh.
 class HkLocale extends TransitLocale {
-
-  final apiCaller = ApiCaller();
+  final _apiCaller = ApiCaller();
 
   @override
-  LocaleConfig config = LocaleConfig(
-  code: 'hk',
-  displayName: {"en": 'Hong Kong'},
-  timeZoneIdentifier: 'Asia/Hong_Kong',
+  final LocaleConfig config = const LocaleConfig(
+    code: 'hk',
+    displayName: {"en": 'Hong Kong'},
+    timeZoneIdentifier: 'Asia/Hong_Kong',
   );
 
   @override
-  List<GtfsSyncProvider> gtfsProviders = [HkGtfsSyncProvider()];
+  final List<GtfsSyncProvider> gtfsProviders = [HkGtfsSyncProvider()];
 
   @override
-  late Widget menuEntry = _LocaleCheckboxMenuEntry(config: config);
+  late final Widget menuEntry = _LocaleCheckboxMenuEntry(config: config);
 
   @override
-  late List<TransitProvider> transitProviders = [KmbProvider(apiCaller), CtbProvider(apiCaller)];
+  late final List<TransitProvider> transitProviders = [KmbProvider(_apiCaller), CtbProvider(_apiCaller)];
 
   @override
-  bool matchingRequired = true;
+  bool get matchingRequired => true;
 
   @override
   bool get gtfsOnly => false;
 }
 
+/// Hong Kong's entry in the region pickers: one checkbox for the whole
+/// region, saved as an empty draft value when ticked.
 class _LocaleCheckboxMenuEntry extends StatefulWidget {
   const _LocaleCheckboxMenuEntry({required this.config});
 
@@ -79,7 +83,7 @@ class _LocaleCheckboxMenuEntryState extends State<_LocaleCheckboxMenuEntry> {
   @override
   Widget build(BuildContext context) {
     return CheckboxListTile(
-      title: Text(widget.config.displayName["en"]!),
+      title: Text(AppStrings.text('settings.locale.hong_kong')),
       value: _selected,
       onChanged: _loaded ? (checked) => _setSelected(checked == true) : null,
     );

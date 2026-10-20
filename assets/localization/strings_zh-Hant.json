@@ -250,5 +250,6 @@
   "settings.enabled_locales": "已啟用的地區",
   "settings.enabled_locales.subtitle": "選擇應用程式要使用的交通地區",
   "settings.enabled_locales.required": "請至少選擇一個地區或英國範圍。",
+  "settings.locale.hong_kong": "Hong Kong",
   "settings.locale.united_kingdom": "英國"
 }

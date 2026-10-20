@@ -250,5 +250,6 @@
   "settings.enabled_locales": "Enabled locales",
   "settings.enabled_locales.subtitle": "Choose which transit regions to use",
   "settings.enabled_locales.required": "Select at least one locale or UK area.",
+  "settings.locale.hong_kong": "Hong Kong",
   "settings.locale.united_kingdom": "United Kingdom"
 }
