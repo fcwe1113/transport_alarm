@@ -1,19 +1,20 @@
-// bus route data struct definition file
-
-import 'package:transport_alarm/transit/models/transport_stop.dart';
-import 'package:transport_alarm/l10n/app_strings.dart';
-
+/// One direction of a route from a provider, as stored in the locale
+/// database. Text fields are keyed by language code.
 class TransportRoute {
+  /// The provider's own route ID, unique within its locale.
   final String id;
-  final Map<String, String>
-  names; // may hv locale diffs, maybe remove if not needed
+  /// The route's display name, such as "N260", where it differs by language.
+  final Map<String, String> names;
   final String routeNumber;
-  final String bound; // change if not adapting to new apis
+  /// The provider's direction code, such as KMB's "I" or "O".
+  final String bound;
   final Map<String, String> originText;
-  final Map<String, String> destinationText; // the destination showed normally
-  final List<TransportStop> stops;
+  /// The destination shown on the route.
+  final Map<String, String> destinationText;
   final String providerCode;
   final String locale;
+  /// GB only: the operating agency's name and operator code (NOC), for
+  /// matching live vehicles.
   final String? agency;
   final String? agencyNoc;
 
@@ -25,31 +26,16 @@ class TransportRoute {
     required this.originText,
     required this.destinationText,
     required this.providerCode,
-    this.stops = const [],
     required this.locale,
     this.agency,
     this.agencyNoc,
   });
 
-  TransportStop get origin => stops.isNotEmpty
-      ? stops.first
-      : TransportStop.placeholder(
-          id: "$providerCode:origin_$routeNumber$bound",
-          name: originNameFor(AppStrings.languageCode),
-          providerCode: providerCode,
-        );
-  TransportStop get destination => stops.isNotEmpty
-      ? stops.last
-      : TransportStop.placeholder(
-          id: "$providerCode:destination_$routeNumber$bound",
-          name: destinationNameFor(AppStrings.languageCode),
-          providerCode: providerCode,
-        );
-
+  /// The route's name in [languageCode], then English, then its number.
   String nameFor(String languageCode) =>
       _localizedValue(names, languageCode) ?? routeNumber;
-  String originNameFor(String languageCode) =>
-      _localizedValue(originText, languageCode) ?? '';
+
+  /// The destination in [languageCode], then English, or empty.
   String destinationNameFor(String languageCode) =>
       _localizedValue(destinationText, languageCode) ?? '';
 
@@ -64,49 +50,7 @@ class TransportRoute {
     return null;
   }
 
-  TransportRoute copyWith({List<TransportStop>? stops}) {
-    return TransportRoute(
-      id: id,
-      names: names,
-      routeNumber: routeNumber,
-      bound: bound,
-      originText: originText,
-      destinationText: destinationText,
-      providerCode: providerCode,
-      stops: stops ?? this.stops,
-      locale: locale,
-      agency: agency,
-      agencyNoc: agencyNoc,
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-    "id": id,
-    "names": names,
-    "routeNumber": routeNumber,
-    "bound": bound,
-    "originText": originText,
-    "destinationText": destinationText,
-    "providerCode": providerCode,
-    "locale": locale,
-    "agency": agency,
-    "agencyNoc": agencyNoc,
-  };
-
-  static TransportRoute fromJson(Map<String, dynamic> json, String locale) =>
-      TransportRoute(
-        id: json["id"],
-        names: Map<String, String>.from(json["names"]),
-        routeNumber: json["routeNumber"],
-        bound: json["bound"],
-        originText: Map<String, String>.from(json["originText"]),
-        destinationText: Map<String, String>.from(json["destinationText"]),
-        providerCode: json["providerCode"],
-        locale: json["locale"],
-        agency: json["agency"],
-        agencyNoc: json["agencyNoc"],
-      );
-
+  /// The first route of each route number, for showing each number once.
   static List<TransportRoute> dedupeByRouteNumber(List<TransportRoute> routes) {
     final byRouteNumber = <String, TransportRoute>{};
     for (final route in routes) {
@@ -115,6 +59,8 @@ class TransportRoute {
     return byRouteNumber.values.toList();
   }
 
+  /// The first route of each route number and destination in [languageCode],
+  /// so each direction is listed once.
   static List<TransportRoute> dedupeByRouteAndDestination(
     List<TransportRoute> routes, {
     String languageCode = 'en',
