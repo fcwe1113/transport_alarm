@@ -51,13 +51,24 @@ class _RoutePillStripState extends State<RoutePillStrip> {
   }
 
   /// Scrolls the strip half a pixel every 30ms, jumping back to the start
-  /// at the end.
-  void _startAutoScroll() {
-    _timer?.cancel();
+  /// at the end, but only while the pills overflow it. A strip that fits
+  /// runs no timer.
+  void _updateAutoScroll() {
+    if (!mounted || !_controller.hasClients) return;
+    if (_controller.position.maxScrollExtent <= 0) {
+      _timer?.cancel();
+      _timer = null;
+      return;
+    }
+    if (_timer?.isActive ?? false) return;
     _timer = Timer.periodic(const Duration(milliseconds: 30), (_) {
       if (!_controller.hasClients) return;
       final max = _controller.position.maxScrollExtent;
-      if (max <= 0) return;
+      if (max <= 0) {
+        _timer?.cancel();
+        _timer = null;
+        return;
+      }
       var next = _controller.offset + 0.5;
       if (next > max) next = 0;
       _controller.jumpTo(next);
@@ -73,7 +84,8 @@ class _RoutePillStripState extends State<RoutePillStrip> {
       final routes = TransportRoute.dedupeByRouteNumber(filtered);
 
       if (routes.isEmpty) return const SizedBox.shrink();
-      WidgetsBinding.instance.addPostFrameCallback((_) => _startAutoScroll());
+      // After layout, once the strip's overflow is known.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _updateAutoScroll());
 
       return SizedBox(height: 28, child: ListView(
         controller: _controller,
