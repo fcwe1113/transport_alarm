@@ -1,6 +1,6 @@
 # Transport Alarm
 
-An app that notifies you about your bus arriving
+An app that notifies you about your mode of transport arriving
 
 ## Getting Started
 
@@ -26,6 +26,10 @@ Currently supported display languages:
 - Spanish (Partial, credit to my friend [Sebastian](https://github.com/Pomalec) for translating for free :3)
 
 As this is an early release, expect bugs and errors. I had tried to weed out all potential crashes but if there's any please report them on the repository
+
+## Donations
+
+This app does have running costs, if you liked the app, please buy me a cup of tea on [kofi](https://ko-fi.com/fcwe1113)
 
 ## License
 This entire project, both client and server side code, is licensed under the GNU Affero General Public License v3.0 — see [LICENSE](LICENSE) for details.
