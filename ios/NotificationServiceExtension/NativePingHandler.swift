@@ -194,7 +194,8 @@ final class NativePingHandler {
     }
 
     /// A threshold that's ringing keeps getting the same visible push every
-    /// minute until its notification action acknowledges it.
+    /// minute until its notification action acknowledges it, it has rung
+    /// maxRingsPerThreshold times, or the next threshold is due.
     private func handleRinging(
         alarms: inout [[String: Any]],
         index: Int,
@@ -202,6 +203,38 @@ final class NativePingHandler {
         pingID: String
     ) async throws -> PingResult {
         let estimate = try await refreshEstimate(alarms: &alarms, index: index, thresholdIndex: thresholdIndex)
+        var thresholdStates = Self.sortedThresholds(of: alarms[index])
+        let ringCount = Self.intValue(thresholdStates[thresholdIndex]["ringCount"]) ?? 0
+        let maxRings = Self.intValue(alarms[index]["maxRingsPerThreshold"]) ?? 10
+        let nextIndex = thresholdStates.indices.first {
+            $0 > thresholdIndex && (thresholdStates[$0]["outcome"] as? String ?? "pending") == "pending"
+        }
+        // Minutes until the next threshold, from this threshold's estimate.
+        let untilNext: Int? = nextIndex.flatMap { next in
+            guard let untilThreshold = estimate.untilThreshold,
+                  let nextMinutes = Self.intValue(thresholdStates[next]["minutesBeforeArrival"]) else { return nil }
+            return untilThreshold + estimate.thresholdMinutes - nextMinutes
+        }
+        let nextDue = untilNext.map { $0 <= 0 } ?? false
+
+        if nextDue || ringCount >= maxRings {
+            // Stop ringing this threshold and decide again, so this ping moves
+            // on to the next threshold (ringing it now if it's due) or ends
+            // the occurrence.
+            thresholdStates[thresholdIndex]["outcome"] = nextDue ? "superseded" : "missed"
+            alarms[index]["thresholdStates"] = thresholdStates
+            if let untilNext {
+                alarms[index]["lastEstimatedMinutesUntilThreshold"] = untilNext
+            } else if nextIndex != nil {
+                alarms[index]["lastEstimatedMinutesUntilThreshold"] = NSNull()
+            }
+            try saveAlarms(alarms)
+            let next = try decide(alarm: alarms[index], now: Date())
+            return try await act(on: next, alarms: &alarms, index: index, pingID: pingID)
+        }
+
+        thresholdStates[thresholdIndex]["ringCount"] = ringCount + 1
+        alarms[index]["thresholdStates"] = thresholdStates
         do {
             try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
             try saveAlarms(alarms)
