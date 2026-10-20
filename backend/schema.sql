@@ -10,7 +10,9 @@ CREATE TABLE IF NOT EXISTS scheduled_pings (
 	require_ack BOOLEAN NOT NULL,
 	expire_on INTEGER,
 	status TEXT NOT NULL DEFAULT 'PENDING',
-	last_sent_at INTEGER
+	last_sent_at INTEGER,
+	-- Resends of a SENT ping the client hasn't rescheduled; reset by /reschedule.
+	fallback_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_pending_pings ON scheduled_pings (status, scheduled_time);
