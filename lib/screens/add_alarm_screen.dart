@@ -89,18 +89,19 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     final db = GtfsDatabase.forLocale(alarm.localeCode);
     final stop = await db.getGtfsStopById(alarm.gtfsStopId);
     if (stop != null) {
-      final routes = TransportRoute.dedupeByRouteAndDestination(
-        await db.getRoutesForGtfsStop(alarm.gtfsStopId),
-        languageCode: AppStrings.languageCode,
-      );
-      final currentLang = await LocaleSelectionService().getAppLanguageCode();
-      final destinationText = alarm.routeNumbers.values.first[currentLang] ?? alarm.routeNumbers.values.first["en"];
-      final selectedRoutes = routes.where((r) => alarm.routeNumbers.keys.contains(r.routeNumber) && destinationText == (r.destinationText[currentLang] ?? r.destinationText["en"])).toSet();
+      final routes = await _routesServing(stop);
+      String? destinationOf(Map<String, String> names) => names[AppStrings.languageCode] ?? names["en"];
+      // Each saved route matches by its own destination, so routes with
+      // different destinations all come back selected.
+      final selectedRoutes = routes.where((r) {
+        final saved = alarm.routeNumbers[r.routeNumber];
+        return saved != null && destinationOf(saved) == destinationOf(r.destinationText);
+      }).toSet();
 
       if (!mounted) return;
       setState(() {
         _selectedStop = stop;
-        _availableRoutes = routes.toSet();
+        _availableRoutes = routes;
         _selectedRoutes = selectedRoutes;
         _searchController?.text = stop.displayNameFor(AppStrings.languageCode);
       });
@@ -131,6 +132,14 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       });
     }
   }
+
+  /// The routes serving [stop], one per route number and destination in the
+  /// app's language.
+  Future<Set<TransportRoute>> _routesServing(GtfsStop stop) async =>
+      TransportRoute.dedupeByRouteAndDestination(
+        await GtfsDatabase.forLocale(stop.locale).getRoutesForGtfsStop(stop.id),
+        languageCode: AppStrings.languageCode,
+      ).toSet();
 
   Future<void> _loadBusStops() async {
     final stopsList = <GtfsStop>[];
@@ -170,11 +179,11 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   Future<void> _openMapPicker() async {
     final picked = await Navigator.push<GtfsStop>(context, MaterialPageRoute(builder: (context) => const MapScreen(pickerMode: true,)));
     if (picked == null) return; // user did not select stop
-    final routeList = Set<TransportRoute>.from(await GtfsDatabase.forLocale(picked.locale).getRoutesForGtfsStop(picked.id));
+    final routeList = await _routesServing(picked);
     if (!mounted) return;
     setState(() {
       _selectedStop = picked;
-      _availableRoutes = TransportRoute.dedupeByRouteAndDestination(routeList.toList()).toSet();
+      _availableRoutes = routeList;
       _selectedRoutes = {};
       _searchController?.text = _selectedStop!.displayNameFor(AppStrings.languageCode);
     });
@@ -539,10 +548,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       },
       onSelected: (GtfsStop selection) async {
         FocusScope.of(context).unfocus();
-        final routeList = TransportRoute.dedupeByRouteAndDestination(
-          await GtfsDatabase.forLocale(selection.locale).getRoutesForGtfsStop(selection.id),
-          languageCode: AppStrings.languageCode,
-        ).toSet();
+        final routeList = await _routesServing(selection);
         if (!mounted) return;
         setState(() {
           _selectedStop = selection;
