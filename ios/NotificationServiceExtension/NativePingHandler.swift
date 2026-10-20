@@ -94,7 +94,10 @@ final class NativePingHandler {
         do {
             var alarms = try loadAlarms()
             let index = alarms.firstIndex { Self.stringValue($0["pingId"]) == pingID }
+            // A ping the app couldn't cancel, from an alarm since turned off,
+            // changed or deleted, still has its secret in the orphan list.
             pingSecret = index.flatMap { alarms[$0]["pingSecret"] as? String }
+                ?? (index == nil ? orphanedPings()[pingID] : nil)
             alarmID = index.flatMap { Self.stringValue(alarms[$0]["id"]) }
             let decision = try decide(alarm: index.map { alarms[$0] }, now: Date())
             let result = try await act(on: decision, alarms: &alarms, index: index, pingID: pingID)
@@ -151,7 +154,10 @@ final class NativePingHandler {
         pingID: String
     ) async throws -> PingResult {
         guard let index else {
-            try? await acknowledge(pingID: pingID)
+            // Acknowledged once, so the server stops resending it.
+            if pingSecret != nil, (try? await acknowledge(pingID: pingID)) != nil {
+                removeOrphanedPing(pingID)
+            }
             return PingResult(title: NativeLocalization.text("native.alarm_no_longer_active.title"), body: NativeLocalization.text("native.alarm_no_longer_active.body"))
         }
         switch decision {
@@ -486,6 +492,25 @@ final class NativePingHandler {
     private func saveAlarms(_ alarms: [[String: Any]]) throws {
         let data = try JSONSerialization.data(withJSONObject: alarms, options: [.sortedKeys])
         try data.write(to: alarmsFile, options: [.atomic])
+    }
+
+    /// Pings the app couldn't cancel, as ping ID to secret (written by the
+    /// app's OrphanedPingStore).
+    private var orphanedPingsFile: URL {
+        appGroupDirectory.appendingPathComponent("orphaned_pings.json")
+    }
+
+    private func orphanedPings() -> [String: String] {
+        guard let data = try? Data(contentsOf: orphanedPingsFile),
+              let pings = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return [:] }
+        return pings
+    }
+
+    private func removeOrphanedPing(_ pingID: String) {
+        var pings = orphanedPings()
+        guard pings.removeValue(forKey: pingID) != nil,
+              let data = try? JSONSerialization.data(withJSONObject: pings) else { return }
+        try? data.write(to: orphanedPingsFile, options: [.atomic])
     }
 
     /// Reads the repeat mode, treating a missing repeat configuration as one-shot.

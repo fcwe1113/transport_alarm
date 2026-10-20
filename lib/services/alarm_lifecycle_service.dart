@@ -7,6 +7,7 @@ import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/device_token_service.dart';
+import 'package:transport_alarm/services/orphaned_ping_store.dart';
 import 'package:transport_alarm/services/ping_watchdog_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
@@ -55,6 +56,7 @@ class AlarmLifecycleService {
   /// chain of pings stopped). The alarm's progress is kept, so the
   /// notification extension carries on from where it stopped.
   Future<void> resyncPings(String deviceToken) async {
+    await _cancelOrphanedPings();
     final alarms = await _storage.loadAlarms();
     for (final alarm in alarms.where((a) => a.enabled)) {
       try {
@@ -86,7 +88,7 @@ class AlarmLifecycleService {
       if (existing == null) {
         await _storage.addAlarm(alarm);
       } else {
-        await _cancelPingIfAny(existing.pingId);
+        await _cancelPingIfAny(existing);
         await _storage.updateAlarm(alarm);
       }
       await AndroidAlarmCoordinator(_storage).startOrSchedule(alarm);
@@ -119,7 +121,7 @@ class AlarmLifecycleService {
       } else {
         // Cancel while the old ping is still saved: cancelPing reads its
         // secret from storage.
-        if (existing.pingId != scheduled.pingId) await _cancelPingIfAny(existing.pingId);
+        if (existing.pingId != scheduled.pingId) await _cancelPingIfAny(existing);
         await _storage.updateAlarm(scheduled);
       }
       return const AlarmActionResult.success();
@@ -155,7 +157,7 @@ class AlarmLifecycleService {
       return const AlarmActionResult.success();
     }
 
-    await _cancelPingIfAny(alarm.pingId);
+    await _cancelPingIfAny(alarm);
     await _storage.updateAlarm(reenabled);
     try {
       await AndroidAlarmCoordinator(_storage).startOrSchedule(reenabled);
@@ -172,7 +174,7 @@ class AlarmLifecycleService {
     if (Platform.isAndroid) {
       await AndroidAlarmCoordinator(_storage).disable(alarm.id);
     }
-    await _cancelPingIfAny(alarm.pingId);
+    await _cancelPingIfAny(alarm);
     await PingWatchdogService.disarm(alarm.id);
     await _storage.updateAlarm(
       alarm.copyWith(
@@ -190,21 +192,37 @@ class AlarmLifecycleService {
     if (Platform.isAndroid) {
       await AndroidAlarmCoordinator(_storage).disable(alarmId);
     }
-    await _cancelPingIfAny(alarm?.pingId);
+    await _cancelPingIfAny(alarm);
     await PingWatchdogService.disarm(alarmId);
     await _storage.deleteAlarm(alarmId);
   }
 
-  /// Asks the server to drop [pingId], if there is one. A failure, such as
-  /// being offline, doesn't stop the change: when that ping still arrives,
-  /// the notification extension finds its alarm off, changed or gone, and
-  /// acknowledges it, and Android alarms don't use server pings at all.
-  Future<void> _cancelPingIfAny(String? pingId) async {
-    if (pingId == null) return;
+  /// Asks the server to drop [alarm]'s ping, if it has one. A failure, such
+  /// as being offline, doesn't stop the change: the ping is kept in
+  /// [OrphanedPingStore], so the notification extension acknowledges it
+  /// when it arrives and [resyncPings] retries the cancel. Android alarms
+  /// don't use server pings at all.
+  Future<void> _cancelPingIfAny(TransportAlarm? alarm) async {
+    final pingId = alarm?.pingId;
+    final secret = alarm?.pingSecret;
+    if (pingId == null || secret == null) return;
     try {
-      await _server.cancelPing(pingId);
+      await _server.cancelPing(pingId: pingId, secret: secret);
     } catch (e) {
       debugPrint("Could not cancel server ping $pingId: $e");
+      if (Platform.isIOS) await OrphanedPingStore.add(pingId, secret);
+    }
+  }
+
+  /// Retries cancelling the pings [_cancelPingIfAny] couldn't.
+  Future<void> _cancelOrphanedPings() async {
+    for (final MapEntry(key: pingId, value: secret) in (await OrphanedPingStore.load()).entries) {
+      try {
+        await _server.cancelPing(pingId: pingId, secret: secret);
+        await OrphanedPingStore.remove(pingId);
+      } catch (_) {
+        // Still offline; tried again on the next launch or resume.
+      }
     }
   }
 

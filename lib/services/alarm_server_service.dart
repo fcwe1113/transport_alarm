@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:transport_alarm/services/alarm_storage_service.dart';
 
 /// The app's calls to the Cloudflare Worker that sends iOS alarm pings. The
 /// notification extension and AppDelegate reschedule and acknowledge pings
@@ -42,10 +41,13 @@ class AlarmServerService {
     return true;
   }
 
-  Future<void> cancelPing(String pingId) async {
-    final secret = await _secretFor(pingId);
-    if (secret == null) return; // not ours to cancel; it expires on its own
-    await _post("ack", {"ping_id": pingId, "ping_secret": secret});
+  /// Removes a ping from the server. A ping that's already gone counts as
+  /// removed; other failures throw.
+  Future<void> cancelPing({required String pingId, required String secret}) async {
+    final response = await _post("ack", {"ping_id": pingId, "ping_secret": secret});
+    if (response.statusCode != 200 && response.statusCode != 404) {
+      throw Exception("ack failed with HTTP ${response.statusCode}");
+    }
   }
 
   /// Throws a TimeoutException after [_timeout].
@@ -62,10 +64,4 @@ class AlarmServerService {
     return seconds < 0 ? 0 : seconds;
   }
 
-  /// The secret saved with the alarm that owns [pingId], so callers only
-  /// need the ID.
-  Future<String?> _secretFor(String pingId) async {
-    final alarms = await AlarmStorageService().loadAlarms();
-    return alarms.where((alarm) => alarm.pingId == pingId).firstOrNull?.pingSecret;
-  }
 }
