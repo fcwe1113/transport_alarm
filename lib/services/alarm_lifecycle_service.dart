@@ -263,7 +263,6 @@ class AlarmLifecycleService {
     }
     return now.add(const Duration(seconds: 10));
   }
-
 }
 
 /// Whether an alarm change worked, with the error to show if not.
