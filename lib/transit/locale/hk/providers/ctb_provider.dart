@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:ui';
 
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
@@ -17,17 +16,17 @@ import '../../../refresh_result.dart';
 
 // todo fix double routes present in both providers
 // todo fix stop names
-// query for all reused routenum
-// SELECT t.route_number
-// from operator_routes t
-// GROUP by route_number
-// HAVING COUNT(*) > 1
 
+/// Citybus, through DATA.GOV.HK. It has no all-stops endpoint, so a refresh
+/// collects stop IDs from each route's stop list and fetches each stop's
+/// details.
 class CtbProvider extends TransitProvider {
   final ApiCaller _apiCaller;
+  static const _baseUrl = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb';
   static const _routesEndpointName = "route";
-  static const _routesUrl =
-      'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/CTB';
+  static const _routesUrl = '$_baseUrl/route/CTB';
+
+  GtfsDatabase get _db => GtfsDatabase.forLocale("hk");
 
   CtbProvider(this._apiCaller);
 
@@ -73,8 +72,7 @@ class CtbProvider extends TransitProvider {
   }
 
   Future<List<TransportRoute>> _fetchRoutes({bool forceRefresh = false}) async {
-    final cachedRoutes = await GtfsDatabase.forLocale("hk")
-        .getOperatorRoutes(providerCode);
+    final cachedRoutes = await _db.getOperatorRoutes(providerCode);
     final routes = await _apiCaller.call(
       providerCode: providerCode,
       endpointName: _routesEndpointName,
@@ -90,7 +88,7 @@ class CtbProvider extends TransitProvider {
     bool forceRefresh = false,
     ProgressCallback? onProgress,
   }) async {
-    final db = GtfsDatabase.forLocale("hk");
+    final db = _db;
     onProgress?.call(
       AppStrings.text('transit.provider_fetch_routes', {
         'providerName': providerName,
@@ -100,8 +98,7 @@ class CtbProvider extends TransitProvider {
     final routes = await _fetchRoutes(forceRefresh: forceRefresh);
     await db.upsertOperatorRoutes(routes);
 
-    // ctb has no central all stops api so we need to compile
-    // the stops list from the route-stop api
+    // No all-stops endpoint: compile the stop list from each route's stops.
     final routeStopItems = <BatchCallItem<TransportRoute, List<String>>>[];
     for (final route in routes) {
       final direction = route.bound == "O" ? "outbound" : "inbound";
@@ -109,8 +106,7 @@ class CtbProvider extends TransitProvider {
         BatchCallItem<TransportRoute, List<String>>(
           key: route,
           endpointName: "route_stop_${route.routeNumber}_${route.bound}",
-          url:
-              'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route-stop/CTB/${route.routeNumber}/$direction',
+          url: '$_baseUrl/route-stop/CTB/${route.routeNumber}/$direction',
           parseRaw: _parseRouteStopIdsRaw,
           forceRefresh: !await db.hasRouteStops(route.id),
         ),
@@ -162,8 +158,7 @@ class CtbProvider extends TransitProvider {
         BatchCallItem<String, TransportStop>(
           key: rawStopId,
           endpointName: "stop_$rawStopId",
-          url:
-              'https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/$rawStopId',
+          url: '$_baseUrl/stop/$rawStopId',
           parseRaw: ((rawJson) => _parseStopDetailRaw(rawJson, rawStopId)),
           forceRefresh: !await db.hasOperatorStop('$providerCode:$rawStopId'),
         ),
@@ -209,7 +204,7 @@ class CtbProvider extends TransitProvider {
     if (await StalenessTracker().isStale('hk', providerCode)) return true;
 
     // Also stale if a refresh left data missing, whatever its age.
-    final db = GtfsDatabase.forLocale('hk');
+    final db = _db;
     final routes = await db.getOperatorRoutes(providerCode);
     if (routes.isEmpty ||
         !await db.hasOperatorStops(providerCode) ||
@@ -225,14 +220,13 @@ class CtbProvider extends TransitProvider {
   @override
   Future<List<LiveEta>> fetchLiveEta(String rawStopId) async {
     final operatorStopId = "$providerCode:$rawStopId";
-    final routeNumbers = await GtfsDatabase.forLocale("hk")
-        .getRouteNumbersForOperatorStop(operatorStopId);
+    final routeNumbers = await _db.getRouteNumbersForOperatorStop(operatorStopId);
     final allEtas = <LiveEta>[];
     for (final routeNumber in routeNumbers) {
       try {
         allEtas.addAll(await fetchLiveEtaForRoute(rawStopId, routeNumber));
       } catch (_) {
-        // do nothing
+        // One route failing still leaves the others' arrivals.
       }
     }
 
@@ -244,11 +238,10 @@ class CtbProvider extends TransitProvider {
     String rawStopId,
     String routeNumber,
   ) async {
-    final url =
-        'https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/CTB/$rawStopId/$routeNumber';
-    final response = await ApiCaller.get(Uri.parse(url));
-    if (response.statusCode != 200)
+    final response = await ApiCaller.get(Uri.parse('$_baseUrl/eta/CTB/$rawStopId/$routeNumber'));
+    if (response.statusCode != 200) {
       throw Exception("Live ETA fetch failed: ${response.statusCode}");
+    }
 
     final decoded = jsonDecode(response.body);
     final data = decoded["data"] as List;
