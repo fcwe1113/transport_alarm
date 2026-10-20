@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
+
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/models/scheduled_departure.dart';
@@ -49,7 +51,7 @@ class GtfsDatabase {
     }
     late final File databaseFile;
     if (_explicitDatabasePath != null) {
-      databaseFile = File(_explicitDatabasePath!);
+      databaseFile = File(_explicitDatabasePath);
       await databaseFile.parent.create(recursive: true);
     } else {
       final dir = Directory('${(await AppGroupStorage.directory).path}/gtfs');
@@ -266,9 +268,6 @@ class GtfsDatabase {
           await db.execute(
             "ALTER TABLE gtfs_routes ADD COLUMN agency_id TEXT NOT NULL DEFAULT ''",
           );
-          // await db.execute(
-          //   "ALTER TABLE gtfs_routes ADD COLUMN agency_name TEXT NOT NULL DEFAULT ''",
-          // );
         }
       },
     );
@@ -382,9 +381,6 @@ class GtfsDatabase {
       agency_noc TEXT
     )''');
   }
-
-  // String _val(List<dynamic> row, int index) =>
-  //     row.length > index ? row[index].toString() : "";
 
   /// Inserts [rows] (values in [columns] order) with as few statements as
   /// possible: many rows per INSERT, within SQLite's 999 bound-parameter limit
@@ -768,8 +764,8 @@ class GtfsDatabase {
       processedTrips++;
       if (processedTrips % 500 == 0) {
         await batch.commit(noResult: true);
-        batch = db.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
-        // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
+        // A fresh batch every 500 trips keeps memory down and each commit fast.
+        batch = db.batch();
       }
     }
     await batch.commit(noResult: true);
@@ -837,7 +833,7 @@ class GtfsDatabase {
           }
         }
         ambiguousMatches.add(
-          "${opStopId} (name matched ${nameCandidates.length} GTFS stops, picked nearest)",
+          "$opStopId (name matched ${nameCandidates.length} GTFS stops, picked nearest)",
         );
       } else {
         bestGtfsId = null;
@@ -864,18 +860,17 @@ class GtfsDatabase {
         "gtfs_stop_id": bestGtfsId,
         "match_confidence": bestDistance,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-      // print("linked provider stop id ${opStopId} to gtfs stop id ${bestGtfsId}");
     }
 
     await batch.commit(noResult: true);
 
     if (ambiguousMatches.isNotEmpty) {
-      print(
-        "${ambiguousMatches.length} operator stops matched ambigiously (top 2 candidates within 20m): ${ambiguousMatches.join(", ")}",
+      debugPrint(
+        "${ambiguousMatches.length} operator stops matched several GTFS stops by name: ${ambiguousMatches.join(", ")}",
       );
     }
     if (noMatches.isNotEmpty) {
-      print(
+      debugPrint(
         "${noMatches.length} matched by proximity only (no name match found): ${noMatches.join(", ")}",
       );
     }
@@ -1385,194 +1380,6 @@ class GtfsDatabase {
       [operatorStopId],
     );
     return rows.map((row) => row["route_number"] as String).toList();
-  }
-
-  /// Drops schedule records that became unrelated after area filtering.
-  Future<void> removeUnreferencedGtfsRows() async {
-    final db = await database;
-    await db.transaction((txn) async {
-      await txn.execute('''
-        DELETE FROM gtfs_trips
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gtfs_stop_times st WHERE st.trip_id = gtfs_trips.trip_id
-        )
-      ''');
-      await txn.execute('''
-        DELETE FROM gtfs_routes
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gtfs_trips t WHERE t.route_id = gtfs_routes.route_id
-        )
-      ''');
-      await txn.execute('''
-        DELETE FROM gtfs_calendar
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gtfs_trips t WHERE t.service_id = gtfs_calendar.service_id
-        )
-      ''');
-      await txn.execute('''
-        DELETE FROM gtfs_calendar_dates
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gtfs_trips t
-          WHERE t.service_id = gtfs_calendar_dates.service_id
-        )
-      ''');
-    });
-  }
-
-  /// Removes UK feed records that are outside the selected ATCO areas and
-  /// creates the operator-facing records consumed by the app's existing UI.
-  Future<void> materializeGbOperatorData() async {
-    final db = await database;
-    await db.transaction((txn) async {
-      final stops = await txn.query('gtfs_stops');
-      var stopBatch = txn.batch();
-      var processedStops = 0;
-      for (final stop in stops) {
-        final stopId = stop['stop_id'] as String;
-        final operatorStopId = 'uk:$stopId';
-        stopBatch.insert('operator_stops', {
-          'operator_stop_id': operatorStopId,
-          'provider_code': 'uk',
-          'names': jsonEncode({'en': stop['stop_name'] ?? stopId}),
-          'lat': stop['stop_lat'],
-          'lng': stop['stop_lon'],
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-        stopBatch.insert('stop_mapping', {
-          'operator_stop_id': operatorStopId,
-          'gtfs_stop_id': stopId,
-          'match_confidence': 1.0,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-        processedStops++;
-        if (processedStops % 500 == 0) {
-          await stopBatch.commit(noResult: true);
-          stopBatch = txn.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
-          // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
-        }
-      }
-      await stopBatch.commit(noResult: true);
-
-      final routeDirections = await txn.rawQuery('''
-        SELECT DISTINCT t.route_id, COALESCE(t.direction_id, 0) AS direction_id,
-               r.route_short_name, r.route_long_name, t.trip_headsign
-        FROM gtfs_trips t
-        INNER JOIN gtfs_routes r ON r.route_id = t.route_id
-        INNER JOIN gtfs_stop_times st ON st.trip_id = t.trip_id
-        ORDER BY t.route_id, direction_id
-      ''');
-      for (final routeDirection in routeDirections) {
-        final routeId = routeDirection['route_id'] as String;
-        final directionId = routeDirection['direction_id'] as int? ?? 0;
-        final operatorRouteId = 'uk:$routeId:$directionId';
-        final tripRows = await txn.query(
-          'gtfs_trips',
-          columns: ['trip_id'],
-          where: 'route_id = ? AND COALESCE(direction_id, 0) = ?',
-          whereArgs: [routeId, directionId],
-          limit: 1,
-        );
-        if (tripRows.isEmpty) continue;
-        final times = await txn.query(
-          'gtfs_stop_times',
-          where: 'trip_id = ?',
-          whereArgs: [tripRows.first['trip_id']],
-          orderBy: 'stop_sequence ASC',
-        );
-        if (times.isEmpty) continue;
-        final routeNumber =
-            (routeDirection['route_short_name'] as String?)
-                    ?.trim()
-                    .isNotEmpty ==
-                true
-            ? (routeDirection['route_short_name'] as String).trim()
-            : ((routeDirection['route_long_name'] as String?)
-                          ?.trim()
-                          .isNotEmpty ==
-                      true
-                  ? (routeDirection['route_long_name'] as String).trim()
-                  : routeId);
-        final originRow = await txn.query(
-          'gtfs_stops',
-          columns: ['stop_name'],
-          where: 'stop_id = ?',
-          whereArgs: [times.first['stop_id']],
-          limit: 1,
-        );
-        final destinationRow = await txn.query(
-          'gtfs_stops',
-          columns: ['stop_name'],
-          where: 'stop_id = ?',
-          whereArgs: [times.last['stop_id']],
-          limit: 1,
-        );
-        final origin = originRow.isEmpty
-            ? ''
-            : '${originRow.first['stop_name'] ?? ''}';
-        final fallbackDestination = destinationRow.isEmpty
-            ? ''
-            : '${destinationRow.first['stop_name'] ?? ''}';
-        final headsign =
-            (routeDirection['trip_headsign'] as String?)?.trim() ?? '';
-        final destination = headsign.isNotEmpty
-            ? headsign
-            : fallbackDestination;
-        await txn.insert('operator_routes', {
-          'operator_route_id': operatorRouteId,
-          'provider_code': 'uk',
-          'route_number': routeNumber,
-          'bound': '$directionId',
-          'names': jsonEncode({'en': routeNumber}),
-          'origin_text': jsonEncode({'en': origin}),
-          'destination_text': jsonEncode({'en': destination}),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-        var routeStopBatch = txn.batch();
-        var sequence = 0;
-        var processedRouteStops = 0;
-        for (final time in times) {
-          final stopId = time['stop_id'] as String;
-          routeStopBatch.insert('route_stops', {
-            'operator_route_id': operatorRouteId,
-            'operator_stop_id': 'uk:$stopId',
-            'stop_sequence': sequence++,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-          processedRouteStops++;
-          if (processedRouteStops % 500 == 0) {
-            await routeStopBatch.commit(noResult: true);
-            routeStopBatch = txn.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
-            // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
-          }
-        }
-        await routeStopBatch.commit(noResult: true);
-      }
-    });
-  }
-
-  Future<void> clearAllTables() async {
-    final db = await database;
-    await db.transaction(((txn) async {
-      await txn.delete("gtfs_routes");
-      await txn.delete("gtfs_trips");
-      await txn.delete("gtfs_calendar");
-      await txn.delete("gtfs_stop_times");
-    }));
-  }
-
-  Future<void> resetDatabase() async {
-    if (_databases.containsKey(locale) && _databases[locale]!.isOpen) {
-      await _databases[locale]!.close();
-    }
-    _databases.remove(locale);
-    _routesForStopCache.clear();
-    final dir = await AppGroupStorage.directory;
-    final file = File("${dir.path}/gtfs/$locale.db");
-    if (await file.exists()) {
-      await file.delete();
-    }
-    final legacyFile = File('${dir.path}/gtfs/gtfs/$locale.db');
-    if (await legacyFile.exists()) {
-      await legacyFile.delete();
-    }
   }
 
   int _timeToSeconds(String hhmmss) {
