@@ -80,7 +80,8 @@ final class NativePingHandler {
 
     /// Processes one server ping. A visible push is the ring itself; the same
     /// server ping ID is rescheduled until the user acknowledges the threshold.
-    func handle(pingID: String) async -> PingResult { // todo track the second when ping comes in and decide all schedules to "5-30 sec before the second"
+    func handle(pingID: String) async -> PingResult {
+        PingTiming.recordArrival(at: Date())
         do {
             var alarms = try loadAlarms()
             let index = alarms.firstIndex { Self.stringValue($0["pingId"]) == pingID }
@@ -236,7 +237,7 @@ final class NativePingHandler {
         thresholdStates[thresholdIndex]["ringCount"] = ringCount + 1
         alarms[index]["thresholdStates"] = thresholdStates
         do {
-            try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
+            try await reschedule(pingID: pingID, at: Self.ringTime(Date().addingTimeInterval(60)), requireAck: true)
             try saveAlarms(alarms)
             return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
         } catch {
@@ -278,7 +279,7 @@ final class NativePingHandler {
         if estimateUntilThreshold > 0 {
             try await reschedule(
                 pingID: pingID,
-                at: Date().addingTimeInterval(TimeInterval(estimateUntilThreshold * 60)),
+                at: Self.ringTime(Date().addingTimeInterval(TimeInterval(estimateUntilThreshold * 60))),
                 requireAck: true
             )
             try saveAlarms(alarms)
@@ -292,7 +293,7 @@ final class NativePingHandler {
         alarms[index]["thresholdStates"] = thresholdStates
         try? saveAlarms(alarms)
         do {
-            try await reschedule(pingID: pingID, at: Date().addingTimeInterval(60), requireAck: true)
+            try await reschedule(pingID: pingID, at: Self.ringTime(Date().addingTimeInterval(60)), requireAck: true)
             return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
         } catch {
             return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
@@ -736,6 +737,12 @@ final class NativePingHandler {
         formatter.timeZone = NativeTransitLocales.deviceTimeZone
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
+    }
+
+    /// When to schedule a ping that should ring at [target], so it arrives
+    /// a few seconds before it rather than up to a minute after.
+    private static func ringTime(_ target: Date) -> Date {
+        Date().addingTimeInterval(PingTiming.delay(toArriveBy: target))
     }
 
     /// Asks the server to deliver this ping again at the supplied Unix time.
