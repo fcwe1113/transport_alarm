@@ -27,7 +27,7 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     void push(Widget page) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
 
-    // An entry with no onTap isn't built yet.
+    // An entry with no onTap isn't built yet, and stays hidden until it is.
     final options = <({IconData icon, String title, String? subtitle, VoidCallback? onTap})>[
       (icon: Icons.language, title: 'settings.app_language', subtitle: 'settings.app_language.subtitle',
         onTap: () => push(const AppLanguageSettingsScreen())),
@@ -49,13 +49,13 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
           for (final option in options)
-            ListTile(
-              leading: Icon(option.icon),
-              title: Text(AppStrings.text(option.title)),
-              subtitle: option.subtitle == null ? null : Text(AppStrings.text(option.subtitle!)),
-              // Kept tappable so unbuilt entries look the same as before.
-              onTap: option.onTap ?? () {},
-            ),
+            if (option.onTap case final onTap?)
+              ListTile(
+                leading: Icon(option.icon),
+                title: Text(AppStrings.text(option.title)),
+                subtitle: option.subtitle == null ? null : Text(AppStrings.text(option.subtitle!)),
+                onTap: onTap,
+              ),
         ],
       ),
     );
