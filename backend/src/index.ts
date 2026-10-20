@@ -92,6 +92,13 @@ function resolveScheduledTime(body: { delay_seconds?: unknown; scheduled_time?: 
 	return time > now + MAX_SCHEDULE_AHEAD_SECONDS ? null : time;
 }
 
+/** The row's expiry: the client's, if it's a number, but never later than
+ * DEFAULT_EXPIRY_SECONDS past [scheduledTime], so no ping lives forever. */
+function resolveExpiry(expireOn: unknown, scheduledTime: number): number {
+	const latest = scheduledTime + DEFAULT_EXPIRY_SECONDS;
+	return typeof expireOn === "number" && Number.isFinite(expireOn) ? Math.min(Math.floor(expireOn), latest) : latest;
+}
+
 /** Checks the client owns [pingId]: a Response to return if not, or null. */
 async function rejectUnlessOwner(env: Env, pingId: unknown, secret: unknown): Promise<Response | null> {
 	if (typeof pingId !== "string" || typeof secret !== "string" || !pingId || !secret) {
@@ -128,7 +135,7 @@ export default {
 				const secret = randomSecret();
 				await env.DB.prepare(
 					"INSERT INTO scheduled_pings (id, secret_hash, device_token, scheduled_time, require_ack, expire_on) VALUES (?, ?, ?, ?, ?, ?)"
-				).bind(pingId, await sha256Hex(secret), body.device_token, scheduledTime, body.require_ack ? 1 : 0, body.expire_on ?? scheduledTime + DEFAULT_EXPIRY_SECONDS).run();
+				).bind(pingId, await sha256Hex(secret), body.device_token, scheduledTime, body.require_ack ? 1 : 0, resolveExpiry(body.expire_on, scheduledTime)).run();
 
 				return json({ success: true, ping_id: pingId, ping_secret: secret });
 			} catch (err) {
@@ -149,7 +156,7 @@ export default {
 
     				const info = await env.DB.prepare(
     					"UPDATE scheduled_pings SET scheduled_time = ?, require_ack = ?, expire_on = ?, status = 'PENDING', last_sent_at = NULL, fallback_count = 0 WHERE id = ?"
-    				).bind(scheduledTime, body.require_ack ? 1 : 0, body.expire_on ?? scheduledTime + DEFAULT_EXPIRY_SECONDS, body.ping_id).run();
+    				).bind(scheduledTime, body.require_ack ? 1 : 0, resolveExpiry(body.expire_on, scheduledTime), body.ping_id).run();
 
 					if (info.meta.changes === 0) {
 						return new Response(JSON.stringify({ error: "ping_id not found" }), { status: 404 });
@@ -199,8 +206,10 @@ export default {
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
 		const now = Math.floor(Date.now() / 1000);
 
-		// Expired rows no longer represent an active client schedule.
-		await env.DB.prepare("DELETE FROM scheduled_pings WHERE expire_on IS NOT NULL AND expire_on <= ?").bind(now).run();
+		// Expired rows no longer represent an active client schedule. Rows saved
+		// before expiries were enforced may have none; they get the default.
+		await env.DB.prepare("DELETE FROM scheduled_pings WHERE COALESCE(expire_on, scheduled_time + ?) <= ?")
+			.bind(DEFAULT_EXPIRY_SECONDS, now).run();
 
 		// A client reschedule returns the row to PENDING. A SENT row the client
 		// hasn't rescheduled is sent again after FALLBACK_AFTER_SECONDS, up to
