@@ -256,16 +256,21 @@ class CtbProvider extends TransitProvider {
     }
 
     final decoded = jsonDecode(response.body);
-    final data = decoded["data"] as List;
+    final data = decoded is Map<String, dynamic> && decoded["data"] is List
+        ? decoded["data"] as List
+        : throw const FormatException("Citybus ETA response has no data list.");
 
-    return data.map((entry) {
-      final etaString = entry["eta"] as String?;
+    // An entry with missing fields or an empty "eta" (no prediction) is read
+    // as far as it goes, rather than failing the route's other arrivals.
+    String text(Object? value) => value?.toString() ?? "";
+    return data.whereType<Map<String, dynamic>>().map((entry) {
+      final etaString = entry["eta"]?.toString();
       return LiveEta(
-        routeNumber: entry["route"] as String,
-        bound: (entry["dir"] as String?) ?? "",
-        destination: {"en": entry["dest_en"] as String, "zh-Hant": entry["dest_tc"] as String, "zh-Hans": entry["dest_sc"] as String},
-        etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
-        remark: entry["rmk_en"] as String?,
+        routeNumber: entry["route"]?.toString() ?? routeNumber,
+        bound: text(entry["dir"]),
+        destination: {"en": text(entry["dest_en"]), "zh-Hant": text(entry["dest_tc"]), "zh-Hans": text(entry["dest_sc"])},
+        etaTime: etaString == null || etaString.isEmpty ? null : DateTime.tryParse(etaString)?.toUtc(),
+        remark: entry["rmk_en"]?.toString(),
       );
     }).toList();
   }
