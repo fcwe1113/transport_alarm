@@ -37,8 +37,14 @@ class _SetupLanguageScreenState extends State<SetupLanguageScreen> {
       _selectedCode = code;
       _applying = true;
     });
-    await applyAppLanguage(code);
-    if (mounted) setState(() => _applying = false);
+    try {
+      await applyAppLanguage(code);
+    } catch (e) {
+      // The previous language stays; the check button comes back either way.
+      debugPrint("Could not apply app language $code: $e");
+    } finally {
+      if (mounted) setState(() => _applying = false);
+    }
   }
 
   @override
