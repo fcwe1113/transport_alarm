@@ -78,7 +78,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
 
   Future<void> _prefillExistingAlarmData(TransportAlarm alarm) async {
     _thresholdController.text = alarm.thresholdStates.map((t) => t.minutesBeforeArrival.toString()).join(",");
-    _attemptsController.text = alarm.thresholdStates.first.ringCount.toString();
+    _attemptsController.text = alarm.maxRingsPerThreshold.toString();
     _messageController.text = alarm.message;
 
     _leftTime = alarm.windowStart;
@@ -257,7 +257,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     }
 
     final alarmThresholds = _thresholdController.text.split(",").map((t) => int.tryParse(t.trim())).whereType<int>().map(
-            (m) => ThresholdState(minutesBeforeArrival: m, ringCount: int.tryParse(_attemptsController.text) ?? 10)
+            (m) => ThresholdState(minutesBeforeArrival: m)
     ).toList()
       ..sort((a, b) => b.minutesBeforeArrival.compareTo(a.minutesBeforeArrival));
 
@@ -302,6 +302,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         windowStart: _leftTime,
         windowEnd: _rightTime,
         thresholdStates: alarmThresholds,
+        maxRingsPerThreshold: int.tryParse(_attemptsController.text) ?? 10,
         repeat: RepeatPattern(
             frequency: _repeatPattern.frequency,
             weekdays: _repeatPattern.frequency == RepeatFrequency.weekly ? _selectedWeekdays.toList() : null,
