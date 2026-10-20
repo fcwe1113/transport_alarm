@@ -11,11 +11,11 @@ import 'package:transport_alarm/screens/setup_screen.dart';
 import 'package:transport_alarm/screens/settings_screen.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/l10n/app_language_state.dart';
+import 'package:transport_alarm/l10n/app_languages.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
-import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/locale/gb/providers/gb_bods_provider.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
@@ -26,11 +26,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 Future<void> main() async {
-  // dart entry point
-
   WidgetsFlutterBinding.ensureInitialized();
   await GbBodsProvider.loadApiKey();
-  await AppGroupStorage.migrateLegacyDocuments();
   // Clear scratch files from a sync that was killed last run. No sync can be
   // running yet, and it isn't awaited so startup isn't held up.
   unawaited(TempFileCleaner.sweep());
@@ -39,73 +36,56 @@ Future<void> main() async {
   await AppStrings.load(appLanguageCode);
   appLanguageCodeNotifier.value = appLanguageCode;
   if (defaultTargetPlatform == TargetPlatform.iOS) {
-    await AppGroupStorage.setAppLanguageCode(appLanguageCode);
-    final String jsonString = await rootBundle.loadString(
-      "config/secrets.json",
-    );
-    final Map<String, dynamic> secrets = jsonDecode(jsonString);
-    final String apiKey = secrets["MAPS_API_KEY"];
-    if (apiKey.isNotEmpty) {
-      const channel = MethodChannel("com.fcwe1113.transport_alarm/google_maps");
-      try {
-        await channel.invokeMethod("setApiKey", {"apiKey": apiKey});
-      } on PlatformException catch (e) {
-        debugPrint("Failed to pass Google Maps API key to iOS: ${e.message}");
-      }
-    }
-
-    String? apnsToken = await ApnsTokenService.instance.getToken();
-    var attempts = 0;
-    while (apnsToken == null && attempts < 5) {
-      await Future.delayed(const Duration(seconds: 1));
-      apnsToken = await ApnsTokenService.instance.getToken();
-      attempts++;
-    }
-    print("APNS DEVICE TOKEN: ${apnsToken}");
-    AlarmLifecycleService.startIosPingResync();
+    await _initIos(appLanguageCode);
   } else if (defaultTargetPlatform == TargetPlatform.android) {
-    await AndroidAlarmManager.initialize();
-    await NotificationService.init();
-    // Android drops pending alarms on a force stop or app update.
-    unawaited(AndroidAlarmCoordinator(AlarmStorageService()).resumeAll());
+    await _initAndroid();
   }
 
-  final setupDone = await selectionService
-      .hasCompletedSetup(); // check if user did setup before
+  final setupDone = await selectionService.hasCompletedSetup();
+  runApp(MyApp(initialRoute: setupDone ? "/" : "/setup-language"));
+}
 
-  runApp(
-    MyApp(initialRoute: setupDone ? "/" : "/setup-language"),
-  ); // app entry point, working with flutter from this point on
+/// Shares the app language with the extensions, hands Google Maps its key,
+/// and starts keeping server pings on this device's push token. The token
+/// may arrive after launch; the resync picks it up when it does.
+Future<void> _initIos(String appLanguageCode) async {
+  await AppGroupStorage.setAppLanguageCode(appLanguageCode);
+  final secrets = jsonDecode(await rootBundle.loadString("config/secrets.json")) as Map<String, dynamic>;
+  final apiKey = secrets["MAPS_API_KEY"] as String? ?? "";
+  if (apiKey.isNotEmpty) {
+    const channel = MethodChannel("com.fcwe1113.transport_alarm/google_maps");
+    try {
+      await channel.invokeMethod("setApiKey", {"apiKey": apiKey});
+    } on PlatformException catch (e) {
+      debugPrint("Failed to pass Google Maps API key to iOS: ${e.message}");
+    }
+  }
+  AlarmLifecycleService.startIosPingResync();
+}
+
+/// Sets up local alarms and notifications, and re-arms alarms, which
+/// Android drops on a force stop or app update.
+Future<void> _initAndroid() async {
+  await AndroidAlarmManager.initialize();
+  await NotificationService.init();
+  unawaited(AndroidAlarmCoordinator(AlarmStorageService()).resumeAll());
 }
 
 class MyApp extends StatelessWidget {
-  // statelesswidget only has constant internal data
   final String initialRoute;
-  final String? appLanguageCode;
-  const MyApp({super.key, required this.initialRoute, this.appLanguageCode});
+  const MyApp({super.key, required this.initialRoute});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
+    // Rebuilt with the new locale whenever the app language changes.
     return ValueListenableBuilder<String>(
       valueListenable: appLanguageCodeNotifier,
       builder: (context, languageCode, _) => MaterialApp(
         navigatorKey: appNavigatorKey,
         title: AppStrings.text('app.title'),
         locale: localeForAppLanguage(languageCode),
-        supportedLocales: const [
-          Locale('en'),
-          Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
-          Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
-          Locale('ja'),
-          Locale('fr'),
-          Locale('es'),
-          Locale('de'),
-          Locale('nl'),
-          Locale('it'),
-          Locale('pl'),
-          Locale('ko'),
-          Locale('uk'),
+        supportedLocales: [
+          for (final language in appLanguages) localeForAppLanguage(language.code),
         ],
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,
@@ -113,7 +93,7 @@ class MyApp extends StatelessWidget {
           GlobalCupertinoLocalizations.delegate,
         ],
         theme: ThemeData(colorScheme: .fromSeed(seedColor: Colors.deepPurple)),
-        initialRoute: initialRoute, // indicate which route to show on boot
+        initialRoute: initialRoute,
         onGenerateRoute: _generateRoute,
       ),
     );
@@ -153,6 +133,7 @@ Route<dynamic>? _generateRoute(RouteSettings settings) {
   }
 }
 
+/// A bottom-tab page, shown without a transition.
 PageRoute<void> _tabRoute(RouteSettings settings, Widget page) {
   return PageRouteBuilder<void>(
     settings: settings,
