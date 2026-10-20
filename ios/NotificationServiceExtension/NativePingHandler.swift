@@ -716,7 +716,8 @@ final class NativePingHandler {
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "ping_id": pingID,
             "ping_secret": pingSecret,
-            "scheduled_time": Int(date.timeIntervalSince1970),
+            // A delay rather than a time, so the server uses its own clock.
+            "delay_seconds": max(0, Int(date.timeIntervalSinceNow.rounded())),
             "require_ack": requireAck,
             "expire_on": NSNull(),
         ])
