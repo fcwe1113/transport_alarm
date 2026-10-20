@@ -53,6 +53,13 @@ final class NativePingHandler {
     /// The alarm's ping secret, which the server requires to reschedule or
     /// ack its ping. Nil when no saved alarm owns the ping.
     private var pingSecret: String?
+    /// When the ping arrived, for the live fetch's deadline.
+    private let receivedAt = Date()
+    /// How long after the ping arrives the arrival lookup may run, leaving
+    /// the rest of the extension's 24 seconds to reschedule and save.
+    private static let estimateBudget: TimeInterval = 14
+    /// Set when the arrival lookup ran out of time, so the notice can say so.
+    private var estimateTimedOut = false
 
     init(appGroupDirectory: URL) {
         self.appGroupDirectory = appGroupDirectory
@@ -87,7 +94,17 @@ final class NativePingHandler {
             let index = alarms.firstIndex { Self.stringValue($0["pingId"]) == pingID }
             pingSecret = index.flatMap { alarms[$0]["pingSecret"] as? String }
             let decision = try decide(alarm: index.map { alarms[$0] }, now: Date())
-            return try await act(on: decision, alarms: &alarms, index: index, pingID: pingID)
+            let result = try await act(on: decision, alarms: &alarms, index: index, pingID: pingID)
+            guard estimateTimedOut, result.style == .update else { return result }
+            // A lookup that ran out of time counts as a failed fetch: say so,
+            // with a sound, alongside what this ping went on to do.
+            return PingResult(
+                title: NativeLocalization.text("native.estimate_slow.title"),
+                body: "\(NativeLocalization.text("native.estimate_slow.body")) \(result.body)",
+                debugMessage: result.debugMessage,
+                categoryIdentifier: result.categoryIdentifier,
+                style: .problem
+            )
         } catch {
             return PingResult(title: NativeLocalization.text("native.update_failed.title"), body: NativeLocalization.text("native.update_failed.body"), style: .problem)
         }
@@ -329,7 +346,7 @@ final class NativePingHandler {
         let minimumArrivalMinutes = isFreshOccurrence
             ? thresholdStates.compactMap { Self.intValue($0["minutesBeforeArrival"]) }.max()
             : nil
-        let freshArrivalEstimate = await estimateMinutesUntilArrival(
+        let freshArrivalEstimate = await estimateWithinBudget(
             for: alarms[index],
             minimumArrivalMinutes: minimumArrivalMinutes
         )
@@ -339,6 +356,37 @@ final class NativePingHandler {
             alarms[index].removeValue(forKey: "lastEstimatedMinutesUntilArrival")
         }
         return (thresholdMinutes, freshEstimateUntilThreshold ?? cachedEstimateUntilThreshold)
+    }
+
+    /// Runs [estimateMinutesUntilArrival] until [estimateBudget] after the
+    /// ping arrived. Past that, the lookup is cancelled and this returns nil,
+    /// as for a failed fetch, so the ping still has time to reschedule.
+    private func estimateWithinBudget(
+        for alarm: [String: Any],
+        minimumArrivalMinutes: Int?
+    ) async -> Int? {
+        let remaining = Self.estimateBudget - Date().timeIntervalSince(receivedAt)
+        guard remaining > 0 else {
+            estimateTimedOut = true
+            return nil
+        }
+        let outcome: Int?? = await withTaskGroup(of: Int??.self) { group in
+            group.addTask {
+                .some(await self.estimateMinutesUntilArrival(for: alarm, minimumArrivalMinutes: minimumArrivalMinutes))
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                return .none
+            }
+            let first = await group.next() ?? .none
+            group.cancelAll()
+            return first
+        }
+        guard let outcome else {
+            estimateTimedOut = true
+            return nil
+        }
+        return outcome
     }
 
     /// Thresholds ordered from the largest minutes-before-arrival down, the

@@ -178,6 +178,8 @@
   "native.window_ended.no_repeat": "This alarm window ended. No further repeats are scheduled.",
   "native.estimate_unavailable.title": "Hora estimada de llegada no disponible",
   "native.estimate_unavailable.body": "Se volverá a actualizar en 5 minutos.",
+  "native.estimate_slow.title": "Live arrivals took too long",
+  "native.estimate_slow.body": "Using the last estimate instead.",
   "native.update_scheduled.title": "Actualización de la alarma programada",
   "native.update_scheduled.body": "Faltan unos {minutes} minutos para el aviso. Se volverá a comprobar en {delay} minutos.",
   "native.alarm_approaching.title": "Alarma próxima",

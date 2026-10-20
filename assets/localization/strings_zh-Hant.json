@@ -178,6 +178,8 @@
   "native.window_ended.no_repeat": "This alarm window ended. No further repeats are scheduled.",
   "native.estimate_unavailable.title": "實時預測無法更新",
   "native.estimate_unavailable.body": "將預5分鐘後再次嘗試",
+  "native.estimate_slow.title": "Live arrivals took too long",
+  "native.estimate_slow.body": "Using the last estimate instead.",
   "native.update_scheduled.title": "已安排下次更新時間",
   "native.update_scheduled.body": "觸發點於{minutes}分鐘後，將會{delay}分鐘後更新實時預測時間",
   "native.alarm_approaching.title": "鬧鐘即將觸發",
