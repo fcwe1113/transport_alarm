@@ -6,8 +6,13 @@ class AppShell extends StatelessWidget {
   final String title;
   final Widget body;
   final List<Widget>? actions;
+  /// The highlighted tab, for pages pushed without a route name; otherwise
+  /// worked out from the route.
   final int? selectedTab;
   final bool showBottomNavigation;
+
+  /// Each tab's route, in tab order.
+  static const _destinations = ['/', '/map', '/settings'];
 
   const AppShell({
     super.key,
@@ -26,8 +31,6 @@ class AppShell extends StatelessWidget {
       '/settings' => 2,
       _ => 0,
     };
-    const destinations = ['/', '/map', '/settings'];
-
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
@@ -39,7 +42,7 @@ class AppShell extends StatelessWidget {
               type: BottomNavigationBarType.fixed,
               currentIndex: currentTab,
               onTap: (index) {
-                final destination = destinations[index];
+                final destination = _destinations[index];
                 if (currentRoute == destination) return;
                 Navigator.of(context).pushNamedAndRemoveUntil(
                   destination,
