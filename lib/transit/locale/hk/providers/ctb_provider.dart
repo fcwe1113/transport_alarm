@@ -95,8 +95,11 @@ class CtbProvider extends TransitProvider {
       }),
       null,
     );
+    final previousRouteIds = (await db.getOperatorRoutes(providerCode)).map((r) => r.id).toSet();
     final routes = await _fetchRoutes(forceRefresh: forceRefresh);
     await db.upsertOperatorRoutes(routes);
+    // Routes Citybus no longer lists, or saved under an older ID format.
+    await db.deleteOperatorRoutes(previousRouteIds.difference(routes.map((r) => r.id).toSet()));
 
     // No all-stops endpoint: compile the stop list from each route's stops.
     final routeStopItems = <BatchCallItem<TransportRoute, List<String>>>[];
@@ -128,14 +131,23 @@ class CtbProvider extends TransitProvider {
           ),
         );
 
+    // The route list doesn't say which directions a route runs, so both are
+    // listed; a direction with no stops (such as a circular route's inbound)
+    // doesn't run, and is dropped so it isn't refetched as missing data.
+    final unusedDirections = <String>[];
     for (final entry in routeStopResult.results.entries) {
       final route = entry.key;
       final rawStopIds = entry.value;
+      if (rawStopIds.isEmpty) {
+        unusedDirections.add(route.id);
+        continue;
+      }
       final operatorStopIds = rawStopIds
           .map((id) => "$providerCode:$id")
           .toList();
       await db.upsertRouteStops(route.id, operatorStopIds);
     }
+    await db.deleteOperatorRoutes(unusedDirections);
 
     final uniqueRawStopIds = <String>{};
     for (final operatorStopId in await db.getOperatorStopIdsForProvider(
@@ -272,29 +284,35 @@ class CtbProvider extends TransitProvider {
     ).toString();
   }
 
+  /// Each listed route in both directions: outbound as listed, and inbound
+  /// with its origin and destination swapped. Directions that don't run are
+  /// dropped in [refresh] once their stop lists come back empty.
   List<TransportRoute> _parseRoutesRaw(String rawJson) {
     final decoded = jsonDecode(rawJson);
     final List<dynamic> data = decoded["data"];
-    return data.map((r) {
+    return data.expand((r) {
       final routeNumber = r["route"] as String? ?? "";
-      return TransportRoute(
-        id: "$providerCode:$routeNumber",
+      final origin = {
+        "en": r["orig_en"] as String? ?? "",
+        "zh-Hant": r["orig_tc"] as String? ?? "",
+        "zh-Hans": r["orig_sc"] as String? ?? "",
+      };
+      final destination = {
+        "en": r["dest_en"] as String? ?? "",
+        "zh-Hant": r["dest_tc"] as String? ?? "",
+        "zh-Hans": r["dest_sc"] as String? ?? "",
+      };
+      TransportRoute direction(String bound, Map<String, String> from, Map<String, String> to) => TransportRoute(
+        id: "$providerCode:${routeNumber}_$bound",
         names: {"en": routeNumber, "zh-Hant": routeNumber},
         routeNumber: routeNumber,
-        bound: "O",
-        originText: {
-          "en": r["orig_en"] as String? ?? "",
-          "zh-Hant": r["orig_tc"] as String? ?? "",
-          "zh-Hans": r["orig_sc"] as String? ?? "",
-        },
-        destinationText: {
-          "en": r["dest_en"] as String? ?? "",
-          "zh-Hant": r["dest_tc"] as String? ?? "",
-          "zh-Hans": r["dest_sc"] as String? ?? "",
-        },
+        bound: bound,
+        originText: from,
+        destinationText: to,
         providerCode: providerCode,
-        locale: "hk"
+        locale: "hk",
       );
+      return [direction("O", origin, destination), direction("I", destination, origin)];
     }).toList();
   }
 

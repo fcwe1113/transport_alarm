@@ -672,6 +672,17 @@ class GtfsDatabase {
     await batch.commit(noResult: true);
   }
 
+  /// Removes operator routes and their stop lists, such as a direction a
+  /// provider lists but doesn't run.
+  Future<void> deleteOperatorRoutes(Iterable<String> operatorRouteIds) async {
+    final batch = (await database).batch();
+    for (final id in operatorRouteIds) {
+      batch.delete("route_stops", where: "operator_route_id = ?", whereArgs: [id]);
+      batch.delete("operator_routes", where: "operator_route_id = ?", whereArgs: [id]);
+    }
+    await batch.commit(noResult: true);
+  }
+
   Future<void> upsertRouteStops(
     String operatorRouteId,
     List<String> operatorStopIds,
