@@ -398,7 +398,7 @@ class _RoutePill extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
             border: selected
-                ? Border.all(color: colours.textColour, width: 2)
+                ? Border.all(color: Colors.black, width: 2)
                 : null,
             borderRadius: BorderRadius.circular(11),
           ),
