@@ -6,7 +6,6 @@ import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
-import 'package:transport_alarm/services/device_token_service.dart';
 import 'package:transport_alarm/services/orphaned_ping_store.dart';
 import 'package:transport_alarm/services/ping_watchdog_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
@@ -36,7 +35,7 @@ class AlarmLifecycleService {
     final lifecycle = AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService());
     void run() {
       _resyncing = _resyncing.then((_) async {
-        final token = await DeviceTokenService.getToken();
+        final token = await ApnsTokenService.instance.getToken();
         if (token == null) return;
         // Resuming often shouldn't call the server for every alarm each time.
         final recent = _lastSyncedAt != null && DateTime.now().difference(_lastSyncedAt!) < const Duration(minutes: 5);
@@ -233,7 +232,9 @@ class AlarmLifecycleService {
   /// the alarm with the new ping's ID and secret, or unchanged when there's
   /// no push token yet or the server refuses; [resyncPings] retries those.
   Future<TransportAlarm> _schedulePing(TransportAlarm alarm) async {
-    final deviceToken = await DeviceTokenService.getToken();
+    // Server pings are iOS only.
+    if (!Platform.isIOS) return alarm;
+    final deviceToken = await ApnsTokenService.instance.getToken();
     if (deviceToken == null) return alarm; // no token yet
     final scheduledTime = _firstPingTime(alarm);
 
