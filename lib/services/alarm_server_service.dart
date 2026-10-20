@@ -3,17 +3,22 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 
-class AlarmServerService { // todo handle api errors later
+/// The app's calls to the Cloudflare Worker that sends iOS alarm pings. The
+/// notification extension and AppDelegate reschedule and acknowledge pings
+/// natively; the app only creates them, moves them to a new push token, and
+/// cancels them.
+class AlarmServerService {
   static const _baseUrl = "https://ios-scheduler.fcwe1113.workers.dev";
 
   /// Schedules a new ping, returning its ID and the secret that later
   /// reschedule and ack calls must send, or null if the server refused.
   Future<({String id, String secret})?> schedule({required String deviceToken, required DateTime scheduledTime, required bool requireAck}) async {
-    final response = await http.post(Uri.parse("${_baseUrl}/schedule"),
-      headers: {"content-type": "application/json"},
-      body: jsonEncode({"device_token": deviceToken, "delay_seconds": _delaySeconds(scheduledTime), "require_ack": requireAck})
-    );
-    if (response.statusCode != 200) return null; // todo error handle later
+    final response = await _post("schedule", {
+      "device_token": deviceToken,
+      "delay_seconds": _delaySeconds(scheduledTime),
+      "require_ack": requireAck,
+    });
+    if (response.statusCode != 200) return null;
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final id = body["ping_id"]?.toString();
     final secret = body["ping_secret"]?.toString();
@@ -21,27 +26,15 @@ class AlarmServerService { // todo handle api errors later
     return (id: id, secret: secret);
   }
 
-  Future<void> reschedule({required String pingId, required DateTime scheduledTime, required bool requireAck, DateTime? expireOn}) async {
-    final secret = await _secretFor(pingId);
-    if (secret == null) return; // not ours to change; it expires on its own
-    await http.post(Uri.parse("${_baseUrl}/reschedule"), headers: {"content-type": "application/json"}, body: jsonEncode({
-      "ping_id": pingId,
-      "ping_secret": secret,
-      "delay_seconds": _delaySeconds(scheduledTime),
-      "require_ack": requireAck,
-      "expire_on": expireOn == null ? null : expireOn.toUtc().millisecondsSinceEpoch ~/ 1000})
-    );
-  }
-
   /// Moves a ping to the device's current push token. Returns false when
   /// the server no longer has the ping, so the caller can schedule a new one;
   /// throws on other failures.
   Future<bool> updateToken({required String pingId, required String secret, required String deviceToken}) async {
-    final response = await http.post(Uri.parse("${_baseUrl}/update_token"), headers: {"content-type": "application/json"}, body: jsonEncode({
+    final response = await _post("update_token", {
       "ping_id": pingId,
       "ping_secret": secret,
       "device_token": deviceToken,
-    }));
+    });
     if (response.statusCode == 404) return false;
     if (response.statusCode != 200) throw Exception("update_token failed with HTTP ${response.statusCode}");
     return true;
@@ -50,8 +43,14 @@ class AlarmServerService { // todo handle api errors later
   Future<void> cancelPing(String pingId) async {
     final secret = await _secretFor(pingId);
     if (secret == null) return; // not ours to cancel; it expires on its own
-    await http.post(Uri.parse("${_baseUrl}/ack"), headers: {"content-type": "application/json"}, body: jsonEncode({"ping_id": pingId, "ping_secret": secret}));
+    await _post("ack", {"ping_id": pingId, "ping_secret": secret});
   }
+
+  Future<http.Response> _post(String path, Map<String, Object?> body) => http.post(
+    Uri.parse("$_baseUrl/$path"),
+    headers: {"content-type": "application/json"},
+    body: jsonEncode(body),
+  );
 
   /// Seconds from now until [time]. The server adds this to its own clock,
   /// so a wrong phone clock doesn't shift pings.
