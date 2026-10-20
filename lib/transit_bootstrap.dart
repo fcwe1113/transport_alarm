@@ -105,13 +105,13 @@ Future<List<String>> _refreshEnabledLocales({
         cancelToken?.throwIfCancelled();
         try {
           onProgress?.call(
-            AppStrings.text('transit.matching_stops', {'locale': locale}),
+            AppStrings.text('transit.matching_stops', {'locale': _displayName(locale)}),
             null,
           );
           await locale.db.matchOperatorStopsToGtfs();
         } catch (error) {
           _rethrowIfCancelled(cancelToken);
-          failures.add('$locale stop matching: $error');
+          failures.add('${_displayName(locale)} stop matching: $error');
         }
       }
     }
@@ -137,14 +137,15 @@ Future<List<String>> findStaleLocales() async {
   final staleNames = <String>[];
   final locales = await LocaleSelectionService().getEnabledLocales();
   for (final locale in LocaleRegistry.getLocales(locales.keys.toList())) {
-    if (await _isStale(locale)) {
-      final names = locale.config.displayName;
-      staleNames.add(
-        names[AppStrings.languageCode] ?? names['en'] ?? locale.config.code,
-      );
-    }
+    if (await _isStale(locale)) staleNames.add(_displayName(locale));
   }
   return staleNames;
+}
+
+/// The region's name in the app language, then English, then its code.
+String _displayName(TransitLocale locale) {
+  final names = locale.config.displayName;
+  return names[AppStrings.languageCode] ?? names['en'] ?? locale.config.code;
 }
 
 Future<bool> _isStale(TransitLocale locale) async {
