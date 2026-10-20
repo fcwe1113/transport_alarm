@@ -13,8 +13,7 @@ class LocaleRegistry {
 
   /// The supported regions among [locales], skipping unknown codes.
   static List<TransitLocale> getLocales(List<String> locales) => [
-    for (final locale in locales)
-      if (_supportedLocales[locale] case final match?) match,
+    for (final locale in locales) ?_supportedLocales[locale],
   ];
 
   /// The region for [locale]; throws if this build doesn't support it.
