@@ -86,13 +86,7 @@ class AlarmLifecycleService {
       if (existing == null) {
         await _storage.addAlarm(alarm);
       } else {
-        if (existing.pingId != null) {
-          try {
-            await _server.cancelPing(existing.pingId!);
-          } catch (_) {
-            // Local Android alarms do not depend on the old server ping.
-          }
-        }
+        await _cancelPingIfAny(existing.pingId);
         await _storage.updateAlarm(alarm);
       }
       await AndroidAlarmCoordinator(_storage).startOrSchedule(alarm);
@@ -125,13 +119,7 @@ class AlarmLifecycleService {
       } else {
         // Cancel while the old ping is still saved: cancelPing reads its
         // secret from storage.
-        if (existing.pingId != null && existing.pingId != scheduled.pingId) {
-          try {
-            await _server.cancelPing(existing.pingId!);
-          } catch (_) {
-            // The extension acknowledges a ping no saved alarm owns.
-          }
-        }
+        if (existing.pingId != scheduled.pingId) await _cancelPingIfAny(existing.pingId);
         await _storage.updateAlarm(scheduled);
       }
       return const AlarmActionResult.success();
@@ -167,13 +155,7 @@ class AlarmLifecycleService {
       return const AlarmActionResult.success();
     }
 
-    if (alarm.pingId != null) {
-      try {
-        await _server.cancelPing(alarm.pingId!);
-      } catch (_) {
-        // A legacy server ping is independent of the new local schedule.
-      }
-    }
+    await _cancelPingIfAny(alarm.pingId);
     await _storage.updateAlarm(reenabled);
     try {
       await AndroidAlarmCoordinator(_storage).startOrSchedule(reenabled);
@@ -190,9 +172,7 @@ class AlarmLifecycleService {
     if (Platform.isAndroid) {
       await AndroidAlarmCoordinator(_storage).disable(alarm.id);
     }
-    if (alarm.pingId != null) {
-      await _server.cancelPing(alarm.pingId!);
-    }
+    await _cancelPingIfAny(alarm.pingId);
     await PingWatchdogService.disarm(alarm.id);
     await _storage.updateAlarm(
       alarm.copyWith(
@@ -210,11 +190,22 @@ class AlarmLifecycleService {
     if (Platform.isAndroid) {
       await AndroidAlarmCoordinator(_storage).disable(alarmId);
     }
-    if (alarm?.pingId != null) {
-      await _server.cancelPing(alarm!.pingId!);
-    }
+    await _cancelPingIfAny(alarm?.pingId);
     await PingWatchdogService.disarm(alarmId);
     await _storage.deleteAlarm(alarmId);
+  }
+
+  /// Asks the server to drop [pingId], if there is one. A failure, such as
+  /// being offline, doesn't stop the change: when that ping still arrives,
+  /// the notification extension finds its alarm off, changed or gone, and
+  /// acknowledges it, and Android alarms don't use server pings at all.
+  Future<void> _cancelPingIfAny(String? pingId) async {
+    if (pingId == null) return;
+    try {
+      await _server.cancelPing(pingId);
+    } catch (e) {
+      debugPrint("Could not cancel server ping $pingId: $e");
+    }
   }
 
   Future<TransportAlarm?> _find(String alarmId) async =>
