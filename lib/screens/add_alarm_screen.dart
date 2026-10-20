@@ -82,6 +82,14 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     _leftTime = alarm.windowStart;
     _rightTime = alarm.windowEnd;
     _repeatPattern = alarm.repeat;
+    if (alarm.repeat.weekdays case final weekdays?) {
+      _selectedWeekdays
+        ..clear()
+        ..addAll(weekdays);
+    }
+    if (alarm.repeat.dayOfMonth case final days? when days.isNotEmpty) {
+      _monthlyDayController.text = days.join(",");
+    }
     _liveOnly = alarm.liveOnly;
     _sliderMinutes = _calculateDurationInMinutes(_leftTime, _rightTime);
     if (_sliderMinutes > 60) _sliderMinutes = 60;
@@ -675,14 +683,16 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     return [
       Text(AppStrings.text('alarm.repeat_pattern'), style: const TextStyle(fontWeight: FontWeight.bold),),
       const SizedBox(height: 8,),
+      // Segments are frequencies, not patterns, so a loaded pattern with its
+      // weekdays or month days still shows as selected.
       SegmentedButton(segments: [
-        ButtonSegment(value: RepeatPattern.none, label: Text(AppStrings.text('repeat.none'))),
-        ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.daily), label: Text(AppStrings.text('repeat.daily'))),
-        ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.weekly), label: Text(AppStrings.text('repeat.weekly'))),
-        ButtonSegment(value: RepeatPattern(frequency: RepeatFrequency.monthly), label: Text(AppStrings.text('repeat.monthly'))),
-      ], selected: {_repeatPattern}, onSelectionChanged: (Set<RepeatPattern> selected) {
+        ButtonSegment(value: RepeatFrequency.none, label: Text(AppStrings.text('repeat.none'))),
+        ButtonSegment(value: RepeatFrequency.daily, label: Text(AppStrings.text('repeat.daily'))),
+        ButtonSegment(value: RepeatFrequency.weekly, label: Text(AppStrings.text('repeat.weekly'))),
+        ButtonSegment(value: RepeatFrequency.monthly, label: Text(AppStrings.text('repeat.monthly'))),
+      ], selected: {_repeatPattern.frequency}, onSelectionChanged: (Set<RepeatFrequency> selected) {
         setState(() {
-          _repeatPattern = selected.first;
+          _repeatPattern = RepeatPattern(frequency: selected.first);
         });
       },),
 
