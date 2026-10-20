@@ -56,6 +56,7 @@
   "alarm_list.empty": "闹钟列表空白",
   "alarm_list.add": "新增闹钟",
   "alarm_list.update_failed": "更新闹钟失败: {error}",
+  "alarm_list.delete_failed": "Could not delete alarm: {error}",
   "alarm_card.loading_arrivals": "抵达时间载入中...",
   "alarm_card.no_arrivals": "查无抵达时间",
   "alarm_card.arrivals_failed": "抵达时间载入失败",

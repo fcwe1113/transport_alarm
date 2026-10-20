@@ -56,6 +56,7 @@
   "alarm_list.empty": "No hay alarmas",
   "alarm_list.add": "Agregar alarma",
   "alarm_list.update_failed": "No se pudo actualizar la alarma: {error}",
+  "alarm_list.delete_failed": "Could not delete alarm: {error}",
   "alarm_card.loading_arrivals": "Cargando llegadas...",
   "alarm_card.no_arrivals": "No se encontraron próximas llegadas",
   "alarm_card.arrivals_failed": "No se pudo obtener la información de las llegadas",

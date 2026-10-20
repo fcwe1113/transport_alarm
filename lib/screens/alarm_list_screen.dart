@@ -97,7 +97,13 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   }
 
   Future<void> _deleteAlarm(String id) async {
-    await _lifecycle.deleteAlarm(id);
+    try {
+      await _lifecycle.deleteAlarm(id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.text('alarm_list.delete_failed', {'error': e}))));
+      }
+    }
     await _loadAlarms();
   }
 

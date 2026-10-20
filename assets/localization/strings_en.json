@@ -56,6 +56,7 @@
   "alarm_list.empty": "Alarm List empty",
   "alarm_list.add": "Add Alarm",
   "alarm_list.update_failed": "Could not update alarm: {error}",
+  "alarm_list.delete_failed": "Could not delete alarm: {error}",
   "alarm_card.loading_arrivals": "Loading arrivals...",
   "alarm_card.no_arrivals": "No upcoming arrivals found",
   "alarm_card.arrivals_failed": "Unable to fetch arrivals",
