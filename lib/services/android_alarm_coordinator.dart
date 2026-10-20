@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' show max;
 import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
@@ -35,6 +36,7 @@ class AndroidAlarmCoordinator {
       spent: false,
       thresholdStates: _freshThresholds(alarm),
       clearLastEstimatedMinutesUntilThreshold: true,
+      clearIgnoreArrivalsBefore: true,
       clearAndroidFallbackArrival: true,
       clearAndroidLiveNotice: true,
       androidOccurrenceStartEpochSeconds: _epochSeconds(occurrence.start),
@@ -117,6 +119,7 @@ class AndroidAlarmCoordinator {
         spent: startsRepeat ? false : alarm.spent,
         thresholdStates: startsRepeat ? _freshThresholds(alarm) : null,
         clearLastEstimatedMinutesUntilThreshold: startsRepeat,
+        clearIgnoreArrivalsBefore: startsRepeat,
         clearAndroidFallbackArrival: startsRepeat,
         clearAndroidLiveNotice: startsRepeat,
         androidProgressStartEpochSeconds:
@@ -185,12 +188,19 @@ class AndroidAlarmCoordinator {
       return;
     }
 
-    final earliestArrival = _firstThresholdIsStillRequired(alarm)
-        ? alarm.thresholdStates
-                  .map((state) => state.minutesBeforeArrival)
-                  .reduce((a, b) => a > b ? a : b) *
-              60
-        : null;
+    // The first check skips buses too close to make the first threshold, and
+    // the cutoff is kept so later checks don't latch on to them either.
+    final ignoreArrivalsBefore = alarm.ignoreArrivalsBeforeEpochSeconds ??
+        (_firstThresholdIsStillRequired(alarm)
+            ? _epochSeconds(now) +
+                alarm.thresholdStates
+                        .map((state) => state.minutesBeforeArrival)
+                        .reduce((a, b) => a > b ? a : b) *
+                    60
+            : null);
+    final earliestArrival = ignoreArrivalsBefore == null
+        ? null
+        : max(0, ignoreArrivalsBefore - _epochSeconds(now));
     debugPrint(
       '[AndroidAlarmCoordinator] Refreshing ETA for alarm ${alarm.id} '
       'at ${now.toIso8601String()}',
@@ -228,11 +238,11 @@ class AndroidAlarmCoordinator {
       );
       final remainingSeconds = thresholdAt.difference(now).inSeconds;
       final minutesUntilThreshold = (remainingSeconds / 60).ceil();
-      await _storage.updateAlarm(
-        alarm.copyWith(
-          lastEstimatedMinutesUntilThreshold: minutesUntilThreshold,
-        ),
+      alarm = alarm.copyWith(
+        lastEstimatedMinutesUntilThreshold: minutesUntilThreshold,
+        ignoreArrivalsBeforeEpochSeconds: ignoreArrivalsBefore,
       );
+      await _storage.updateAlarm(alarm);
       if (!now.isBefore(thresholdAt)) {
         final states = List<ThresholdState>.of(alarm.thresholdStates);
         states[activeThresholdIndex] = threshold.copyWith(
@@ -688,6 +698,7 @@ class AndroidAlarmCoordinator {
         enabled: false,
         spent: true,
         clearLastEstimatedMinutesUntilThreshold: true,
+        clearIgnoreArrivalsBefore: true,
         clearAndroidOccurrence: true,
         clearAndroidFallbackArrival: true,
       );
@@ -711,6 +722,7 @@ class AndroidAlarmCoordinator {
     final concluded = alarm.copyWith(
       spent: true,
       clearLastEstimatedMinutesUntilThreshold: true,
+      clearIgnoreArrivalsBefore: true,
       clearAndroidFallbackArrival: true,
       clearAndroidProgressStartEpochSeconds: true,
       androidOccurrenceStartEpochSeconds: _epochSeconds(nextWindow.start),

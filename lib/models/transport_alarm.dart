@@ -45,6 +45,9 @@ class TransportAlarm {
   /// Minutes until the active threshold at the last estimate, for when a
   /// later fetch fails.
   final int? lastEstimatedMinutesUntilThreshold;
+  /// Arrivals before this time are ignored for the rest of the occurrence:
+  /// buses already too close to make the first threshold when it started.
+  final int? ignoreArrivalsBeforeEpochSeconds;
   /// Android: the current occurrence's window, as device-local times.
   final int? androidOccurrenceStartEpochSeconds;
   final int? androidOccurrenceEndEpochSeconds;
@@ -77,6 +80,7 @@ class TransportAlarm {
     this.pingId,
     this.pingSecret,
     this.lastEstimatedMinutesUntilThreshold,
+    this.ignoreArrivalsBeforeEpochSeconds,
     this.androidOccurrenceStartEpochSeconds,
     this.androidOccurrenceEndEpochSeconds,
     this.androidProgressStartEpochSeconds,
@@ -102,6 +106,7 @@ class TransportAlarm {
     String? pingSecret,
     bool clearPingId = false,
     int? lastEstimatedMinutesUntilThreshold,
+    int? ignoreArrivalsBeforeEpochSeconds,
     int? androidOccurrenceStartEpochSeconds,
     int? androidOccurrenceEndEpochSeconds,
     int? androidProgressStartEpochSeconds,
@@ -109,6 +114,7 @@ class TransportAlarm {
     String? androidLiveNotice,
     bool clearAndroidLiveNotice = false,
     bool clearLastEstimatedMinutesUntilThreshold = false,
+    bool clearIgnoreArrivalsBefore = false,
     bool clearAndroidOccurrence = false,
     bool clearAndroidProgressStartEpochSeconds = false,
     bool clearAndroidFallbackArrival = false,
@@ -133,6 +139,9 @@ class TransportAlarm {
         lastEstimatedMinutesUntilThreshold: clearLastEstimatedMinutesUntilThreshold
             ? null
             : lastEstimatedMinutesUntilThreshold ?? this.lastEstimatedMinutesUntilThreshold,
+        ignoreArrivalsBeforeEpochSeconds: clearIgnoreArrivalsBefore
+            ? null
+            : ignoreArrivalsBeforeEpochSeconds ?? this.ignoreArrivalsBeforeEpochSeconds,
         androidOccurrenceStartEpochSeconds: clearAndroidOccurrence
             ? null
             : androidOccurrenceStartEpochSeconds ?? this.androidOccurrenceStartEpochSeconds,
@@ -171,6 +180,7 @@ class TransportAlarm {
     'pingId': pingId,
     'pingSecret': pingSecret,
     'lastEstimatedMinutesUntilThreshold': lastEstimatedMinutesUntilThreshold,
+    'ignoreArrivalsBeforeEpochSeconds': ignoreArrivalsBeforeEpochSeconds,
     'androidOccurrenceStartEpochSeconds': androidOccurrenceStartEpochSeconds,
     'androidOccurrenceEndEpochSeconds': androidOccurrenceEndEpochSeconds,
     'androidProgressStartEpochSeconds': androidProgressStartEpochSeconds,
@@ -200,6 +210,8 @@ class TransportAlarm {
     pingSecret: json['pingSecret'] as String?,
     lastEstimatedMinutesUntilThreshold:
         json['lastEstimatedMinutesUntilThreshold'] as int?,
+    ignoreArrivalsBeforeEpochSeconds:
+        (json['ignoreArrivalsBeforeEpochSeconds'] as num?)?.toInt(),
     androidOccurrenceStartEpochSeconds:
         json['androidOccurrenceStartEpochSeconds'] as int?,
     androidOccurrenceEndEpochSeconds:

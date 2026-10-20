@@ -148,6 +148,7 @@ class AlarmLifecycleService {
           .map((t) => ThresholdState(minutesBeforeArrival: t.minutesBeforeArrival))
           .toList(),
       clearLastEstimatedMinutesUntilThreshold: true,
+      clearIgnoreArrivalsBefore: true,
       clearPingId: Platform.isAndroid,
     );
     if (!Platform.isAndroid) {
