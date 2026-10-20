@@ -122,6 +122,7 @@ class TransportAlarm {
         windowStart: windowStart ?? this.windowStart,
         windowEnd: windowEnd ?? this.windowEnd,
         thresholdStates: thresholdStates ?? this.thresholdStates,
+        maxRingsPerThreshold: maxRingsPerThreshold ?? this.maxRingsPerThreshold,
         repeat: repeat ?? this.repeat,
         liveOnly: liveOnly ?? this.liveOnly,
         spent: spent ?? this.spent,
