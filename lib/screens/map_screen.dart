@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:math';
 
-import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
@@ -14,33 +13,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/stop_routes_sheet.dart';
 
-/// StatefulWidget wrapper for the map screen
-class MapScreen extends StatefulWidget { // statefulwidgets are widgets that can have modifiable internal data, they contain an immutable Widget and a mutable State object within
+/// The map of the enabled locales' stops. Tapping a stop opens its routes;
+/// in [pickerMode] it picks the stop for an alarm instead and returns it.
+class MapScreen extends StatefulWidget {
   final bool pickerMode;
 
   const MapScreen({super.key, this.pickerMode = false});
 
-  @override // this is a requirement for any statefulwidget
-  State<MapScreen> createState() => _MapScreenState(); // MapScreen being the immutable widget and _MapScreenState() being the mutable state
+  @override
+  State<MapScreen> createState() => _MapScreenState();
 }
 
-/// State object within the map screen
 class _MapScreenState extends State<MapScreen> {
-  // here State<MapScreen> DOES NOT mean a state object of a mapscreen type ala c#
-  // instead it is extending the underlying State<T> and hooking up this state to the mapscreen widget
-
   EdgeInsets _mapPadding = EdgeInsets.zero;
 
   GoogleMapController? _mapController;
-  static const mapsApiKey = String.fromEnvironment('MAPS_API_KEY');
-  // final Map<String, BitmapDescriptor> _iconCache = {};
   List<GtfsStop> _stops = [];
-  final Map<String, TransportRoute> _routesById = {};
-  final Set<Marker> _markers = {};
   Set<Marker> _visibleMarkers = {};
   bool _loading = true;
-  GtfsStop? selectedStop;
-  final Set<Polyline> _routePolylines = {};
   BitmapDescriptor? _stopIcon;
   GtfsStop? _selectedPickerStop;
   final GlobalKey<NavigatorState> _nestedNavKey = GlobalKey<NavigatorState>();
@@ -65,6 +55,10 @@ class _MapScreenState extends State<MapScreen> {
   static const _cameraFromLocationKey = 'map_camera_from_location';
   // A last known fix older than this may be somewhere else entirely.
   static const _maxLastKnownAge = Duration(minutes: 10);
+  // How much of the screen a stop's bottom sheet covers.
+  static const _sheetHeightFraction = 0.5;
+  // Most markers shown at once, so a zoomed-out map stays responsive.
+  static const _maxVisibleMarkers = 50;
 
   @override
   void initState() {
@@ -81,14 +75,14 @@ class _MapScreenState extends State<MapScreen> {
       }
       final savedCamera = await _loadSavedCamera();
 
+      if (!mounted) return;
       setState(() {
         _stops = stops;
         _savedCamera = savedCamera;
         _loading = false;
       });
     } catch (e, stackTrace) {
-      print("Map data load failed: $e");
-      print(stackTrace);
+      debugPrint("Map data load failed: $e\n$stackTrace");
     }
   }
 
@@ -198,21 +192,20 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<Set<Marker>> _buildMarkers(List<GtfsStop> stops) async {
-    final markers = <Marker>{};
-    for (final stop in stops) {
-      // if (!stop.isResolved) continue;
-      final icon = _loadStopIcon();
-      markers.add(Marker(markerId: MarkerId(stop.id), position: LatLng(stop.lat, stop.lng), icon: await icon, onTap: () => _onStopTapped(stop)));
-    }
-    return markers;
+    final icon = await _loadStopIcon();
+    return {
+      for (final stop in stops)
+        Marker(markerId: MarkerId(stop.id), position: LatLng(stop.lat, stop.lng), icon: icon, onTap: () => _onStopTapped(stop)),
+    };
   }
 
-  void _onStopTapped(GtfsStop stop) async {
+  /// Centres [stop] above its bottom sheet and opens the sheet: its routes,
+  /// or in picker mode the routes plus picking it for the alarm.
+  void _onStopTapped(GtfsStop stop) {
     _cameraPlaced = true;
 
     const zoom = 19.0;
     final screenHeight = MediaQuery.of(context).size.height;
-    final sheetHeightFraction = 0.5;
     final metersPerPixel = 156543.03392 * cos(stop.lat * pi / 180) / pow(2, zoom);
     // Keeps the stop above the bottom sheet. iOS applies the bottom map
     // padding set below, which already centres the camera above the sheet,
@@ -220,89 +213,60 @@ class _MapScreenState extends State<MapScreen> {
     // padding has no effect on Android, so it shifts the target instead.
     final latOffset = Platform.isIOS
         ? 0.0
-        : ((screenHeight * sheetHeightFraction / 2) * metersPerPixel) / 111320;
-
-    if (widget.pickerMode) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(stop.lat - latOffset, stop.lng), zoom));
-      });
-      setState(() {
-        _selectedPickerStop = stop;
-        _mapPadding = EdgeInsets.only(bottom: MediaQuery.of(context).size.height * 0.5); // 0.4
-      });
-      showModalBottomSheet(
-          context: _nestedNavKey.currentContext!,
-          barrierColor: Colors.transparent,
-          isScrollControlled: true,
-          builder: (context) => StopRoutesSheet(stop: stop, pickerMode: true)
-      ).whenComplete(() {setState(() => _mapPadding = EdgeInsets.zero); _selectedPickerStop = null;});
-      return;
-    }
+        : ((screenHeight * _sheetHeightFraction / 2) * metersPerPixel) / 111320;
 
     setState(() {
-      _mapPadding = EdgeInsets.only(bottom: MediaQuery.of(context).size.height * 0.5);
-      // selectedStop = stop;
+      if (widget.pickerMode) _selectedPickerStop = stop;
+      _mapPadding = EdgeInsets.only(bottom: screenHeight * _sheetHeightFraction);
     });
-    // await _updateVisibleMarkers();
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _mapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(stop.lat - latOffset, stop.lng), zoom));
     });
 
     showModalBottomSheet(
-        context: context,
-        // backgroundColor: Colors.transparent,
+        // The picker's sheet opens in the map's nested navigator, so the
+        // app bar's check button stays usable above it.
+        context: widget.pickerMode ? _nestedNavKey.currentContext! : context,
         barrierColor: Colors.transparent,
         isScrollControlled: true,
-        builder: (context) => StopRoutesSheet(stop: stop)
-    ).whenComplete(() async {
-      setState(() => _mapPadding = EdgeInsets.zero);
-      selectedStop = null;
-      await _updateVisibleMarkers();
+        builder: (context) => StopRoutesSheet(stop: stop, pickerMode: widget.pickerMode)
+    ).whenComplete(() {
+      // Picking a stop closes the sheet and then this screen.
+      if (!mounted) return;
+      setState(() {
+        _mapPadding = EdgeInsets.zero;
+        if (widget.pickerMode) _selectedPickerStop = null;
+      });
+      if (!widget.pickerMode) _updateVisibleMarkers();
     });
   }
 
+  /// Shows markers for the stops in view, up to [_maxVisibleMarkers].
   Future<void> _updateVisibleMarkers() async {
-    if (_mapController == null) return;
-    if (selectedStop != null) {
-      setState(() async => _visibleMarkers = (await _buildMarkers([?selectedStop])));
-      return;
-    }
-
-    final bounds = await _mapController!.getVisibleRegion();
-    final visibleStops = _stops.where((stop) {
-      // if (!stop.isResolved) return false;
-      return bounds.contains(LatLng(stop.lat, stop.lng));
-    }).toList();
-
-    // hard cap the stops displayed within the visible area
-    final cappedStops = visibleStops.take(50).toList();
-    final markers = await _buildMarkers(cappedStops);
+    final controller = _mapController;
+    if (controller == null) return;
+    final bounds = await controller.getVisibleRegion();
+    final visibleStops = _stops
+        .where((stop) => bounds.contains(LatLng(stop.lat, stop.lng)))
+        .take(_maxVisibleMarkers)
+        .toList();
+    final markers = await _buildMarkers(visibleStops);
+    if (!mounted) return;
     setState(() => _visibleMarkers = markers);
   }
 
-  // initial position of the map on load, currently on london, replace with user settings later
-  // static const _initialPosition = CameraPosition(target: LatLng(51.5072, -0.1276), zoom: 13);
-
-  @override // this is a requirement for any state object
+  @override
   Widget build(BuildContext context) {
-    // when build gets called the widget refreshes, and the statefulwidget is destroyed and rebuilt
-    // there are a few ways to proc build()
-    // 1. on first build
-    // 2. with setState()
-    // 3. rebuilding the parent widget
-    // 4. hot reload in dev mode (but thats cheating)
-    // for the "refresh after api pull" effect put in a setState() in the same function as the api call and put it after the api call line
-    // if real time updates needed try StreamBuilder
+    final title = AppStrings.text(widget.pickerMode ? 'map.choose_stop' : 'map.title');
     if (_loading) {
       return AppShell(
-        title: AppStrings.text(widget.pickerMode ? 'map.choose_stop' : 'map.title'),
+        title: title,
         selectedTab: 1,
         body: const Center(child: CircularProgressIndicator()),
       );
     }
     return AppShell(
-      title: AppStrings.text(widget.pickerMode ? 'map.choose_stop' : 'map.title'),
+      title: title,
       selectedTab: 1,
       actions: widget.pickerMode ? [
         IconButton(icon: _selectedPickerStop == null ? const Icon(Icons.arrow_back) : const Icon(Icons.check), onPressed: () {
@@ -316,7 +280,8 @@ class _MapScreenState extends State<MapScreen> {
       body: Navigator(key: _nestedNavKey, onGenerateRoute: (settings) => MaterialPageRoute(builder: (nestedContext) => LayoutBuilder(builder: (context, constraints) {
         _initialCamera ??= _savedCamera ?? _cameraForStops(constraints.biggest) ?? _defaultCamera;
         return GoogleMap(
-          padding: _mapPadding, // not working for some reason
+          // Only iOS applies this padding; see _onStopTapped.
+          padding: _mapPadding,
           initialCameraPosition: _initialCamera!,
           onMapCreated: (controller) {
             _mapController = controller;
@@ -328,7 +293,7 @@ class _MapScreenState extends State<MapScreen> {
             _updateVisibleMarkers();
             _saveCamera();
           },
-          myLocationEnabled: true, // enables phone location services
+          myLocationEnabled: true,
           markers: _visibleMarkers
         );
       }),),)
