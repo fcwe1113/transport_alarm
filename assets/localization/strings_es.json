@@ -71,6 +71,7 @@
   "stop.no_departures": "No se encontraron salidas programadas",
   "stop.due": "Llegando",
   "stop.hours": "{hours} h",
+  "stop.hours_minutes": "{hours} hr {minutes} min",
   "stop.minutes": "{minutes} min",
   "stop.live": "En vivo",
   "stop.scheduled": "Programado",

@@ -71,6 +71,7 @@
   "stop.no_departures": "无计划出发班次",
   "stop.due": "预计",
   "stop.hours": "{hours}小时",
+  "stop.hours_minutes": "{hours} hr {minutes} min",
   "stop.minutes": "{minutes}分钟",
   "stop.live": "实时",
   "stop.scheduled": "计划出发",

@@ -240,7 +240,12 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   String _arrivalLabel(int minutesFromNow) {
     if (minutesFromNow <= 0) return AppStrings.text('stop.due');
     if (minutesFromNow > 60) {
-      return AppStrings.text('stop.hours', {'hours': (minutesFromNow / 60).toStringAsFixed(2)});
+      // "1 hr 25 min", rather than a fraction of an hour.
+      final hours = minutesFromNow ~/ 60;
+      final minutes = minutesFromNow % 60;
+      return minutes == 0
+          ? AppStrings.text('stop.hours', {'hours': hours})
+          : AppStrings.text('stop.hours_minutes', {'hours': hours, 'minutes': minutes});
     }
     return AppStrings.text('stop.minutes', {'minutes': minutesFromNow});
   }

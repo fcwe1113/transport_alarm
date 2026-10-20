@@ -71,6 +71,7 @@
   "stop.no_departures": "No scheduled departures found",
   "stop.due": "Due",
   "stop.hours": "{hours} hr",
+  "stop.hours_minutes": "{hours} hr {minutes} min",
   "stop.minutes": "{minutes} min",
   "stop.live": "Live",
   "stop.scheduled": "Scheduled",

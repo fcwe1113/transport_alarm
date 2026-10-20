@@ -71,6 +71,7 @@
   "stop.no_departures": "無計劃出發班次",
   "stop.due": "預計",
   "stop.hours": "{hours}小時",
+  "stop.hours_minutes": "{hours} hr {minutes} min",
   "stop.minutes": "{minutes}分鐘",
   "stop.live": "實時",
   "stop.scheduled": "計劃出發",
