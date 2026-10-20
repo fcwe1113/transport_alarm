@@ -18,6 +18,7 @@
   "settings.title": "设定",
   "settings.app_language": "显示语言",
   "settings.app_language.subtitle": "选择APP显示语言",
+  "settings.app_language.failed": "Couldn't change the language. Please try again.",
   "settings.alarm_settings": "Alarm settings",
   "settings.help": "Help",
   "settings.help.subtitle": "Setup tips and troubleshooting",

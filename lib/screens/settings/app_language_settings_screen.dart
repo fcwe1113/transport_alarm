@@ -40,7 +40,17 @@ class _AppLanguageSettingsScreenState extends State<AppLanguageSettingsScreen> {
     if (code == null || _saving) return;
 
     setState(() => _saving = true);
-    await applyAppLanguage(code);
+    try {
+      await applyAppLanguage(code);
+    } catch (e) {
+      debugPrint("Could not apply app language $code: $e");
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppStrings.text('settings.app_language.failed'))),
+      );
+      return;
+    }
     if (mounted) {
       appNavigatorKey.currentState?.pushNamedAndRemoveUntil('/settings', (_) => false);
     }

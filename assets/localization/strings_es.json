@@ -18,6 +18,7 @@
   "settings.title": "Ajustes",
   "settings.app_language": "Idioma de la aplicación",
   "settings.app_language.subtitle": "Elija el idioma que se usará en la aplicación",
+  "settings.app_language.failed": "Couldn't change the language. Please try again.",
   "settings.alarm_settings": "Alarm settings",
   "settings.help": "Help",
   "settings.help.subtitle": "Setup tips and troubleshooting",
