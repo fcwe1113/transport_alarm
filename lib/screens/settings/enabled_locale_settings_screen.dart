@@ -90,6 +90,13 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
     if (toDownload.isEmpty) {
       await cleanup.removeRegions(removed);
     } else {
+      // Regions kept but with changed options (GB's areas), whose alarms may
+      // now point at stops or routes the new data doesn't have.
+      final changedOptions = toDownload.intersection(previous.keys.toSet());
+      var alarmsDeleted = 0;
+      var alarmsTrimmed = 0;
+      // The app's messenger outlives this screen and the loading screen.
+      final messenger = ScaffoldMessenger.maybeOf(navigator.context);
       await navigator.push<void>(
         MaterialPageRoute<void>(
           builder: (_) => LoadingScreen(
@@ -113,10 +120,22 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
             onSucceeded: () async {
               await _selectionService.clearPendingLocaleChange();
               await cleanup.removeRegions(removed);
+              for (final code in changedOptions) {
+                final pruned = await cleanup.pruneAlarmsWithMissingRoutes(code);
+                alarmsDeleted += pruned.deleted;
+                alarmsTrimmed += pruned.trimmed;
+              }
             },
           ),
         ),
       );
+      final notices = [
+        if (alarmsDeleted > 0) AppStrings.text('locale_change.alarms_deleted', {'count': alarmsDeleted}),
+        if (alarmsTrimmed > 0) AppStrings.text('locale_change.alarms_trimmed', {'count': alarmsTrimmed}),
+      ];
+      if (notices.isNotEmpty) {
+        messenger?.showSnackBar(SnackBar(content: Text(notices.join("\n"))));
+      }
     }
   }
 

@@ -45,4 +45,37 @@ class RegionCleanupService {
       }
     }
   }
+
+  /// After a region's options changed (GB's areas), checks each of its
+  /// alarms against the new data. An alarm whose stop is gone, or none of
+  /// whose routes still serve it, is deleted; one that lost only some routes
+  /// keeps the rest.
+  Future<({int deleted, int trimmed})> pruneAlarmsWithMissingRoutes(String localeCode) async {
+    final db = GtfsDatabase.forLocale(localeCode);
+    var deleted = 0;
+    var trimmed = 0;
+    for (final alarm in await alarmsInRegions({localeCode})) {
+      final stop = await db.getGtfsStopById(alarm.gtfsStopId);
+      final servingRoutes = stop == null
+          ? const <String>{}
+          : (await db.getRoutesForGtfsStop(alarm.gtfsStopId)).map((route) => route.routeNumber).toSet();
+      final keptRoutes = {
+        for (final entry in alarm.routeNumbers.entries)
+          if (servingRoutes.contains(entry.key)) entry.key: entry.value,
+      };
+      if (keptRoutes.isEmpty) {
+        await _lifecycle.deleteAlarm(alarm.id);
+        deleted++;
+      } else if (keptRoutes.length < alarm.routeNumbers.length) {
+        await _storage.updateAlarm(alarm.copyWith(
+          routeNumbers: keptRoutes,
+          routeApiConfigs: alarm.routeApiConfigs
+              .where((config) => keptRoutes.containsKey(config.routeNumber))
+              .toList(),
+        ));
+        trimmed++;
+      }
+    }
+    return (deleted: deleted, trimmed: trimmed);
+  }
 }

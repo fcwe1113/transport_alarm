@@ -52,6 +52,8 @@
   "loading.cancelling": "Cancelling...",
   "locale_change.remove_alarms.title": "Delete alarms?",
   "locale_change.remove_alarms.body": "{count} alarms use stops in regions you turned off. They'll be deleted, along with those regions' data.",
+  "locale_change.alarms_deleted": "{count} alarms were deleted: their stops aren't in the selected areas any more.",
+  "locale_change.alarms_trimmed": "{count} alarms lost routes that no longer stop there.",
   "locale_change.failed.title": "Couldn't load the new regions",
   "locale_change.failed.body": "The transit data for your new region selection couldn't be downloaded, so your previous selection has been restored.\n\n{details}",
   "loading.failed": "下載錯誤: {error}",
