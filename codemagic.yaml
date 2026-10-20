@@ -42,37 +42,37 @@ workflows:
           fi
           /usr/libexec/PlistBuddy -c "Set :UKBodsAPIKey $BODS_KEY" \
             ios/NotificationServiceExtension/Info.plist
-      - name: Debug signing state
-        script: |
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "no profiles directory"
-          security find-identity -v -p codesigning
-      - name: Inspect Provisioning Profile
-        script: |
-          for PROF in ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision; do
-            echo "=========================================="
-            echo "Profile: $PROF"
-            security cms -D -i "$PROF" > /tmp/profile.plist
-            echo "--- Profile Name ---"
-            /usr/libexec/PlistBuddy -c "Print :Name" /tmp/profile.plist || true
-            echo "--- Profile Entitlements ---"
-            /usr/libexec/PlistBuddy -c "Print :Entitlements" /tmp/profile.plist || true
-          done
+#      - name: Debug signing state
+#        script: |
+#          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "no profiles directory"
+#          security find-identity -v -p codesigning
+#      - name: Inspect Provisioning Profile
+#        script: |
+#          for PROF in ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision; do
+#            echo "=========================================="
+#            echo "Profile: $PROF"
+#            security cms -D -i "$PROF" > /tmp/profile.plist
+#            echo "--- Profile Name ---"
+#            /usr/libexec/PlistBuddy -c "Print :Name" /tmp/profile.plist || true
+#            echo "--- Profile Entitlements ---"
+#            /usr/libexec/PlistBuddy -c "Print :Entitlements" /tmp/profile.plist || true
+#          done
       - name: Get Flutter packages
         script: flutter pub get
       - name: Install pods
         script: cd ios && pod install
       - name: Apply signing
         script: xcode-project use-profiles --archive-method=app-store
-      - name: Inspect signing setup
-        # Debugging the time-sensitive entitlement error: shows the export
-        # options and the profile Runner is set to sign with.
-        script: |
-          echo "=== export_options.plist ==="
-          plutil -p /Users/builder/export_options.plist || true
-          echo "=== Runner signing settings ==="
-          xcodebuild -showBuildSettings \
-            -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release 2>/dev/null \
-            | grep -E "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|PROVISIONING_PROFILE|CODE_SIGN_ENTITLEMENTS|DEVELOPMENT_TEAM" || true
+#      - name: Inspect signing setup
+#        # Debugging the time-sensitive entitlement error: shows the export
+#        # options and the profile Runner is set to sign with.
+#        script: |
+#          echo "=== export_options.plist ==="
+#          plutil -p /Users/builder/export_options.plist || true
+#          echo "=== Runner signing settings ==="
+#          xcodebuild -showBuildSettings \
+#            -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release 2>/dev/null \
+#            | grep -E "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|PROVISIONING_PROFILE|CODE_SIGN_ENTITLEMENTS|DEVELOPMENT_TEAM" || true
       - name: Build ipa
         script: |
           flutter build ipa --release \
@@ -81,14 +81,14 @@ workflows:
             --dart-define-from-file=config/build_secrets.json \
             --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID") + 1)) \
             --export-options-plist=/Users/builder/export_options.plist
-      - name: Verify IPA entitlements
-        script: |
-          echo "=== Inspecting xcarchive Runner.app ==="
-          codesign -d --entitlements :- build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app || true
-          echo "=== Inspecting exported IPA Payload/Runner.app ==="
-          IPA=$(ls build/ios/ipa/*.ipa | head -n 1)
-          rm -rf /tmp/ipa && unzip -q "$IPA" -d /tmp/ipa
-          codesign -d --entitlements :- /tmp/ipa/Payload/Runner.app || true
+#      - name: Verify IPA entitlements
+#        script: |
+#          echo "=== Inspecting xcarchive Runner.app ==="
+#          codesign -d --entitlements :- build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app || true
+#          echo "=== Inspecting exported IPA Payload/Runner.app ==="
+#          IPA=$(ls build/ios/ipa/*.ipa | head -n 1)
+#          rm -rf /tmp/ipa && unzip -q "$IPA" -d /tmp/ipa
+#          codesign -d --entitlements :- /tmp/ipa/Payload/Runner.app || true
     artifacts:
       - build/ios/ipa/*.ipa
       # Needed with flutter symbolize to read obfuscated crash stack traces.

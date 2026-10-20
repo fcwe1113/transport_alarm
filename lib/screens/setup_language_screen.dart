@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_languages.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
+import 'package:transport_alarm/widgets/app_language_list.dart';
 
 /// First setup step: pick the interface language before the region, so the
 /// rest of setup is shown in that language.
@@ -28,15 +29,22 @@ class _SetupLanguageScreenState extends State<SetupLanguageScreen> {
     setState(() => _selectedCode = code);
   }
 
-  // Applied straight away so this page switches language as the user picks.
+  /// Applies [code] straight away, so this page switches language as the
+  /// user picks.
   Future<void> _select(String? code) async {
     if (code == null || _applying || code == _selectedCode) return;
     setState(() {
       _selectedCode = code;
       _applying = true;
     });
-    await applyAppLanguage(code);
-    if (mounted) setState(() => _applying = false);
+    try {
+      await applyAppLanguage(code);
+    } catch (e) {
+      // The previous language stays; the check button comes back either way.
+      debugPrint("Could not apply app language $code: $e");
+    } finally {
+      if (mounted) setState(() => _applying = false);
+    }
   }
 
   @override
@@ -54,19 +62,7 @@ class _SetupLanguageScreenState extends State<SetupLanguageScreen> {
             ),
           ),
           Expanded(
-            child: RadioGroup<String>(
-              groupValue: _selectedCode,
-              onChanged: _select,
-              child: ListView(
-                children: [
-                  for (final language in appLanguages)
-                    RadioListTile<String>(
-                      value: language.code,
-                      title: Text(language.name),
-                    ),
-                ],
-              ),
-            ),
+            child: AppLanguageList(selectedCode: _selectedCode, onChanged: _select),
           ),
         ],
       ),

@@ -1,6 +1,7 @@
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// One request in [ApiCaller.callBatch], identified by [key] in the result.
 class BatchCallItem<K, T> {
   final K key;
   final String endpointName;
@@ -17,6 +18,8 @@ class BatchCallItem<K, T> {
   });
 }
 
+/// What [ApiCaller.callBatch] fetched, and the keys that still failed after
+/// every attempt. Items skipped as fresh are in neither.
 class BatchCallResult<K, T> {
   final Map<K, T> results;
   final List<K> failedKeys;
@@ -24,10 +27,28 @@ class BatchCallResult<K, T> {
   const BatchCallResult({required this.results, required this.failedKeys});
 }
 
+/// HTTP calls for provider data, with a per-endpoint fetch time kept in
+/// preferences, so endpoints fetched recently are skipped on refresh.
 class ApiCaller {
   static const _defaultMaxAge = Duration(days: 7);
   static const requestTimeout = Duration(seconds: 20);
 
+  static String _fetchedKey(String providerCode, String endpointName) =>
+      "${providerCode}_${endpointName}_last_fetched";
+
+  /// Forgets when each of [providerCode]'s endpoints was fetched, so they're
+  /// all fetched again next time, as when its region's data is deleted.
+  static Future<void> forgetProvider(String providerCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where(
+      (key) => key.startsWith('${providerCode}_') && key.endsWith('_last_fetched'),
+    );
+    for (final key in keys.toList()) {
+      await prefs.remove(key);
+    }
+  }
+
+  /// A one-off GET, timing out after [requestTimeout].
   static Future<http.Response> get(Uri uri) =>
       _request((client) => client.get(uri));
 
@@ -51,9 +72,7 @@ class ApiCaller {
     Duration maxAge,
   ) async {
     final prefs = await SharedPreferences.getInstance();
-    final lastMillis = prefs.getInt(
-      "${providerCode}_${endpointName}_last_fetched",
-    );
+    final lastMillis = prefs.getInt(_fetchedKey(providerCode, endpointName));
     if (lastMillis == null) return true;
     final last = DateTime.fromMillisecondsSinceEpoch(lastMillis);
     final age = DateTime.now().difference(last);
@@ -63,11 +82,14 @@ class ApiCaller {
   Future<void> _markFetched(String providerCode, String endpointName) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(
-      "${providerCode}_${endpointName}_last_fetched",
+      _fetchedKey(providerCode, endpointName),
       DateTime.now().millisecondsSinceEpoch,
     );
   }
 
+  /// Fetches [url] and parses it, unless the endpoint was fetched within
+  /// [maxAge] and [forceRefresh] is off; then it returns null, and the caller
+  /// keeps the data it already has. Throws on a non-200 response.
   Future<T?> call<T>({
     required String providerCode,
     required String endpointName,
@@ -90,8 +112,10 @@ class ApiCaller {
     return data;
   }
 
+  /// Runs [items] through [call], [batchSize] at a time, retrying failures
+  /// up to [maxAttempts] times after [retryDelay].
+  // todo possible bug here in api reattempt code (from ios test run)
   Future<BatchCallResult<K, T>> callBatch<K, T>({
-    // possible bug here in api reattempt code (from ios test run)
     required String providerCode,
     required List<BatchCallItem<K, T>> items,
     int batchSize = 20,

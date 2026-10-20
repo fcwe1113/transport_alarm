@@ -25,68 +25,32 @@ Future<int> countCsvDataLines(
   return lines > 0 ? lines - 1 : 0;
 }
 
-Future<void> streamParseAndInsert(
-  File csvFile,
-  Future<void> Function(List<List<dynamic>> batch) insertBatch, {
-  int batchSize = 2000,
-  bool Function(List<dynamic> header, List<dynamic> row)? filter,
-  Future<List<List<dynamic>>> Function(
-    List<dynamic> header,
-    List<List<dynamic>> batch,
-  )?
-  filterBatch,
-  List<dynamic> Function(List<dynamic> header, List<dynamic> row)? transformRow,
-  CancellationToken? cancelToken,
-  void Function(int linesRead)? onLinesRead,
-}) => _streamParseAndInsert(
-  csvFile,
-  (header, batch) => insertBatch(batch),
-  batchSize: batchSize,
-  filter: filter,
-  filterBatch: filterBatch,
-  transformRow: transformRow,
-  cancelToken: cancelToken,
-  onLinesRead: onLinesRead,
+/// Keeps or drops one data row, given the header row.
+typedef CsvRowFilter = bool Function(List<dynamic> header, List<dynamic> row);
+
+/// Filters a whole batch at once, for checks that need a database query.
+typedef CsvBatchFilter = Future<List<List<dynamic>>> Function(
+  List<dynamic> header,
+  List<List<dynamic>> batch,
 );
 
+/// Rewrites one kept row before it's batched.
+typedef CsvRowTransform = List<dynamic> Function(List<dynamic> header, List<dynamic> row);
+
+/// Reads [csvFile] a line at a time and passes its data rows to
+/// [insertBatch] in batches of [batchSize], with the header row, so a large
+/// GTFS file never has to fit in memory. Rows go through [filter],
+/// [transformRow] and then [filterBatch] first. [onLinesRead] reports the
+/// rows read so far every [_linesPerReport] rows, and once at the end.
+/// Throws a FormatException for an empty file.
 Future<void> streamParseAndInsertWithHeader(
   File csvFile,
   Future<void> Function(List<dynamic> header, List<List<dynamic>> batch)
   insertBatch, {
   int batchSize = 2000,
-  bool Function(List<dynamic> header, List<dynamic> row)? filter,
-  Future<List<List<dynamic>>> Function(
-    List<dynamic> header,
-    List<List<dynamic>> batch,
-  )?
-  filterBatch,
-  List<dynamic> Function(List<dynamic> header, List<dynamic> row)? transformRow,
-  CancellationToken? cancelToken,
-  void Function(int linesRead)? onLinesRead,
-}) => _streamParseAndInsert(
-  csvFile,
-  insertBatch,
-  batchSize: batchSize,
-  filter: filter,
-  filterBatch: filterBatch,
-  transformRow: transformRow,
-  cancelToken: cancelToken,
-  onLinesRead: onLinesRead,
-);
-
-Future<void> _streamParseAndInsert(
-  File csvFile,
-  Future<void> Function(List<dynamic> header, List<List<dynamic>> batch)
-  insertBatch, {
-  required int batchSize,
-  required bool Function(List<dynamic> header, List<dynamic> row)? filter,
-  required Future<List<List<dynamic>>> Function(
-    List<dynamic> header,
-    List<List<dynamic>> batch,
-  )?
-  filterBatch,
-  required List<dynamic> Function(List<dynamic> header, List<dynamic> row)?
-  transformRow,
+  CsvRowFilter? filter,
+  CsvBatchFilter? filterBatch,
+  CsvRowTransform? transformRow,
   CancellationToken? cancelToken,
   void Function(int linesRead)? onLinesRead,
 }) async {
@@ -111,8 +75,11 @@ Future<void> _streamParseAndInsert(
     batch = <List<dynamic>>[];
   }
 
-  await for (final line in lines) {
+  await for (var line in lines) {
     if (line.trim().isEmpty) continue;
+    // Dart's UTF-8 decoder keeps a byte-order mark, which some feeds start
+    // with; left on, it would hide the first column's name.
+    if (!headerRead && line.startsWith('\uFEFF')) line = line.substring(1);
     // GTFS rows rarely contain quotes; split those directly, which gives the
     // same fields as the CSV decoder (it returns strings) at a fraction of
     // the cost, and only decode quoted lines.

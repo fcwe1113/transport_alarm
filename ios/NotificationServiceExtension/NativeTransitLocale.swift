@@ -9,18 +9,10 @@ struct NativeTransitLocale {
     /// IANA timezone identifier used for local transit service dates.
     let timeZoneIdentifier: String
 
-    /// This locale's GTFS database in the shared App Group directory. The app
-    /// keeps it at gtfs/<code>.db; older installs had gtfs/gtfs/<code>.db, used
-    /// only if that's the one present.
+    /// This locale's GTFS database in the shared App Group directory, which
+    /// the app keeps at gtfs/<code>.db.
     func databaseURL(in appGroupDirectory: URL) -> URL {
-        let current = appGroupDirectory.appendingPathComponent("gtfs/\(code).db")
-        let legacy = appGroupDirectory.appendingPathComponent("gtfs/gtfs/\(code).db")
-        let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: current.path),
-           fileManager.fileExists(atPath: legacy.path) {
-            return legacy
-        }
-        return current
+        appGroupDirectory.appendingPathComponent("gtfs/\(code).db")
     }
 
     /// Resolves the configured IANA timezone, or GMT if the identifier is invalid.
@@ -37,13 +29,14 @@ struct NativeTransitLocale {
 }
 
 enum NativeTransitLocales {
-    // Keep these codes aligned with the locale saved on BusAlarm in Dart.
+    // Keep these codes aligned with TransportAlarm.localeCode in Dart.
     private static let registered: [String: NativeTransitLocale] = [
         "hk": NativeTransitLocale(code: "hk", timeZoneIdentifier: "Asia/Hong_Kong"),
         "gb": NativeTransitLocale(code: "gb", timeZoneIdentifier: "Europe/London"),
     ]
 
-    /// Finds a locale configuration. Existing alarms without a locale code use HK.
+    /// Finds a locale configuration; an unknown or missing code means HK, as
+    /// TransportAlarm.fromJson defaults it.
     static func locale(for code: String?) -> NativeTransitLocale {
         guard let code, let locale = registered[code] else {
             return registered["hk"]!
@@ -64,12 +57,12 @@ enum NativeTransitLocales {
         return calendar
     }
 
-    /// Combines a calendar day with a local wall-clock minute, allowing
-    /// Calendar to account for timezone offset and daylight-saving changes.
-    static func date(windowStartMinutes: Int, on day: Date, calendar: Calendar) -> Date? {
+    /// Combines a calendar day with a wall-clock time in minutes after
+    /// midnight, letting Calendar handle the timezone and daylight saving.
+    static func date(minutesAfterMidnight minutes: Int, on day: Date, calendar: Calendar) -> Date? {
         calendar.date(
-            bySettingHour: windowStartMinutes / 60,
-            minute: windowStartMinutes % 60,
+            bySettingHour: minutes / 60,
+            minute: minutes % 60,
             second: 0,
             of: day,
             matchingPolicy: .nextTime,

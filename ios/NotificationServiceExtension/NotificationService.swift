@@ -1,6 +1,9 @@
 import Foundation
 import UserNotifications
 
+/// Runs for every alarm ping push: hands the ping to NativePingHandler, then
+/// replaces the push's placeholder text with what the ping did. Gives up
+/// with a timeout notice after 24 seconds, before iOS's own limit.
 final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var bestAttemptContent: UNMutableNotificationContent?
@@ -14,65 +17,65 @@ final class NotificationService: UNNotificationServiceExtension {
     ) {
         self.contentHandler = contentHandler
         bestAttemptContent = request.content.mutableCopy() as? UNMutableNotificationContent
-
-        guard let content = bestAttemptContent else {
+        guard bestAttemptContent != nil else {
             contentHandler(request.content)
             return
         }
 
         guard let pingID = Self.pingID(from: request.content.userInfo) else {
-            content.title = NativeLocalization.text("native.update_unavailable.title")
-            content.body = NativeLocalization.text("native.update_unavailable.ping")
-            Self.apply(.problem, to: content)
-            finish(content)
+            finish(title: NativeLocalization.text("native.update_unavailable.title"),
+                   body: NativeLocalization.text("native.update_unavailable.ping"),
+                   style: .problem)
             return
         }
-
         guard let container = AppGroup.containerURL else {
-            content.title = NativeLocalization.text("native.update_unavailable.title")
-            content.body = NativeLocalization.text("native.update_unavailable.storage")
-            Self.apply(.problem, to: content)
-            finish(content)
+            finish(title: NativeLocalization.text("native.update_unavailable.title"),
+                   body: NativeLocalization.text("native.update_unavailable.storage"),
+                   style: .problem)
             return
         }
 
-        let timeout = DispatchWorkItem { [weak self] in
-            guard let self, let content = self.bestAttemptContent else { return }
-            content.title = NativeLocalization.text("native.update_timeout.title")
-            content.body = NativeLocalization.text("native.update_timeout.body")
-            Self.apply(.problem, to: content)
-            self.finish(content)
-        }
+        let timeout = DispatchWorkItem { [weak self] in self?.finishWithTimeout() }
         timeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 24, execute: timeout)
 
         processingTask = Task { [weak self] in
-            guard let self else { return }
             let result = await NativePingHandler(appGroupDirectory: container).handle(pingID: pingID)
-            guard !Task.isCancelled, let content = self.bestAttemptContent else { return }
-            content.title = result.title
-            content.body = result.body
-            content.categoryIdentifier = result.categoryIdentifier ?? ""
-            Self.apply(result.style, to: content)
-            if let debugMessage = result.debugMessage {
-                content.body += "\n\nAlarm update detail: \(debugMessage)"
-            }
-            self.finish(content)
+            guard !Task.isCancelled else { return }
+            self?.finish(title: result.title, body: result.body, style: result.style, category: result.categoryIdentifier)
         }
     }
 
-    private func finish(_ content: UNMutableNotificationContent) {
+    override func serviceExtensionTimeWillExpire() {
+        finishWithTimeout()
+    }
+
+    private func finishWithTimeout() {
+        finish(title: NativeLocalization.text("native.update_timeout.title"),
+               body: NativeLocalization.text("native.update_timeout.body"),
+               style: .problem)
+    }
+
+    /// Shows the notice once. Everything happens on the main queue, so the
+    /// ping's result and the timeout can't both write the notification.
+    private func finish(title: String, body: String, style: PingAlertStyle, category: String? = nil) {
         DispatchQueue.main.async { [weak self] in
-            guard let self, !self.hasFinished else { return }
+            guard let self, !self.hasFinished, let content = self.bestAttemptContent else { return }
             self.hasFinished = true
             self.timeoutWorkItem?.cancel()
             self.processingTask?.cancel()
+            content.title = title
+            content.body = body
+            content.categoryIdentifier = category ?? ""
+            Self.apply(style, to: content)
             self.contentHandler?(content)
             self.contentHandler = nil
             self.bestAttemptContent = nil
         }
     }
 
+    /// The ping ID the Worker puts at the payload's top level, also accepted
+    /// under "data" or "aps".
     private static func pingID(from userInfo: [AnyHashable: Any]) -> String? {
         let aps = userInfo["aps"] as? [String: Any]
         let data = userInfo["data"] as? [String: Any]
@@ -82,14 +85,6 @@ final class NotificationService: UNNotificationServiceExtension {
             if let value = candidate as? NSNumber { return value.stringValue }
         }
         return nil
-    }
-
-    override func serviceExtensionTimeWillExpire() {
-        guard let content = bestAttemptContent else { return }
-        content.title = NativeLocalization.text("native.update_timeout.title")
-        content.body = NativeLocalization.text("native.update_timeout.body")
-        Self.apply(.problem, to: content)
-        finish(content)
     }
 
     /// Sets the sound and interruption level for a notice. The Worker sends

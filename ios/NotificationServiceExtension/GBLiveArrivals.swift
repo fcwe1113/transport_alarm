@@ -26,9 +26,11 @@ struct GBLiveArrivals {
 
     private static let maxConcurrentRequests = 3
     private static let pausedUntilKey = "bods_requests_paused_until"
+    /// London stops' ATCO codes start with this; TfL's API covers them.
+    private static let londonStopPrefix = "490"
 
     func fetch() async -> Result {
-        if stopID.hasPrefix("490") {
+        if stopID.hasPrefix(Self.londonStopPrefix) {
             return await fetchTfL()
         }
         return await fetchBods()
@@ -50,7 +52,7 @@ struct GBLiveArrivals {
             }
             return rows.compactMap { row -> Date? in
                 guard (row["lineName"] as? String) == route,
-                      matchesDestination(row["destinationName"] as? String, route: route),
+                      matchesDestination(row["destinationName"] as? String, route: route, tolerant: true),
                       let seconds = (row["timeToStation"] as? NSNumber)?.doubleValue else {
                     return nil
                 }
@@ -363,14 +365,21 @@ struct GBLiveArrivals {
     // MARK: Matching helpers
 
     /// BODS and TfL use underscores for spaces in destination names; compare
-    /// the cleaned name with the destination saved on the alarm.
-    private func matchesDestination(_ name: String?, route: String) -> Bool {
+    /// the cleaned name with the destination saved on the alarm. [tolerant]
+    /// (for TfL, whose names are often shorter or longer than the GTFS ones,
+    /// such as "Oxford Circus" for "Oxford Circus, Regent Street") also
+    /// accepts either name containing the other, ignoring case.
+    private func matchesDestination(_ name: String?, route: String, tolerant: Bool = false) -> Bool {
         guard let expected = routes[route] ?? nil, !expected.isEmpty else { return true }
         let cleaned = (name ?? "")
             .replacingOccurrences(of: "_", with: " ")
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-        return cleaned == expected
+        if cleaned == expected { return true }
+        guard tolerant, !cleaned.isEmpty else { return false }
+        let live = cleaned.lowercased()
+        let saved = expected.lowercased()
+        return live.contains(saved) || saved.contains(live)
     }
 
     // MARK: SQLite

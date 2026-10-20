@@ -9,9 +9,13 @@ import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
 import '../locale_registry.dart';
+import '../transit/models/route_colour_scheme.dart';
 import '../transit/models/transport_route.dart';
 import '../transit/models/gtfs_stop.dart';
 
+/// A map stop's bottom sheet. Normally it shows the stop's routes and its
+/// next arrivals, refreshed every 2 minutes and filtered by tapping a route.
+/// In [pickerMode], for choosing an alarm's stop, it lists the routes only.
 class StopRoutesSheet extends StatefulWidget {
   final GtfsStop stop;
   final bool pickerMode;
@@ -28,15 +32,21 @@ class StopRoutesSheet extends StatefulWidget {
 
 class _StopRoutesSheetState extends State<StopRoutesSheet> {
   Timer? _refreshTimer;
+  // Bumped every 2 minutes to reload the arrivals.
   int _refreshTick = 0;
-  String? _selectedRouteNumber;
+  // The routes the arrivals are filtered to; empty for every route.
+  final Set<String> _selectedRouteNumbers = {};
   late Future<List<TransportRoute>> _routesFuture;
+  // Kept between builds, so only a tick or a new route filter fetches live
+  // arrivals again, not every rebuild.
+  Future<List<RouteArrival>>? _arrivalsFuture;
 
   void _toggleRouteSelection(TransportRoute route) {
     setState(() {
-      _selectedRouteNumber = _selectedRouteNumber == route.routeNumber
-          ? null
-          : route.routeNumber;
+      if (!_selectedRouteNumbers.remove(route.routeNumber)) {
+        _selectedRouteNumbers.add(route.routeNumber);
+      }
+      _arrivalsFuture = null;
     });
   }
 
@@ -46,7 +56,10 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     _routesFuture = GtfsDatabase.forLocale(widget.stop.locale).getRoutesForGtfsStop(widget.stop.id);
     if (!widget.pickerMode) {
       _refreshTimer = Timer.periodic(const Duration(minutes: 2), (_) {
-        setState(() => _refreshTick++);
+        setState(() {
+          _refreshTick++;
+          _arrivalsFuture = null;
+        });
       });
     }
   }
@@ -59,15 +72,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.pickerMode) {
-      return _buildPickerContent(context);
-    } else {
-      return _buildFullContent(context);
-    }
-  }
-
-  Widget _buildPickerContent(BuildContext context) {
-    final db = GtfsDatabase.forLocale(widget.stop.locale);
+    // Half the screen: the map keeps the stop centred above it.
     return SafeArea(
       child: Container(
         height: MediaQuery.of(context).size.height * 0.5,
@@ -80,176 +85,165 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            Expanded(
-              child: FutureBuilder<List<TransportRoute>>(
-                future: db.getRoutesForGtfsStop(widget.stop.id),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const SizedBox(
-                      height: 32,
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-                  final routes = TransportRoute.dedupeByRouteNumber(
-                    snapshot.data ?? [],
-                  );
-                  if (routes.isEmpty)
-                    return Text(AppStrings.text('stop.no_routes'));
-                  return Scrollbar(
-                    child: ListView(
-                      children: routes
-                          .map(
-                            (r) => ListTile(
-                              // Sized to its label: a ListTile's leading
-                              // widget can't fill the tile's width.
-                              leading: _RoutePill(
-                                route: r,
-                                selected: _selectedRouteNumber == r.routeNumber,
-                                onTap: () => _toggleRouteSelection(r),
-                                fitContent: true,
-                              ),
-                              title: Text(
-                                r.destinationNameFor(AppStrings.languageCode),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  );
-                },
-              ),
-            ),
+            if (widget.pickerMode)
+              Expanded(child: _buildPickerRoutes())
+            else ...[
+              _buildRouteStrip(),
+              const SizedBox(height: 4),
+              Expanded(child: _buildArrivals()),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildFullContent(BuildContext context) {
-    // final db = GtfsDatabase.forLocale(widget.stop.locale);
-    return SafeArea(
-      child: Container(
-        height: MediaQuery.of(context).size.height * 0.5,
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.stop.displayNameFor(AppStrings.languageCode),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            FutureBuilder(
-              future: _routesFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const SizedBox(
-                    height: 32,
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                final routes = snapshot.data ?? [];
-                final dedupedRoutes = TransportRoute.dedupeByRouteNumber(
-                  routes,
-                );
-                if (dedupedRoutes.isEmpty) return const SizedBox.shrink();
-
-                return SizedBox(
-                  height: 32,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: dedupedRoutes
-                        .map(
-                          (route) => Padding(
-                            padding: const EdgeInsetsGeometry.only(right: 8),
-                            child: _RoutePill(
-                              route: route,
-                              selected:
-                                  _selectedRouteNumber == route.routeNumber,
-                              onTap: () => _toggleRouteSelection(route),
-                            ),
-                          ),
-                        )
-                        .toList(),
+  /// Picker mode's list of the stop's routes and their destinations.
+  Widget _buildPickerRoutes() {
+    return FutureBuilder<List<TransportRoute>>(
+      future: _routesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+            height: 32,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final routes = TransportRoute.dedupeByRouteNumber(
+          snapshot.data ?? [],
+        );
+        if (routes.isEmpty) {
+          return Text(AppStrings.text('stop.no_routes'));
+        }
+        return Scrollbar(
+          child: ListView(
+            children: routes
+                .map(
+                  (r) => ListTile(
+                    // Sized to its label: a ListTile's leading
+                    // widget can't fill the tile's width.
+                    leading: _RoutePill(route: r, fitContent: true),
+                    title: Text(
+                      r.destinationNameFor(AppStrings.languageCode),
+                    ),
                   ),
-                );
-              },
-            ),
-            const SizedBox(height: 4),
-            Expanded(
-              child: FutureBuilder(
-                key: ValueKey(_refreshTick),
-                future: _resolveArrivals(widget.stop, routeNumber: _selectedRouteNumber),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    // todo implement seamless background load
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final arrivals = snapshot.data ?? [];
-                  if (arrivals.isEmpty) {
-                    return Text(AppStrings.text('stop.no_departures'));
-                  }
-
-                  return Scrollbar(
-                    child: ListView(
-                      children: arrivals.map((a) {
-                        final label = a.minutesFromNow <= 0
-                            ? AppStrings.text('stop.due')
-                            : a.minutesFromNow > 60
-                            ? AppStrings.text('stop.hours', {
-                                'hours': (a.minutesFromNow / 60)
-                                    .toStringAsFixed(2),
-                              })
-                            : AppStrings.text('stop.minutes', {
-                                'minutes': a.minutesFromNow,
-                              });
-                        return ListTile(
-                          leading: _RoutePill(
-                            route: a.route,
-                            selected:
-                                _selectedRouteNumber == a.route.routeNumber,
-                            // onTap: () => _toggleRouteSelection(a.route),
-                            fitContent: true,
-                          ),
-                          title: Text(
-                            _arrivalDestination(a),
-                          ),
-                          subtitle: Text(
-                            AppStrings.text(
-                              a.isLive ? 'stop.live' : 'stop.scheduled',
-                            ),
-                          ),
-                          trailing: Text(
-                            label,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: a.isLive ? Colors.blueAccent : null,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
+                )
+                .toList(),
+          ),
+        );
+      },
     );
   }
 
+  /// A row of the stop's routes; tapping one filters the arrivals to it.
+  Widget _buildRouteStrip() {
+    return FutureBuilder(
+      future: _routesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+            height: _RoutePill.outerHeight,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final routes = snapshot.data ?? [];
+        final dedupedRoutes = TransportRoute.dedupeByRouteNumber(
+          routes,
+        );
+        if (dedupedRoutes.isEmpty) return const SizedBox.shrink();
+
+        return SizedBox(
+          height: _RoutePill.outerHeight,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: dedupedRoutes
+                .map(
+                  // Each pill already has space for its ring on both sides,
+                  // which makes the 8px gap between pills on its own.
+                  (route) => _RoutePill(
+                    route: route,
+                    selected: _selectedRouteNumbers.contains(route.routeNumber),
+                    onTap: () => _toggleRouteSelection(route),
+                  ),
+                )
+                .toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The next arrival of each route, or every arrival of the selected route.
+  Widget _buildArrivals() {
+    return FutureBuilder(
+      key: ValueKey(_refreshTick),
+      future: _arrivalsFuture ??= _resolveArrivals(widget.stop, routeNumbers: Set.of(_selectedRouteNumbers)),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          // todo implement seamless background load
+          return const Center(child: CircularProgressIndicator());
+        }
+        final arrivals = snapshot.data ?? [];
+        if (arrivals.isEmpty) {
+          return Text(AppStrings.text('stop.no_departures'));
+        }
+
+        return Scrollbar(
+          child: ListView(
+            children: arrivals.map((a) {
+              return ListTile(
+                leading: _RoutePill(route: a.route, fitContent: true),
+                title: Text(
+                  _arrivalDestination(a),
+                ),
+                subtitle: Text(
+                  AppStrings.text(
+                    a.isLive ? 'stop.live' : 'stop.scheduled',
+                  ),
+                ),
+                trailing: Text(
+                  _arrivalLabel(a.minutesFromNow),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: a.isLive ? Colors.blueAccent : null,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  String _arrivalLabel(int minutesFromNow) {
+    if (minutesFromNow <= 0) return AppStrings.text('stop.due');
+    if (minutesFromNow > 60) {
+      // "1 hr 25 min", rather than a fraction of an hour.
+      final hours = minutesFromNow ~/ 60;
+      final minutes = minutesFromNow % 60;
+      return minutes == 0
+          ? AppStrings.text('stop.hours', {'hours': hours})
+          : AppStrings.text('stop.hours_minutes', {'hours': hours, 'minutes': minutes});
+    }
+    return AppStrings.text('stop.minutes', {'minutes': minutesFromNow});
+  }
+
+  /// Live ETAs at [stop] from every provider that serves it. A provider
+  /// whose request fails is left out, so the rest still show.
   Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop) async {
     final operatorStopIds = await LocaleRegistry.getLocale(stop.locale).db
         .getOperatorStopIds(stop.id);
 
+    // Operator stop IDs are saved as "provider:id".
     final idsByProvider = <String, List<String>>{};
     for (final operatorStopId in operatorStopIds) {
-      final parts = operatorStopId.split(":");
-      final providerCode = parts[0];
-      final rawId = parts[1];
-      idsByProvider.putIfAbsent(providerCode, () => []).add(rawId);
+      final separator = operatorStopId.indexOf(":");
+      if (separator <= 0) continue;
+      idsByProvider
+          .putIfAbsent(operatorStopId.substring(0, separator), () => [])
+          .add(operatorStopId.substring(separator + 1));
     }
 
     final allEtas = <LiveEta>[];
@@ -257,17 +251,13 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     for (final entry in idsByProvider.entries) {
       final providerCode = entry.key;
       final rawIds = entry.value;
-      final provider = LocaleRegistry.getLocale(widget.stop.locale)
-          .transitProviders
-          .where((p) => p.providerCode == providerCode)
-          .firstOrNull;
-      if (provider == null) continue; // skip stops with no valid providers
+      final provider = LocaleRegistry.provider(stop.locale, providerCode);
+      if (provider == null) continue;
       for (final rawId in rawIds) {
         try {
-          final etas = await provider.fetchLiveEta(rawId);
-          allEtas.addAll(etas);
+          allEtas.addAll(await provider.fetchLiveEta(rawId));
         } catch (_) {
-          // do nothing
+          // Shown from the timetable instead.
         }
       }
     }
@@ -279,16 +269,18 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   /// destination when it has none, cleaned by the route's provider.
   String _arrivalDestination(RouteArrival arrival) {
     final languageCode = AppStrings.languageCode;
-    final provider = LocaleRegistry.getLocale(arrival.route.locale)
-        .transitProviders
-        .firstWhere((p) => p.providerCode == arrival.route.providerCode);
-    return provider.cleanDestination(
-      arrival.destination[languageCode] ??
-          arrival.route.destinationNameFor(languageCode),
-    );
+    final destination = arrival.destination[languageCode] ??
+        arrival.route.destinationNameFor(languageCode);
+    final provider = LocaleRegistry.provider(arrival.route.locale, arrival.route.providerCode);
+    return provider?.cleanDestination(destination) ?? destination;
   }
 
-  Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop, {String? routeNumber}) async {
+  /// Each route's next arrival at [stop], live where available and from the
+  /// timetable otherwise. With [routeNumbers] picked, every arrival of each
+  /// of those routes instead (all its live ones, or all its timetabled ones
+  /// when it has none live), soonest first.
+  Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop, {Set<String> routeNumbers = const {}}) async {
+    final showAll = routeNumbers.isNotEmpty;
     final db = GtfsDatabase.forLocale(stop.locale);
 
     final results = await Future.wait([
@@ -313,7 +305,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
 
     for (final group in routeGroups.values) {
       final representative = group.first;
-      if (routeNumber != null && routeNumber != representative.routeNumber) continue;
+      if (showAll && !routeNumbers.contains(representative.routeNumber)) continue;
 
       final matchingLive =
           liveEtas
@@ -321,23 +313,12 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
               .toList()
             ..sort((a, b) => a.etaTime!.compareTo(b.etaTime!));
       if (matchingLive.isNotEmpty) {
-        if (routeNumber == null) {
-          arrivals.add(
-            RouteArrival(
-              route: representative,
-              destination: matchingLive.first.destination,
-              minutesFromNow: matchingLive.first.minutesFromNow!,
-              isLive: true,
-            ),
-          );
-        } else {
-          arrivals.addAll(matchingLive.map((a) => RouteArrival(
-              route: representative,
-              destination: a.destination,
-              minutesFromNow: a.minutesFromNow!,
-              isLive: true
-          )));
-        }
+        arrivals.addAll((showAll ? matchingLive : matchingLive.take(1)).map((a) => RouteArrival(
+          route: representative,
+          destination: a.destination,
+          minutesFromNow: a.minutesFromNow!,
+          isLive: true,
+        )));
         continue;
       }
 
@@ -346,16 +327,12 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
               .where((d) => group.any((r) => d.routeShortName == r.routeNumber))
               .toList()
             ..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
-      if (matchingScheduled.isNotEmpty) {
-        arrivals.add(
-          RouteArrival(
-            route: representative,
-            destination: matchingScheduled.first.destination,
-            minutesFromNow: matchingScheduled.first.minutesFromNow,
-            isLive: false,
-          ),
-        );
-      }
+      arrivals.addAll((showAll ? matchingScheduled : matchingScheduled.take(1)).map((d) => RouteArrival(
+        route: representative,
+        destination: d.destination,
+        minutesFromNow: d.minutesFromNow,
+        isLive: false,
+      )));
     }
 
     arrivals.sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
@@ -363,10 +340,14 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 }
 
+/// A route pill. Given [onTap] (the route strip's pills), it's tappable and
+/// ringed when [selected]; otherwise it's a plain label.
 class _RoutePill extends StatelessWidget {
   final TransportRoute route;
   final bool selected;
   final VoidCallback? onTap;
+  /// Sizes the pill to its label, for use as a ListTile's leading widget,
+  /// which can't fill the tile's width.
   final bool fitContent;
 
   const _RoutePill({
@@ -378,33 +359,58 @@ class _RoutePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = LocaleRegistry.getLocale(route.locale).transitProviders
-        .firstWhere((p) => p.providerCode == route.providerCode);
-    final colours = provider.coloursForRoute(route);
+    final scheme = Theme.of(context).colorScheme;
+    final colours = LocaleRegistry.provider(route.locale, route.providerCode)?.coloursForRoute(route) ??
+        RouteColourScheme(iconColour: scheme.secondaryContainer, textColour: scheme.onSecondaryContainer);
 
-    return Material(
-      color: colours.iconColour,
-      borderRadius: BorderRadius.circular(11),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(11),
-        child: Container(
-          height: 28,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            border: selected
-                ? Border.all(color: colours.textColour, width: 2)
-                : null,
-            borderRadius: BorderRadius.circular(11),
-          ),
-          alignment: fitContent ? null : Alignment.center,
-          child: fitContent
-              ? Center(widthFactor: 1, child: _label(colours.textColour))
-              : _label(colours.textColour),
+    final label = Container(
+      height: _pillHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      alignment: fitContent ? null : Alignment.center,
+      child: fitContent
+          ? Center(widthFactor: 1, child: _label(colours.textColour))
+          : _label(colours.textColour),
+    );
+    final tap = onTap;
+    if (tap == null) {
+      return Material(
+        color: colours.iconColour,
+        borderRadius: BorderRadius.circular(_pillRadius),
+        child: label,
+      );
+    }
+
+    // The selection ring sits a gap outside the pill, so it never touches the
+    // pill's colour and shows against the sheet on every operator, in light
+    // or dark mode. The space is kept when unselected so nothing shifts.
+    return Container(
+      padding: const EdgeInsets.all(_ringGap),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: selected ? scheme.onSurface : Colors.transparent,
+          width: _ringWidth,
+        ),
+        borderRadius: BorderRadius.circular(_pillRadius + _ringGap + _ringWidth),
+      ),
+      child: Material(
+        color: colours.iconColour,
+        borderRadius: BorderRadius.circular(_pillRadius),
+        child: InkWell(
+          onTap: tap,
+          borderRadius: BorderRadius.circular(_pillRadius),
+          child: label,
         ),
       ),
     );
   }
+
+  static const _pillHeight = 28.0;
+  static const _pillRadius = 11.0;
+  static const _ringGap = 2.0;
+  static const _ringWidth = 2.0;
+
+  /// The pill's full height, ring and gap included.
+  static const outerHeight = _pillHeight + 2 * (_ringGap + _ringWidth);
 
   Widget _label(Color textColour) {
     return Text(

@@ -5,47 +5,61 @@ import 'alarm_route_config.dart';
 import '../transit/transport_mode.dart';
 import '../transit/models/repeat_pattern.dart';
 
-/// Transport Alarm object definition
+/// A saved alarm: rings a set number of minutes before a bus on the chosen
+/// routes reaches a stop, within a daily time window. Saved as JSON in
+/// alarms.json, which the iOS notification extension also reads and writes,
+/// so field names are shared with Swift.
 class TransportAlarm {
-  final String id; // maybe gen a uuid for it or something, this is local anyways so whatever
-  final Map<String, Map<String, String>> routeNumbers; // stores raw route numbers for deduping
+  /// Creation time in milliseconds, as a string; local to this device.
+  final String id;
+  /// Route number to its destination names by language code, so a route
+  /// with several destinations matches the one picked.
+  final Map<String, Map<String, String>> routeNumbers;
   final String gtfsStopId;
-  // API URLs are resolved when the alarm is created, so notification
-  // processing does not need GTFS to map this stop to an operator stop.
+  /// API URLs resolved when the alarm is created, so alarm checks don't
+  /// need GTFS to map this stop to an operator stop.
   final List<AlarmRouteConfig> routeApiConfigs;
-  // Locale key used for operator API and GTFS arrival lookups.
+  /// Locale key used for operator API and GTFS arrival lookups.
   final String localeCode;
   final TimeOfDay windowStart;
+  /// May be earlier than [windowStart], for a window crossing midnight.
   final TimeOfDay windowEnd;
-  final List<ThresholdState> thresholdStates; // ordered
+  /// Ordered from the largest minutes-before-arrival down, the order they ring in.
+  final List<ThresholdState> thresholdStates;
+  /// How many times a threshold rings before it's marked missed (iOS; Android
+  /// rings until acknowledged).
   final int maxRingsPerThreshold;
   final RepeatPattern repeat;
-  final bool liveOnly; // ignore schedule times if true
-  // True after this occurrence completes; cleared when its next repeat begins.
+  /// Ignores timetable arrivals and waits for a live bus.
+  final bool liveOnly;
+  /// True after this occurrence completes; cleared when its next repeat begins.
   final bool spent;
+  /// Shown on the ring notification.
   final String message;
-  final bool enabled; // indicates alarm enabled (similar to ios alarm ui alarm toggle)
+  final bool enabled;
+  /// The iOS server ping that drives this alarm.
   final String? pingId;
-  // Proves to the scheduling server that this device owns pingId; sent with
-  // every reschedule and ack.
+  /// Proves to the scheduling server that this device owns [pingId]; sent
+  /// with every reschedule and ack.
   final String? pingSecret;
-  // Cached distance from the active threshold, rather than distance to arrival.
+  /// Minutes until the active threshold at the last estimate, for when a
+  /// later fetch fails.
   final int? lastEstimatedMinutesUntilThreshold;
-  // Android stores local-device window bounds for the current occurrence.
+  /// Android: the current occurrence's window, as device-local times.
   final int? androidOccurrenceStartEpochSeconds;
   final int? androidOccurrenceEndEpochSeconds;
-  // Start of the visible Android progress timeline for this occurrence.
+  /// Android: start of the countdown's progress timeline for this occurrence.
   final int? androidProgressStartEpochSeconds;
-  // Preserve a single GTFS fallback bus while live ETA calls are failing.
+  /// Android: the timetable bus being counted down to while there's no live one.
   final int? androidFallbackArrivalEpochSeconds;
-  // Which live-data notice is showing (an AndroidLiveNotice name), or null.
+  /// Android: which live-data notice is showing (an AndroidLiveNotice name), or null.
   final String? androidLiveNotice;
 
   /// Mode used for user-facing arrival text, taken from the first selected route.
   String get transportMode =>
       routeApiConfigs.isEmpty ? TransportMode.bus : routeApiConfigs.first.mode;
 
-  const TransportAlarm({ //  constructor
+  const TransportAlarm({
     required this.id,
     required this.gtfsStopId,
     this.routeApiConfigs = const [],
@@ -108,6 +122,7 @@ class TransportAlarm {
         windowStart: windowStart ?? this.windowStart,
         windowEnd: windowEnd ?? this.windowEnd,
         thresholdStates: thresholdStates ?? this.thresholdStates,
+        maxRingsPerThreshold: maxRingsPerThreshold ?? this.maxRingsPerThreshold,
         repeat: repeat ?? this.repeat,
         liveOnly: liveOnly ?? this.liveOnly,
         spent: spent ?? this.spent,
@@ -184,7 +199,7 @@ class TransportAlarm {
     pingId: json['pingId'] as String?,
     pingSecret: json['pingSecret'] as String?,
     lastEstimatedMinutesUntilThreshold:
-        _cachedMinutesUntilThreshold(json),
+        json['lastEstimatedMinutesUntilThreshold'] as int?,
     androidOccurrenceStartEpochSeconds:
         json['androidOccurrenceStartEpochSeconds'] as int?,
     androidOccurrenceEndEpochSeconds:
@@ -196,29 +211,13 @@ class TransportAlarm {
     androidLiveNotice: json['androidLiveNotice'] as String?,
   );
 
-  static int? _cachedMinutesUntilThreshold(Map<String, dynamic> json) {
-    final explicit = json['lastEstimatedMinutesUntilThreshold'] as int?;
-    if (explicit != null) return explicit;
-
-    // Convert pre-threshold-cache data once when loading an existing alarm.
-    final arrivalEstimate = json['lastEstimatedMinutesUntilArrival'] as int?;
-    final states = (json['thresholdStates'] as List?)
-        ?.map((state) => Map<String, dynamic>.from(state as Map))
-        .toList();
-    if (arrivalEstimate == null || states == null) return null;
-    final active = states.where((state) {
-      final outcome = state['outcome'];
-      return outcome == 'pending' || outcome == 'ringing';
-    }).firstOrNull;
-    final thresholdMinutes = active?['minutesBeforeArrival'] as int?;
-    return thresholdMinutes == null ? null : arrivalEstimate - thresholdMinutes;
-  }
-
-  static TimeOfDay _minutesToTimeOfDay (int totalMinutes) =>
+  static TimeOfDay _minutesToTimeOfDay(int totalMinutes) =>
     TimeOfDay(hour: totalMinutes ~/ 60, minute: totalMinutes % 60);
 
-  int _toMinutes (TimeOfDay t) => t.hour * 60 + t.minute;
+  int _toMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
 
+  /// Whether [t] falls in the window, end minute included. Repeat days
+  /// aren't checked.
   bool isWithinWindow(TimeOfDay t) {
     final start = _toMinutes(windowStart);
     final end = _toMinutes(windowEnd);
@@ -232,7 +231,3 @@ class TransportAlarm {
   }
 }
 
-// iOS uses the same saved threshold outcomes as Android. The server ping ID is
-// kept while a threshold is ringing and is rescheduled every minute until the
-// user acknowledges it. Acknowledging advances to the next pending threshold;
-// after the final threshold, the ping is stopped or moved to the next repeat.

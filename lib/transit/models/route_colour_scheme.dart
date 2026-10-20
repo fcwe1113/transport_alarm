@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+/// A route pill's background and label colours.
 class RouteColourScheme {
   final Color iconColour;
   final Color textColour;

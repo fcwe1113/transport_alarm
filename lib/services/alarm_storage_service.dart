@@ -2,10 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 
+/// The saved alarms, in alarms.json in the App Group so the iOS
+/// notification extension reads and updates the same list.
 class AlarmStorageService {
   // Runs this isolate's read-modify-write operations one at a time, so two
   // updates can't read the same list and overwrite each other's changes.
@@ -22,16 +25,43 @@ class AlarmStorageService {
     return File("${(await AppGroupStorage.directory).path}/alarms.json");
   }
 
+  /// The saved alarms. An alarm that can't be read is skipped, and a file
+  /// that can't be read at all counts as no alarms, so one bad entry doesn't
+  /// break the whole list. Either way the file is first copied to
+  /// alarms.json.corrupt, since the next save drops what was skipped.
   Future<List<TransportAlarm>> loadAlarms() async {
     final file = await _file();
     if (!await file.exists()) return [];
-    final rawJson = await file.readAsString();
-    final List<dynamic> data = jsonDecode(rawJson);
-    return data.map((a) => TransportAlarm.fromJson(a as Map<String, dynamic>)).toList();
+    final List<dynamic> data;
+    try {
+      data = jsonDecode(await file.readAsString()) as List<dynamic>;
+    } catch (e) {
+      await _keepCorruptCopy(file, e);
+      return [];
+    }
+    final alarms = <TransportAlarm>[];
+    Object? firstError;
+    for (final entry in data) {
+      try {
+        alarms.add(TransportAlarm.fromJson(entry as Map<String, dynamic>));
+      } catch (e) {
+        firstError ??= e;
+      }
+    }
+    if (firstError != null) await _keepCorruptCopy(file, firstError);
+    return alarms;
   }
 
-  Future<void> saveAlarms(List<TransportAlarm> alarms) =>
-      _serialized(() => _save(alarms));
+  /// Copies an unreadable alarms file aside, once, for recovering by hand.
+  Future<void> _keepCorruptCopy(File file, Object error) async {
+    debugPrint("Could not read all saved alarms: $error");
+    try {
+      final copy = File('${file.path}.corrupt');
+      if (!await copy.exists()) await file.copy(copy.path);
+    } catch (_) {
+      // Nothing more to do; the readable alarms still load.
+    }
+  }
 
   Future<void> _save(List<TransportAlarm> alarms) async {
     final file = await _file();
@@ -59,35 +89,38 @@ class AlarmStorageService {
     await _save(alarms);
   });
 
-  Future<void> updateAlarm(TransportAlarm updated) => _serialized(() async {
-    final alarms = await loadAlarms();
-    final index = alarms.indexWhere((a) => a.id == updated.id);
-    if (index == -1) return;
-    alarms[index] = updated;
-    await _save(alarms);
-  });
+  /// Replaces the saved alarm with [updated]'s ID; does nothing if it's gone.
+  Future<void> updateAlarm(TransportAlarm updated) =>
+      _modify(updated.id, (_) => updated);
 
+  /// Saves an arrival [estimate] (minutes from now) as the time left until
+  /// the alarm's active threshold, which the iOS notification extension
+  /// falls back on when a fetch fails.
   Future<void> updateLastEstimate(String alarmId, int estimate) =>
+      _modify(alarmId, (alarm) {
+        final activeThreshold = alarm.thresholdStates
+            .where((state) =>
+                state.outcome == ThresholdOutcome.pending ||
+                state.outcome == ThresholdOutcome.ringing)
+            .firstOrNull;
+        if (activeThreshold == null) return null;
+        final minutesUntilThreshold = estimate - activeThreshold.minutesBeforeArrival;
+        if (alarm.lastEstimatedMinutesUntilThreshold == minutesUntilThreshold) return null;
+        return alarm.copyWith(lastEstimatedMinutesUntilThreshold: minutesUntilThreshold);
+      });
+
+  /// Replaces the alarm [alarmId] with what [change] returns, or leaves the
+  /// file untouched when the alarm is gone or [change] returns null.
+  Future<void> _modify(String alarmId, TransportAlarm? Function(TransportAlarm alarm) change) =>
       _serialized(() async {
-    final alarms = await loadAlarms();
-    final index = alarms.indexWhere((alarm) => alarm.id == alarmId);
-    if (index == -1) return;
-
-    final alarm = alarms[index];
-    final activeThreshold = alarm.thresholdStates
-        .where((state) =>
-            state.outcome == ThresholdOutcome.pending ||
-            state.outcome == ThresholdOutcome.ringing)
-        .firstOrNull;
-    if (activeThreshold == null) return;
-    final minutesUntilThreshold = estimate - activeThreshold.minutesBeforeArrival;
-    if (alarm.lastEstimatedMinutesUntilThreshold == minutesUntilThreshold) return;
-
-    alarms[index] = alarm.copyWith(
-      lastEstimatedMinutesUntilThreshold: minutesUntilThreshold,
-    );
-    await _save(alarms);
-  });
+        final alarms = await loadAlarms();
+        final index = alarms.indexWhere((alarm) => alarm.id == alarmId);
+        if (index == -1) return;
+        final changed = change(alarms[index]);
+        if (changed == null) return;
+        alarms[index] = changed;
+        await _save(alarms);
+      });
 
   Future<void> deleteAlarm(String id) => _serialized(() async {
     final alarms = await loadAlarms();

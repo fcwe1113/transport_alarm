@@ -3,11 +3,18 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// The app language, the enabled transit regions, and setup progress, in
+/// preferences. Region pickers edit an in-memory draft of the enabled
+/// regions, which is only saved when confirmed.
+///
+/// Enabled regions map a locale code to its own setting: empty for Hong
+/// Kong, and the comma-separated ATCO area codes for Great Britain.
 class LocaleSelectionService {
   static const _key = "enabled_locales";
-  // static const _enabledUkRegionsKey = "enabled_uk_regions";
   static const _appLanguageKey = "app_language_code";
   static const _setupCompletedKey = "setup_completed";
+  // The selection before a locale change, kept until its download succeeds.
+  static const _pendingChangeKey = "locale_change_previous";
   static Map<String, String>? _localeSelectionDraft;
   static final ValueNotifier<Map<String, String>> _draftNotifier =
       ValueNotifier<Map<String, String>>(<String, String>{});
@@ -15,6 +22,7 @@ class LocaleSelectionService {
   static ValueListenable<Map<String, String>>
       get localeSelectionDraftListenable => _draftNotifier;
 
+  /// The saved app language, or English (saved as the choice) when none is.
   Future<String> getAppLanguageCode() async {
     final prefs = await SharedPreferences.getInstance();
     final code = prefs.getString(_appLanguageKey);
@@ -66,12 +74,6 @@ class LocaleSelectionService {
     return Map<String, String>.from(_localeSelectionDraft!);
   }
 
-  /// Updates only the in-memory draft; preferences are unchanged until commit.
-  void setLocaleSelectionDraft(Map<String, String> locales) {
-    _localeSelectionDraft = Map<String, String>.from(locales);
-    _draftNotifier.value = Map<String, String>.from(_localeSelectionDraft!);
-  }
-
   /// Adds or removes one locale entry without writing persistent preferences.
   void updateLocaleSelectionDraftEntry(String code, String? value) {
     _localeSelectionDraft ??= <String, String>{};
@@ -92,41 +94,43 @@ class LocaleSelectionService {
     _draftNotifier.value = <String, String>{};
   }
 
+  /// One saved entry, a JSON object of locale code to setting.
   Map<String, String> _decodeLocale(String savedLocale) {
+    final decoded = jsonDecode(savedLocale);
+    if (decoded is Map<String, dynamic> &&
+        decoded.values.every((value) => value is String)) {
+      return decoded.cast<String, String>();
+    }
+    throw FormatException('Invalid saved locale map: $savedLocale');
+  }
+
+  /// Records [previous] as the selection to go back to if the locale change
+  /// starting now doesn't finish, even if the app is killed partway.
+  Future<void> markLocaleChangePending(Map<String, String> previous) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pendingChangeKey, jsonEncode(previous));
+  }
+
+  /// Called once a locale change has succeeded, or been undone.
+  Future<void> clearPendingLocaleChange() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_pendingChangeKey);
+  }
+
+  /// Puts back the selection from before a locale change that never
+  /// finished, such as when the app was killed during its download, so the
+  /// enabled regions match the installed data. Call at launch, before
+  /// anything reads the enabled regions.
+  Future<void> rollBackUnfinishedLocaleChange() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_pendingChangeKey);
+    if (saved == null) return;
     try {
-      final decoded = jsonDecode(savedLocale);
-      if (decoded is Map<String, dynamic> &&
-          decoded.keys.every((key) => decoded[key] is String)) {
-        return decoded.map((key, value) => MapEntry(key, value as String));
-      }
+      await setEnabledLocales(_decodeLocale(saved));
     } on FormatException {
-      // Older builds stored Dart's Map.toString() output, which is not JSON.
+      // Nothing usable to go back to; keep the current selection.
     }
-
-    // Read legacy values such as `{code: hk, displayName: Hong Kong}`.
-    final value = savedLocale.trim();
-    if (!value.startsWith('{') || !value.endsWith('}')) {
-      throw FormatException('Invalid saved locale map: $savedLocale');
-    }
-    final body = value.substring(1, value.length - 1).trim();
-    if (body.isEmpty) return <String, String>{};
-
-    final result = <String, String>{};
-    final entries = RegExp(
-      r'(?:^|,\s*)([^,:{}]+):\s*(.*?)(?=,\s*[^,:{}]+:\s*|$)',
-    ).allMatches(body);
-    for (final entry in entries) {
-      final key = entry.group(1)?.trim();
-      final entryValue = entry.group(2)?.trim();
-      if (key == null || key.isEmpty || entryValue == null) {
-        throw FormatException('Invalid saved locale map: $savedLocale');
-      }
-      result[key] = entryValue;
-    }
-    if (result.isEmpty) {
-      throw FormatException('Invalid saved locale map: $savedLocale');
-    }
-    return result;
+    await prefs.remove(_pendingChangeKey);
   }
 
   /// Installs from before the setup_completed flag existed count as set up

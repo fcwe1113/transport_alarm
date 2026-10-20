@@ -1,11 +1,13 @@
-/// transport stop data struct definition file
+/// An operator's stop, as fetched from its API (HK operators), before it's
+/// matched to a GTFS stop.
 class TransportStop {
-  final String id; // composited into providerCode:id
-  final Map<String, String> names; // {"lang1": "name1", "lang2": "name2", ...}, defaults to "en"
+  /// "providerCode:rawId", such as "kmb:" plus KMB's stop ID.
+  final String id;
+  /// Keyed by language code.
+  final Map<String, String> names;
   final double? lat;
   final double? lng;
   final String providerCode;
-  final List<String> servingRouteIds;
 
   const TransportStop({
     required this.id,
@@ -13,49 +15,5 @@ class TransportStop {
     this.lat,
     this.lng,
     required this.providerCode,
-    this.servingRouteIds = const [] // defaults into empty list
   });
-
-  String nameFor(String locale) {
-    final localizedName = names[locale]?.trim();
-    if (localizedName != null && localizedName.isNotEmpty) return localizedName;
-    final englishName = names['en']?.trim();
-    if (englishName != null && englishName.isNotEmpty) return englishName;
-    return id;
-  }
-
-  // special constructor for a placeholder stop object where only the name is known
-  TransportStop.placeholder({
-    required String id,
-    required String name,
-    required String providerCode,
-  }) : this(
-      id: id,
-      names: {"en": name},
-      providerCode: providerCode,
-  );
-
-  bool get isResolved => lat != null && lng != null;
-
-  TransportStop copyWith({List<String>? servingRouteIds}) {
-    return TransportStop(id: id, names: names, providerCode: providerCode, lat: lat, lng: lng, servingRouteIds: servingRouteIds ?? this.servingRouteIds);
-  }
-
-  Map<String, dynamic> toJson() => {
-    "id": id,
-    "names": names,
-    "lat": lat,
-    "lng": lng,
-    "providerCode": providerCode,
-    "servingRouteIds": servingRouteIds
-  };
-
-  static TransportStop fromJson(Map<String, dynamic> json) => TransportStop(
-      id: json["id"],
-      names: Map<String, String>.from(json["names"]),
-      lat: json["lat"],
-      lng: json["lng"],
-      providerCode: json["providerCode"],
-      servingRouteIds: List<String>.from(json["servingRouteIds"] ?? [])
-  );
 }

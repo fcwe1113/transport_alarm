@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
+
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/models/scheduled_departure.dart';
@@ -21,6 +23,13 @@ class GtfsDatabase {
   static final Map<String, Future<void>> _replacementBarriers = {};
   static final Map<String, Future<void>> _refreshTails = {};
   static final Map<String, String> _deferredStagingPaths = {};
+  // Each install writes a new value to gtfs/<locale>.generation. An isolate
+  // that didn't do the install, such as Android's background alarm isolate,
+  // sees the value change and reopens, instead of reading the replaced file
+  // through its old connection for as long as it lives.
+  static final Map<String, String?> _openedGenerations = {};
+  static final Map<String, DateTime> _generationCheckedAt = {};
+  static const _generationCheckInterval = Duration(seconds: 15);
   final String locale;
   final String? _explicitDatabasePath;
   // Shared per stop so concurrent callers (route pills, arrivals, stop sheet)
@@ -44,12 +53,19 @@ class GtfsDatabase {
     if (_explicitDatabasePath == null) {
       await _replacementBarriers[locale];
     }
-    if (_databases.containsKey(_cacheKey) && _databases[_cacheKey]!.isOpen) {
-      return _databases[_cacheKey]!;
+    final cached = _databases[_cacheKey];
+    if (cached != null && cached.isOpen) {
+      if (_explicitDatabasePath != null || !await _replacedElsewhere()) {
+        return cached;
+      }
+      _databases.remove(_cacheKey);
+      _routesForStopCache.clear();
+      // Queries already running on the old connection get time to finish.
+      unawaited(Future<void>.delayed(const Duration(seconds: 30), cached.close));
     }
     late final File databaseFile;
     if (_explicitDatabasePath != null) {
-      databaseFile = File(_explicitDatabasePath!);
+      databaseFile = File(_explicitDatabasePath);
       await databaseFile.parent.create(recursive: true);
     } else {
       final dir = Directory('${(await AppGroupStorage.directory).path}/gtfs');
@@ -65,9 +81,37 @@ class GtfsDatabase {
         await legacyFile.copy(databaseFile.path);
       }
     }
+    if (_explicitDatabasePath == null) {
+      _openedGenerations[locale] = await _readGeneration();
+      _generationCheckedAt[locale] = DateTime.now();
+    }
     final db = await _initDB(databaseFile.path);
     _databases[_cacheKey] = db;
     return db;
+  }
+
+  File _generationFile(String gtfsDirectory) =>
+      File('$gtfsDirectory/$locale.generation');
+
+  Future<String?> _readGeneration() async {
+    try {
+      final file = _generationFile('${(await AppGroupStorage.directory).path}/gtfs');
+      return await file.exists() ? await file.readAsString() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Whether another isolate has installed a new database since this one
+  /// opened it. Checked at most every [_generationCheckInterval].
+  Future<bool> _replacedElsewhere() async {
+    final now = DateTime.now();
+    final lastCheck = _generationCheckedAt[locale];
+    if (lastCheck != null && now.difference(lastCheck) < _generationCheckInterval) {
+      return false;
+    }
+    _generationCheckedAt[locale] = now;
+    return await _readGeneration() != _openedGenerations[locale];
   }
 
   /// Builds a replacement in a separate SQLite file and installs it only after
@@ -153,6 +197,15 @@ class GtfsDatabase {
         _databases[locale] = installed;
         _routesForStopCache.clear();
         await _validateSnapshot(installed);
+        // Tell other isolates to reopen; this one already has the new file.
+        // Failing to isn't a failed install, so it mustn't roll it back.
+        final generation = DateTime.now().microsecondsSinceEpoch.toString();
+        try {
+          await _generationFile(dbDir.path).writeAsString(generation, flush: true);
+          _openedGenerations[locale] = generation;
+        } catch (e) {
+          debugPrint("Could not record the $locale database generation: $e");
+        }
         if (await backupFile.exists()) {
           try {
             await backupFile.delete();
@@ -189,6 +242,43 @@ class GtfsDatabase {
         if (identical(_refreshTails[locale], refreshFinished.future)) {
           _refreshTails.remove(locale);
         }
+      }
+    }
+  }
+
+  /// Deletes the locale's database and its side files, when the region is
+  /// turned off. Waits for any refresh of it to finish first, and holds new
+  /// lookups until the files are gone. Other isolates drop their connection
+  /// once they see the generation file is gone.
+  Future<void> deleteLocaleData() async {
+    final previousRefresh = _refreshTails[locale] ?? Future<void>.value();
+    final deleteFinished = Completer<void>();
+    _refreshTails[locale] = deleteFinished.future;
+    await previousRefresh;
+
+    final barrier = Completer<void>();
+    _replacementBarriers[locale] = barrier.future;
+    try {
+      final cachedDb = _databases.remove(locale);
+      if (cachedDb != null && cachedDb.isOpen) await cachedDb.close();
+      _routesForStopCache.clear();
+      _deferredStagingPaths.remove(locale);
+      _openedGenerations.remove(locale);
+      _generationCheckedAt.remove(locale);
+
+      final dbPath = '${(await AppGroupStorage.directory).path}/gtfs/$locale.db';
+      for (final suffix in ['', '-journal', '-wal', '-shm', '.backup']) {
+        final file = File('$dbPath$suffix');
+        if (await file.exists()) await file.delete();
+      }
+      final generationFile = _generationFile(File(dbPath).parent.path);
+      if (await generationFile.exists()) await generationFile.delete();
+    } finally {
+      _replacementBarriers.remove(locale);
+      barrier.complete();
+      deleteFinished.complete();
+      if (identical(_refreshTails[locale], deleteFinished.future)) {
+        _refreshTails.remove(locale);
       }
     }
   }
@@ -266,9 +356,6 @@ class GtfsDatabase {
           await db.execute(
             "ALTER TABLE gtfs_routes ADD COLUMN agency_id TEXT NOT NULL DEFAULT ''",
           );
-          // await db.execute(
-          //   "ALTER TABLE gtfs_routes ADD COLUMN agency_name TEXT NOT NULL DEFAULT ''",
-          // );
         }
       },
     );
@@ -382,9 +469,6 @@ class GtfsDatabase {
       agency_noc TEXT
     )''');
   }
-
-  // String _val(List<dynamic> row, int index) =>
-  //     row.length > index ? row[index].toString() : "";
 
   /// Inserts [rows] (values in [columns] order) with as few statements as
   /// possible: many rows per INSERT, within SQLite's 999 bound-parameter limit
@@ -634,8 +718,8 @@ class GtfsDatabase {
     await db.transaction((txn) => _insertRows(txn, 'gtfs_stop_times', const ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'], [
       for (final row in rows) [
           value(row, tripIdIndex),
-          value(row, arrivalTimeIndex),
-          value(row, departureTimeIndex),
+          _normalizedTime(value(row, arrivalTimeIndex)),
+          _normalizedTime(value(row, departureTimeIndex)),
           value(row, stopIdIndex),
           int.tryParse(value(row, stopSeqIndex)) ?? 0,
         ],
@@ -668,6 +752,17 @@ class GtfsDatabase {
         "origin_text": jsonEncode(route.originText),
         "destination_text": jsonEncode(route.destinationText),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Removes operator routes and their stop lists, such as a direction a
+  /// provider lists but doesn't run.
+  Future<void> deleteOperatorRoutes(Iterable<String> operatorRouteIds) async {
+    final batch = (await database).batch();
+    for (final id in operatorRouteIds) {
+      batch.delete("route_stops", where: "operator_route_id = ?", whereArgs: [id]);
+      batch.delete("operator_routes", where: "operator_route_id = ?", whereArgs: [id]);
     }
     await batch.commit(noResult: true);
   }
@@ -757,8 +852,8 @@ class GtfsDatabase {
       processedTrips++;
       if (processedTrips % 500 == 0) {
         await batch.commit(noResult: true);
-        batch = db.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
-        // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
+        // A fresh batch every 500 trips keeps memory down and each commit fast.
+        batch = db.batch();
       }
     }
     await batch.commit(noResult: true);
@@ -826,7 +921,7 @@ class GtfsDatabase {
           }
         }
         ambiguousMatches.add(
-          "${opStopId} (name matched ${nameCandidates.length} GTFS stops, picked nearest)",
+          "$opStopId (name matched ${nameCandidates.length} GTFS stops, picked nearest)",
         );
       } else {
         bestGtfsId = null;
@@ -853,18 +948,17 @@ class GtfsDatabase {
         "gtfs_stop_id": bestGtfsId,
         "match_confidence": bestDistance,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-      // print("linked provider stop id ${opStopId} to gtfs stop id ${bestGtfsId}");
     }
 
     await batch.commit(noResult: true);
 
     if (ambiguousMatches.isNotEmpty) {
-      print(
-        "${ambiguousMatches.length} operator stops matched ambigiously (top 2 candidates within 20m): ${ambiguousMatches.join(", ")}",
+      debugPrint(
+        "${ambiguousMatches.length} operator stops matched several GTFS stops by name: ${ambiguousMatches.join(", ")}",
       );
     }
     if (noMatches.isNotEmpty) {
-      print(
+      debugPrint(
         "${noMatches.length} matched by proximity only (no name match found): ${noMatches.join(", ")}",
       );
     }
@@ -974,14 +1068,67 @@ class GtfsDatabase {
     return rows.map((row) => row['operator_stop_id'] as String).toList();
   }
 
+  /// The next [limit] timetabled departures from [stopId], on the locale's
+  /// clock. Trips from yesterday's service day still running after midnight
+  /// (GTFS times of 24:00:00 and later) are included, with their times
+  /// brought back to today's.
   Future<List<ScheduledDeparture>> getUpcomingDepartures(
     String stopId, {
     int limit = 5,
   }) async {
     final db = await database;
     final now = LocaleRegistry.getLocale(locale).config.nowInLocale();
+    final today = DateTime.utc(now.year, now.month, now.day);
+    final yesterday = DateTime.utc(now.year, now.month, now.day - 1);
 
-    final weekDays = [
+    final rows = [
+      ...await _departuresOnServiceDay(
+        db,
+        stopId,
+        today,
+        after: _secondsToTime(now.hour * 3600 + now.minute * 60 + now.second),
+        limit: limit,
+      ),
+      for (final row in await _departuresOnServiceDay(
+        db,
+        stopId,
+        yesterday,
+        after: _secondsToTime((now.hour + 24) * 3600 + now.minute * 60 + now.second),
+        limit: limit,
+      ))
+        {
+          ...row,
+          "arrival_time": _secondsToTime(
+            _timeToSeconds(row["arrival_time"] as String) - 24 * 3600,
+          ),
+        },
+    ]..sort((a, b) => (a["arrival_time"] as String).compareTo(b["arrival_time"] as String));
+
+    return rows.take(limit).map((row) {
+      final destinationName = row["destination_name"] as String?;
+      return ScheduledDeparture(
+        routeShortName: row["route_short_name"] as String,
+        arrivalTime: row["arrival_time"] as String,
+        // todo fix multilang support
+        destination: destinationName == null ? {} : {"en": destinationName},
+        directionId: row["direction_id"] as int?,
+        tripId: row["trip_id"] as String?,
+        locale: locale,
+      );
+    }).toList();
+  }
+
+  /// Departures from [stopId] after the GTFS time [after] on the service
+  /// day [day], counting calendar_dates exceptions, with each trip's last
+  /// stop as its destination.
+  Future<List<Map<String, Object?>>> _departuresOnServiceDay(
+    Database db,
+    String stopId,
+    DateTime day, {
+    required String after,
+    required int limit,
+  }) {
+    const weekDays = [
       "monday",
       "tuesday",
       "wednesday",
@@ -990,26 +1137,40 @@ class GtfsDatabase {
       "saturday",
       "sunday",
     ];
-    final currentDayColumn = weekDays[now.weekday - 1];
-
-    final timeStr =
-        "${now.hour.toString().padLeft(2, "0")}:${now.minute.toString().padLeft(2, "0")}:${now.second.toString().padLeft(2, "0")}";
+    final dayColumn = weekDays[day.weekday - 1];
     final dateStr =
-        "${now.year}${now.month.toString().padLeft(2, "0")}${now.day.toString().padLeft(2, "0")}";
+        "${day.year}${day.month.toString().padLeft(2, "0")}${day.day.toString().padLeft(2, "0")}";
 
-    final List<Map<String, dynamic>> rows = await db.rawQuery(
+    return db.rawQuery(
       '''
     WITH upcoming AS (
       SELECT r.route_short_name, st.arrival_time, t.direction_id, t.trip_id
       FROM gtfs_stop_times AS st
       INNER JOIN gtfs_trips AS t ON st.trip_id = t.trip_id
       INNER JOIN gtfs_routes AS r ON t.route_id = r.route_id
-      INNER JOIN gtfs_calendar AS c ON t.service_id = c.service_id
       WHERE st.stop_id = ?
         AND st.arrival_time > ?
-        AND c.$currentDayColumn = 1
-        AND c.start_date <= ?
-        AND c.end_date >= ?
+        -- Runs that day by its weekly calendar or as an added date, and
+        -- isn't removed for that date.
+        AND (
+          EXISTS (
+            SELECT 1 FROM gtfs_calendar AS c
+            WHERE c.service_id = t.service_id
+              AND c.$dayColumn = 1
+              AND c.start_date <= ?
+              AND c.end_date >= ?
+          )
+          OR EXISTS (
+            SELECT 1 FROM gtfs_calendar_dates AS added
+            WHERE added.service_id = t.service_id
+              AND added.date = ? AND added.exception_type = 1
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM gtfs_calendar_dates AS removed
+          WHERE removed.service_id = t.service_id
+            AND removed.date = ? AND removed.exception_type = 2
+        )
       ORDER BY st.arrival_time ASC
       LIMIT ?
     )
@@ -1023,21 +1184,8 @@ class GtfsDatabase {
     FROM upcoming AS u
     ORDER BY u.arrival_time ASC
     ''',
-      [stopId, timeStr, dateStr, dateStr, limit],
+      [stopId, after, dateStr, dateStr, dateStr, dateStr, limit],
     );
-
-    return rows.map((row) {
-      final destinationName = row["destination_name"] as String?;
-      return ScheduledDeparture(
-        routeShortName: row["route_short_name"] as String,
-        arrivalTime: row["arrival_time"] as String,
-        // todo fix multilang support
-        destination: destinationName == null ? {} : {"en": destinationName},
-        directionId: row["direction_id"] as int?,
-        tripId: row["trip_id"] as String?,
-        locale: locale,
-      );
-    }).toList();
   }
 
   Future<List<GtfsStop>> getAllGtfsStops({String? languageCode}) async {
@@ -1322,199 +1470,25 @@ class GtfsDatabase {
     return rows.map((row) => row["route_number"] as String).toList();
   }
 
-  /// Drops schedule records that became unrelated after area filtering.
-  Future<void> removeUnreferencedGtfsRows() async {
-    final db = await database;
-    await db.transaction((txn) async {
-      await txn.execute('''
-        DELETE FROM gtfs_trips
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gtfs_stop_times st WHERE st.trip_id = gtfs_trips.trip_id
-        )
-      ''');
-      await txn.execute('''
-        DELETE FROM gtfs_routes
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gtfs_trips t WHERE t.route_id = gtfs_routes.route_id
-        )
-      ''');
-      await txn.execute('''
-        DELETE FROM gtfs_calendar
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gtfs_trips t WHERE t.service_id = gtfs_calendar.service_id
-        )
-      ''');
-      await txn.execute('''
-        DELETE FROM gtfs_calendar_dates
-        WHERE NOT EXISTS (
-          SELECT 1 FROM gtfs_trips t
-          WHERE t.service_id = gtfs_calendar_dates.service_id
-        )
-      ''');
-    });
-  }
-
-  /// Removes UK feed records that are outside the selected ATCO areas and
-  /// creates the operator-facing records consumed by the app's existing UI.
-  Future<void> materializeGbOperatorData() async {
-    final db = await database;
-    await db.transaction((txn) async {
-      final stops = await txn.query('gtfs_stops');
-      var stopBatch = txn.batch();
-      var processedStops = 0;
-      for (final stop in stops) {
-        final stopId = stop['stop_id'] as String;
-        final operatorStopId = 'uk:$stopId';
-        stopBatch.insert('operator_stops', {
-          'operator_stop_id': operatorStopId,
-          'provider_code': 'uk',
-          'names': jsonEncode({'en': stop['stop_name'] ?? stopId}),
-          'lat': stop['stop_lat'],
-          'lng': stop['stop_lon'],
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-        stopBatch.insert('stop_mapping', {
-          'operator_stop_id': operatorStopId,
-          'gtfs_stop_id': stopId,
-          'match_confidence': 1.0,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-        processedStops++;
-        if (processedStops % 500 == 0) {
-          await stopBatch.commit(noResult: true);
-          stopBatch = txn.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
-          // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
-        }
-      }
-      await stopBatch.commit(noResult: true);
-
-      final routeDirections = await txn.rawQuery('''
-        SELECT DISTINCT t.route_id, COALESCE(t.direction_id, 0) AS direction_id,
-               r.route_short_name, r.route_long_name, t.trip_headsign
-        FROM gtfs_trips t
-        INNER JOIN gtfs_routes r ON r.route_id = t.route_id
-        INNER JOIN gtfs_stop_times st ON st.trip_id = t.trip_id
-        ORDER BY t.route_id, direction_id
-      ''');
-      for (final routeDirection in routeDirections) {
-        final routeId = routeDirection['route_id'] as String;
-        final directionId = routeDirection['direction_id'] as int? ?? 0;
-        final operatorRouteId = 'uk:$routeId:$directionId';
-        final tripRows = await txn.query(
-          'gtfs_trips',
-          columns: ['trip_id'],
-          where: 'route_id = ? AND COALESCE(direction_id, 0) = ?',
-          whereArgs: [routeId, directionId],
-          limit: 1,
-        );
-        if (tripRows.isEmpty) continue;
-        final times = await txn.query(
-          'gtfs_stop_times',
-          where: 'trip_id = ?',
-          whereArgs: [tripRows.first['trip_id']],
-          orderBy: 'stop_sequence ASC',
-        );
-        if (times.isEmpty) continue;
-        final routeNumber =
-            (routeDirection['route_short_name'] as String?)
-                    ?.trim()
-                    .isNotEmpty ==
-                true
-            ? (routeDirection['route_short_name'] as String).trim()
-            : ((routeDirection['route_long_name'] as String?)
-                          ?.trim()
-                          .isNotEmpty ==
-                      true
-                  ? (routeDirection['route_long_name'] as String).trim()
-                  : routeId);
-        final originRow = await txn.query(
-          'gtfs_stops',
-          columns: ['stop_name'],
-          where: 'stop_id = ?',
-          whereArgs: [times.first['stop_id']],
-          limit: 1,
-        );
-        final destinationRow = await txn.query(
-          'gtfs_stops',
-          columns: ['stop_name'],
-          where: 'stop_id = ?',
-          whereArgs: [times.last['stop_id']],
-          limit: 1,
-        );
-        final origin = originRow.isEmpty
-            ? ''
-            : '${originRow.first['stop_name'] ?? ''}';
-        final fallbackDestination = destinationRow.isEmpty
-            ? ''
-            : '${destinationRow.first['stop_name'] ?? ''}';
-        final headsign =
-            (routeDirection['trip_headsign'] as String?)?.trim() ?? '';
-        final destination = headsign.isNotEmpty
-            ? headsign
-            : fallbackDestination;
-        await txn.insert('operator_routes', {
-          'operator_route_id': operatorRouteId,
-          'provider_code': 'uk',
-          'route_number': routeNumber,
-          'bound': '$directionId',
-          'names': jsonEncode({'en': routeNumber}),
-          'origin_text': jsonEncode({'en': origin}),
-          'destination_text': jsonEncode({'en': destination}),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-        var routeStopBatch = txn.batch();
-        var sequence = 0;
-        var processedRouteStops = 0;
-        for (final time in times) {
-          final stopId = time['stop_id'] as String;
-          routeStopBatch.insert('route_stops', {
-            'operator_route_id': operatorRouteId,
-            'operator_stop_id': 'uk:$stopId',
-            'stop_sequence': sequence++,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-          processedRouteStops++;
-          if (processedRouteStops % 500 == 0) {
-            await routeStopBatch.commit(noResult: true);
-            routeStopBatch = txn.batch(); // restarting commit batch lowers memory use and makes each batch process much faster
-            // print("committed 500 interpolations (${processedTrips}/${tripIds.length})");
-          }
-        }
-        await routeStopBatch.commit(noResult: true);
-      }
-    });
-  }
-
-  Future<void> clearAllTables() async {
-    final db = await database;
-    await db.transaction(((txn) async {
-      await txn.delete("gtfs_routes");
-      await txn.delete("gtfs_trips");
-      await txn.delete("gtfs_calendar");
-      await txn.delete("gtfs_stop_times");
-    }));
-  }
-
-  Future<void> resetDatabase() async {
-    if (_databases.containsKey(locale) && _databases[locale]!.isOpen) {
-      await _databases[locale]!.close();
-    }
-    _databases.remove(locale);
-    _routesForStopCache.clear();
-    final dir = await AppGroupStorage.directory;
-    final file = File("${dir.path}/gtfs/$locale.db");
-    if (await file.exists()) {
-      await file.delete();
-    }
-    final legacyFile = File('${dir.path}/gtfs/gtfs/$locale.db');
-    if (await legacyFile.exists()) {
-      await legacyFile.delete();
-    }
-  }
-
   int _timeToSeconds(String hhmmss) {
     final parts = hhmmss.split(":");
     return int.parse(parts[0]) * 3600 +
         int.parse(parts[1]) * 60 +
         int.parse(parts[2]);
+  }
+
+  /// A GTFS time as zero-padded "HH:MM:SS", since GTFS allows "9:05:00" and
+  /// times are compared and sorted as text. Empty (to be interpolated) and
+  /// unreadable values are kept as they are.
+  String _normalizedTime(String raw) {
+    final time = raw.trim();
+    final parts = time.split(":");
+    if (parts.length != 3) return time;
+    final hours = int.tryParse(parts[0]);
+    final minutes = int.tryParse(parts[1]);
+    final seconds = int.tryParse(parts[2]);
+    if (hours == null || minutes == null || seconds == null) return time;
+    return _secondsToTime(hours * 3600 + minutes * 60 + seconds);
   }
 
   String _secondsToTime(int totalSeconds) {

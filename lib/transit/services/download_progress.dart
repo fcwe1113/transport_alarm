@@ -8,6 +8,8 @@ import 'package:transport_alarm/transit/services/api_caller.dart';
 /// Writes [response]'s body to [file], reporting how much of [fileName] has
 /// downloaded. The bar fills when the server sends the size; otherwise it
 /// stays indeterminate and only the amount so far is shown.
+/// A stall longer than [ApiCaller.requestTimeout] between chunks fails the
+/// download with a TimeoutException.
 Future<void> downloadToFile(
   http.StreamedResponse response,
   File file, {

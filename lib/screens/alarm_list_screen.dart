@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:transport_alarm/screens/add_alarm_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
@@ -13,10 +12,8 @@ import 'package:transport_alarm/transit_bootstrap.dart';
 import '../models/transport_alarm.dart';
 import '../services/alarm_server_service.dart';
 
-// this will be the main screen the app first goes to on first boot
-// basically the iphone alarm screen with much more information per alarm (as theyre more complex)
-
-/// StatefulWidget wrapper for the alarm list screen
+/// The app's home screen: every saved alarm, like the iPhone's alarm list
+/// but with more detail per alarm. Edit mode adds, edits and deletes alarms.
 class AlarmListScreen extends StatefulWidget {
   const AlarmListScreen({super.key});
 
@@ -24,9 +21,9 @@ class AlarmListScreen extends StatefulWidget {
   State<AlarmListScreen> createState() => _AlarmListScreenState();
 }
 
-/// State object within the alarm list screen
 class _AlarmListScreenState extends State<AlarmListScreen> {
-  final _lifecycle = AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService());
+  final _storage = AlarmStorageService();
+  late final _lifecycle = AlarmLifecycleService(storage: _storage, server: AlarmServerService());
   List<TransportAlarm> _alarms = [];
   bool _isEditing = false;
   bool _isLoading = true;
@@ -82,16 +79,16 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   }
 
   Future<void> _loadAlarms() async {
-    final alarmList = await AlarmStorageService().loadAlarms();
+    final alarmList = await _storage.loadAlarms();
+    if (!mounted) return;
     setState(() {
       _alarms = alarmList;
       _isLoading = false;
     });
   }
 
-  /// Event trigger for switching alarm enabled bool
-  Future<void> _toggleAlarm(int index) async { // this will trigger on alarm toggle change, and make a copy of the alarm but with the correct toggle state
-    final alarm = _alarms[index];
+  /// Turns [alarm] on or off, then reloads the list to show its saved state.
+  Future<void> _toggleAlarm(TransportAlarm alarm) async {
     final result = await _lifecycle.setEnabled(alarm.id, !alarm.enabled);
     if (!result.succeeded && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.text('alarm_list.update_failed', {'error': result.errorMessage}))));
@@ -100,11 +97,17 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   }
 
   Future<void> _deleteAlarm(String id) async {
-    await _lifecycle.deleteAlarm(id);
+    try {
+      await _lifecycle.deleteAlarm(id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(AppStrings.text('alarm_list.delete_failed', {'error': e}))));
+      }
+    }
     await _loadAlarms();
   }
 
-  Future<void> _editAlarm(TransportAlarm alarm, int index) async {
+  Future<void> _editAlarm(TransportAlarm alarm) async {
     await Navigator.push(context, MaterialPageRoute(builder: (context) => AddAlarmScreen(alarmToEdit: alarm,)));
     await _loadAlarms();
   }
@@ -114,7 +117,6 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
     await _loadAlarms();
   }
 
-  /// Draws the screen
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -126,30 +128,36 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
     }
     return AppShell(
         title: AppStrings.text('alarm_list.title'),
-        actions: [ if (_isEditing) IconButton(
-          onPressed: _navigateToAddAlarm,
-          icon: const Icon(Icons.add)), TextButton(onPressed: () {
+        selectedTab: 0,
+        actions: [
+          if (_isEditing) IconButton(onPressed: _navigateToAddAlarm, icon: const Icon(Icons.add)),
+          TextButton(onPressed: () {
             setState(() {
               _isEditing = !_isEditing;
             });
           }, child: Text(
             AppStrings.text(_isEditing ? 'common.done' : 'common.edit'),
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ))],
-          body: _alarms.isEmpty ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text(AppStrings.text('alarm_list.empty'), style: TextStyle(color: Colors.grey.shade600, fontSize: 32),),
-            const SizedBox(height: 12,),
-            ElevatedButton.icon(onPressed: _navigateToAddAlarm, icon: Icon(Icons.add), label: Text(AppStrings.text('alarm_list.add')))
-          ],),) : ListView.builder(itemCount: _alarms.length, itemBuilder: (context, index) {
-            final alarm = _alarms[index];
-            return AlarmCard(
-              alarm: alarm,
-              isEditing: _isEditing,
-              onToggle: (_) => _toggleAlarm(index),
-              onDelete: () => _deleteAlarm(alarm.id),
-              onTap: _isEditing ? () => _editAlarm(alarm, index) : null,
-            );
-          })
+          )),
+        ],
+        body: _alarms.isEmpty ? _buildEmptyState() : ListView.builder(itemCount: _alarms.length, itemBuilder: (context, index) {
+          final alarm = _alarms[index];
+          return AlarmCard(
+            alarm: alarm,
+            isEditing: _isEditing,
+            onToggle: (_) => _toggleAlarm(alarm),
+            onDelete: () => _deleteAlarm(alarm.id),
+            onTap: _isEditing ? () => _editAlarm(alarm) : null,
+          );
+        })
     );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Text(AppStrings.text('alarm_list.empty'), style: TextStyle(color: Colors.grey.shade600, fontSize: 32),),
+      const SizedBox(height: 12,),
+      ElevatedButton.icon(onPressed: _navigateToAddAlarm, icon: const Icon(Icons.add), label: Text(AppStrings.text('alarm_list.add')))
+    ],),);
   }
 }
