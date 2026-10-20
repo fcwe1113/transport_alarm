@@ -45,12 +45,16 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   // The route the arrivals are filtered to, or null for every route.
   String? _selectedRouteNumber;
   late Future<List<TransportRoute>> _routesFuture;
+  // Kept between builds, so only a tick or a new route filter fetches live
+  // arrivals again, not every rebuild.
+  Future<List<RouteArrival>>? _arrivalsFuture;
 
   void _toggleRouteSelection(TransportRoute route) {
     setState(() {
       _selectedRouteNumber = _selectedRouteNumber == route.routeNumber
           ? null
           : route.routeNumber;
+      _arrivalsFuture = null;
     });
   }
 
@@ -60,7 +64,10 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     _routesFuture = GtfsDatabase.forLocale(widget.stop.locale).getRoutesForGtfsStop(widget.stop.id);
     if (!widget.pickerMode) {
       _refreshTimer = Timer.periodic(const Duration(minutes: 2), (_) {
-        setState(() => _refreshTick++);
+        setState(() {
+          _refreshTick++;
+          _arrivalsFuture = null;
+        });
       });
     }
   }
@@ -185,7 +192,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   Widget _buildArrivals() {
     return FutureBuilder(
       key: ValueKey(_refreshTick),
-      future: _resolveArrivals(widget.stop, routeNumber: _selectedRouteNumber),
+      future: _arrivalsFuture ??= _resolveArrivals(widget.stop, routeNumber: _selectedRouteNumber),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           // todo implement seamless background load
