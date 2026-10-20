@@ -23,7 +23,7 @@ Currently supported display languages:
 
 - English
 - Chinese (Traditional/Simplified)
-- Spanish (Partial, credit to my friend Sebastian for translating for free :3)
+- Spanish (Partial, credit to my friend [Sebastian](https://github.com/Pomalec) for translating for free :3)
 
 As this is an early release, expect bugs and errors. I had tried to weed out all potential crashes but if there's any please report them on the repository
 
