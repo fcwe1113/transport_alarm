@@ -1,33 +1,24 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+/// iOS AlarmKit alarms, through AlarmKitBridge in the app. Nothing uses this
+/// yet; it's kept for a possible AlarmKit backup to the server pings. Every
+/// call returns false if AlarmKit refuses or isn't available.
 class AlarmKitService {
   static const _channel = MethodChannel("com.fcwe1113.transport_alarm/alarmkit");
 
-  Future<bool> requestAuthorization() async {
-    try {
-      return await _channel.invokeMethod<bool>("requestAuthorization") ?? false;
-    } on PlatformException catch (e) {
-      print("AlarmKit authorization failed: ${e.message}");
-      return false;
-    }
-  }
+  Future<bool> requestAuthorization() => _invoke("requestAuthorization");
 
-  Future<bool> armAlarm({required String alarmId, required double secondsUntilFire, required String title}) async {
-    try {
-      final result = await _channel.invokeMethod<bool>("armAlarm", {"alarmId": alarmId, "secondsUntilFire": secondsUntilFire, "title": title});
-      return result ?? false;
-    } on PlatformException catch (e) {
-      print("AlarmKit arm failed: ${e.message}");
-      return false;
-    }
-  }
+  Future<bool> armAlarm({required String alarmId, required double secondsUntilFire, required String title}) =>
+      _invoke("armAlarm", {"alarmId": alarmId, "secondsUntilFire": secondsUntilFire, "title": title});
 
-  Future<bool> cancelAlarm({required String alarmId, required double secondsUntilFire, required String title}) async {
+  Future<bool> cancelAlarm({required String alarmId}) => _invoke("cancelAlarm", {"alarmId": alarmId});
+
+  Future<bool> _invoke(String method, [Map<String, Object>? arguments]) async {
     try {
-      final result = await _channel.invokeMethod<bool>("cancelAlarm", {"alarmId": alarmId});
-      return result ?? false;
+      return await _channel.invokeMethod<bool>(method, arguments) ?? false;
     } on PlatformException catch (e) {
-      print("AlarmKit cancel failed: ${e.message}");
+      debugPrint("AlarmKit $method failed: ${e.message}");
       return false;
     }
   }
