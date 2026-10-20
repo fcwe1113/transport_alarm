@@ -1,5 +1,5 @@
 # iOS specific information
-This page is dedicated to documenting the various things iOS users should know when using the app, if you need the android version instead click here (fix)
+This page is dedicated to documenting the various things iOS users should know when using the app, if you need the android version instead click [here](https://github.com/fcwe1113/transport_alarm/blob/master/android/README.md)
 ## Requirements to ensure the app functions
 Due to system differences, iOS has a different set of requirements than android for the alarm to function, you may also notice the "alarm" you see on iOS is just a slightly more annoying notification. This will be explained in a bit, this list of requirements can be seen below:
 - Stable internet connection is needed for the alarm to ring at all, as a remote server is used to poke the phone into doing things in regular intervals
@@ -14,7 +14,7 @@ In addition to the requirements above, there are a few caveats one should know w
 - In iOS the alarm works in coarse minutes, this is due to resctictions from iOS itself and I cannot solve it without setting up an enterprise level dedicated server
 ## Required settings to ensure app functionality
 ### General checks
-If your app is not functioning for reasons beside bad internet connectivity and caveat number 2 above, check the list of places below before you log a bug report (images accurate per iOS 27.0.1): (see if img show)
+If your app is not functioning for reasons beside bad internet connectivity and caveat number 2 above, check the list of places below before you log a bug report (images accurate per iOS 27.0.1):
 
 ![ios guide.png](ios%20guide.png)
 
