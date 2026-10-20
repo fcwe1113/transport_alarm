@@ -26,9 +26,11 @@ struct GBLiveArrivals {
 
     private static let maxConcurrentRequests = 3
     private static let pausedUntilKey = "bods_requests_paused_until"
+    /// London stops' ATCO codes start with this; TfL's API covers them.
+    private static let londonStopPrefix = "490"
 
     func fetch() async -> Result {
-        if stopID.hasPrefix("490") {
+        if stopID.hasPrefix(Self.londonStopPrefix) {
             return await fetchTfL()
         }
         return await fetchBods()
