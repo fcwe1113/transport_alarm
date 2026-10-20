@@ -5,9 +5,6 @@ import 'dart:typed_data';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:live_update_countdown/live_update_countdown.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
-import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
-import 'package:transport_alarm/services/alarm_ping_handler.dart';
-import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 
@@ -303,15 +300,6 @@ class NotificationService {
       }
       return;
     }
-
-    if (response.actionId == 'acknowledge' && payload != null) {
-      final storage = AlarmStorageService();
-      final server = AlarmServerService();
-      await AlarmPingHandler(
-        storage,
-        server,
-        AlarmLifecycleService(storage: storage, server: server),
-      ).acknowledge(payload);
-    }
+    // iOS ring acknowledgements are handled natively, in AppDelegate.
   }
 }

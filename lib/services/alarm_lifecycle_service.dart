@@ -207,26 +207,6 @@ class AlarmLifecycleService {
     await _storage.deleteAlarm(alarmId);
   }
 
-  Future<void> handleOccurenceConcluded(TransportAlarm alarm) async {
-    if (!_allThresholdsConcluded(alarm)) return;
-
-    if (alarm.repeat.frequency == RepeatFrequency.none){
-      if (alarm.pingId != null) {
-        await _server.cancelPing(alarm.pingId!); // todo check if can null ping id on last ping given server will delete ping entry on expiry
-      }
-      await PingWatchdogService.disarm(alarm.id);
-      await _storage.updateAlarm(alarm.copyWith(enabled: false, pingId: null, spent: true));
-      return;
-    }
-
-    final resetAlarm = alarm.copyWith(
-      spent: true,
-      clearLastEstimatedMinutesUntilThreshold: true,
-    );
-    final scheduled = await _schedulePingForNextOccurrence(resetAlarm);
-    return _storage.updateAlarm(scheduled);
-  }
-
   Future<TransportAlarm> _schedulePing(TransportAlarm alarm) async {
     final deviceToken = await DeviceTokenService.getToken();
     if (deviceToken == null) return alarm; // no token yet
@@ -268,47 +248,6 @@ class AlarmLifecycleService {
         return (repeat.weekdays ?? const []).contains(day.weekday);
       case RepeatFrequency.monthly:
         return (repeat.dayOfMonth ?? const []).contains(day.day);
-    }
-  }
-
-  bool _allThresholdsConcluded(TransportAlarm alarm) {
-    return alarm.thresholdStates.every((t) => t.outcome == ThresholdOutcome.acknowledged || t.outcome == ThresholdOutcome.superseded || t.outcome == ThresholdOutcome.missed);
-  }
-
-  Future<TransportAlarm> _schedulePingForNextOccurrence(TransportAlarm alarm) async {
-    final deviceToken = await DeviceTokenService.getToken();
-    if (deviceToken == null) return alarm;
-
-    final nextDate = _computeNextOccurrenceDate(alarm.repeat);
-    final scheduledTime = DateTime(nextDate.year, nextDate.month, nextDate.day, alarm.windowStart.hour, alarm.windowStart.minute);
-    final ping = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
-    if (ping == null) return alarm;
-    await PingWatchdogService.arm(alarm.id, scheduledTime);
-    return alarm.copyWith(pingId: ping.id, pingSecret: ping.secret);
-  }
-
-  DateTime _computeNextOccurrenceDate(RepeatPattern repeat) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    switch (repeat.frequency) {
-      case RepeatFrequency.daily:
-        return DateTime(today.year, today.month, today.day + 1);
-      case RepeatFrequency.weekly:
-        final weekdays = repeat.weekdays ?? [];
-        for (var i = 1; i <= 7; i++) {
-          final candidate = DateTime(today.year, today.month, today.day + i);
-          if (weekdays.contains(candidate.weekday)) return candidate;
-        }
-        return DateTime(today.year, today.month, today.day + 7); // fallback if no weekdays selected
-      case RepeatFrequency.monthly:
-        final days = repeat.dayOfMonth ?? [];
-        for (var i = 1; i <= 31; i++) {
-          final candidate = DateTime(today.year, today.month, today.day + i);
-          if (days.contains(candidate.day)) return candidate;
-        }
-        return DateTime(today.year, today.month + 1, today.day); // fallback
-      case RepeatFrequency.none:
-        return now; // how did you get here lol
     }
   }
 }
