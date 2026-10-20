@@ -110,9 +110,7 @@ class RoutePill extends StatelessWidget {
   Widget build(BuildContext context) {
     // A route whose locale or provider this build doesn't know, such as one
     // from data saved by an older version, gets theme colours instead.
-    final provider = LocaleRegistry.getLocales([route.locale]).firstOrNull?.transitProviders
-        .where((p) => p.providerCode == route.providerCode)
-        .firstOrNull;
+    final provider = LocaleRegistry.provider(route.locale, route.providerCode);
     final scheme = Theme.of(context).colorScheme;
     final colours = provider?.coloursForRoute(route) ??
         RouteColourScheme(iconColour: scheme.secondaryContainer, textColour: scheme.onSecondaryContainer);

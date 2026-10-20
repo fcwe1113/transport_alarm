@@ -12,14 +12,6 @@ import '../locale_registry.dart';
 import '../transit/models/route_colour_scheme.dart';
 import '../transit/models/transport_route.dart';
 import '../transit/models/gtfs_stop.dart';
-import '../transit/transit_provider.dart';
-
-/// The provider [providerCode] in [locale], or null when this build doesn't
-/// know the locale or provider.
-TransitProvider? _providerFor(String locale, String providerCode) =>
-    LocaleRegistry.getLocales([locale]).firstOrNull?.transitProviders
-        .where((p) => p.providerCode == providerCode)
-        .firstOrNull;
 
 /// A map stop's bottom sheet. Normally it shows the stop's routes and its
 /// next arrivals, refreshed every 2 minutes and filtered by tapping a route.
@@ -271,7 +263,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     for (final entry in idsByProvider.entries) {
       final providerCode = entry.key;
       final rawIds = entry.value;
-      final provider = _providerFor(stop.locale, providerCode);
+      final provider = LocaleRegistry.provider(stop.locale, providerCode);
       if (provider == null) continue;
       for (final rawId in rawIds) {
         try {
@@ -291,7 +283,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     final languageCode = AppStrings.languageCode;
     final destination = arrival.destination[languageCode] ??
         arrival.route.destinationNameFor(languageCode);
-    final provider = _providerFor(arrival.route.locale, arrival.route.providerCode);
+    final provider = LocaleRegistry.provider(arrival.route.locale, arrival.route.providerCode);
     return provider?.cleanDestination(destination) ?? destination;
   }
 
@@ -392,7 +384,7 @@ class _RoutePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final colours = _providerFor(route.locale, route.providerCode)?.coloursForRoute(route) ??
+    final colours = LocaleRegistry.provider(route.locale, route.providerCode)?.coloursForRoute(route) ??
         RouteColourScheme(iconColour: scheme.secondaryContainer, textColour: scheme.onSecondaryContainer);
 
     return Material(

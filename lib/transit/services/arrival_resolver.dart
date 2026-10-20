@@ -20,6 +20,11 @@ List<ScheduledDeparture> withoutLiveTrips(
   return scheduled.where((d) => !liveTripIds.contains(d.tripId)).toList();
 }
 
+/// Each route's next arrival at [gtfsStopId]: the soonest live prediction,
+/// or failing that the soonest timetabled departure not already being
+/// tracked live. With [routeNumberFilter], only those routes, and only live
+/// buses heading to each route's saved destination. [minimumMinutesFromNow]
+/// skips arrivals sooner than that.
 Future<List<RouteArrival>> resolveArrivals({
   required String gtfsStopId,
   Map<String, Map<String, String>>? routeNumberFilter,
@@ -104,6 +109,17 @@ Future<List<RouteArrival>> resolveArrivals({
   return arrivals;
 }
 
+/// Splits a saved "provider:id" operator stop ID; null if it isn't one.
+({String providerCode, String rawId})? _splitOperatorStopId(String operatorStopId) {
+  final separator = operatorStopId.indexOf(":");
+  if (separator <= 0) return null;
+  return (
+    providerCode: operatorStopId.substring(0, separator),
+    rawId: operatorStopId.substring(separator + 1),
+  );
+}
+
+/// Every live arrival at [stop] from each provider serving it.
 Future<List<LiveEta>> _fetchLiveEtaForStop(
   GtfsStop stop,
   String locale, [
@@ -111,36 +127,23 @@ Future<List<LiveEta>> _fetchLiveEtaForStop(
 ]) async {
   final operatorStopIds = await GtfsDatabase.forLocale(locale).getOperatorStopIds(stop.id);
 
-  final idsByProvider = <String, List<String>>{};
-  for (final operatorStopId in operatorStopIds) {
-    final parts = operatorStopId.split(":");
-    final providerCode = parts[0];
-    final rawId = parts[1];
-    idsByProvider.putIfAbsent(providerCode, () => []).add(rawId);
-  }
-
   final allEtas = <LiveEta>[];
-
-  for (final entry in idsByProvider.entries) {
-    final providerCode = entry.key;
-    final rawIds = entry.value;
-    final provider = LocaleRegistry.getLocale(stop.locale).transitProviders
-        .where((p) => p.providerCode == providerCode)
-        .firstOrNull;
-    if (provider == null) continue; // skip stops with no valid providers
-    for (final rawId in rawIds) {
-      try {
-        final etas = await provider.fetchLiveEta(rawId);
-        allEtas.addAll(etas);
-      } catch (_) {
-        onFailed?.call();
-      }
+  for (final operatorStopId in operatorStopIds) {
+    final parts = _splitOperatorStopId(operatorStopId);
+    if (parts == null) continue;
+    final provider = LocaleRegistry.provider(stop.locale, parts.providerCode);
+    if (provider == null) continue;
+    try {
+      allEtas.addAll(await provider.fetchLiveEta(parts.rawId));
+    } catch (_) {
+      onFailed?.call();
     }
   }
-
   return allEtas;
 }
 
+/// Live arrivals at [stop] for the routes in [routeNumbers], keeping only
+/// buses heading to each route's saved destination.
 Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
   GtfsStop stop,
   Map<String, Map<String, String>> routeNumbers, [
@@ -148,25 +151,26 @@ Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
 ]) async {
   final db = GtfsDatabase.forLocale(stop.locale);
   final operatorStops = await db.getOperatorStopIds(stop.id);
+  final currentLang = await LocaleSelectionService().getAppLanguageCode();
   final results = <LiveEta>[];
 
   for (final operatorStopId in operatorStops) {
-    final parts = operatorStopId.split(":");
-    final providerCode = parts[0];
-    final rawId = parts[1];
-    final provider = LocaleRegistry.getLocale(stop.locale).transitProviders
-        .where((p) => p.providerCode == providerCode)
-        .firstOrNull;
-    if (provider == null) continue; // skip stops with no valid providers
+    final parts = _splitOperatorStopId(operatorStopId);
+    if (parts == null) continue;
+    final provider = LocaleRegistry.provider(stop.locale, parts.providerCode);
+    if (provider == null) continue;
     for (final routeNumber in routeNumbers.entries) {
       try {
-        final currentLang = await LocaleSelectionService().getAppLanguageCode();
-        final etas = (await provider.fetchLiveEtaForRoute(rawId, routeNumber.key));
+        final etas = await provider.fetchLiveEtaForRoute(parts.rawId, routeNumber.key);
         // Compare both sides in the same language, so a name only the live
-        // data has (e.g. zh-Hans) can't be compared against an English one.
+        // data has (e.g. zh-Hans) can't be compared against an English one,
+        // and with the provider's own cleanup applied to the live name.
         final key = routeNumber.value.containsKey(currentLang) ? currentLang : "en";
-        results.addAll(etas.where((e) =>
-                routeNumber.value[key] == e.destination[key]?.replaceAll("_", " ")));
+        results.addAll(etas.where((e) {
+          final liveDestination = e.destination[key];
+          return liveDestination != null &&
+              routeNumber.value[key] == provider.cleanDestination(liveDestination);
+        }));
       } catch (_) {
         onFailed?.call();
       }
