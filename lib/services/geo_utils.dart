@@ -11,4 +11,4 @@ double haversineDistanceMeters(double lat1, double lng1, double lat2, double lng
   return earthRadiusMeters * c;
 }
 
-double _degToRad(double deg) => deg * pi / 100;
+double _degToRad(double deg) => deg * pi / 180;
