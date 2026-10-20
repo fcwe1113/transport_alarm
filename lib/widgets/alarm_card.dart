@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
+import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/transit/services/arrival_resolver.dart';
@@ -40,14 +41,43 @@ class _AlarmCardState extends State<AlarmCard> {
   int _refreshTick = 0;
   // Shown while the next load runs, so the estimate doesn't blank out.
   List<RouteArrival>? _lastArrivals;
+  // Kept between builds, so a rebuild (such as the list entering edit mode)
+  // doesn't query the database and the live APIs again. The arrivals start
+  // on the first build inside the window, and again after each tick.
+  late Future<GtfsStop?> _stopFuture;
+  Future<List<RouteArrival>>? _arrivalsFuture;
 
   @override
   void initState() {
     super.initState();
+    _stopFuture = _loadStop();
     _refreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      setState(() => _refreshTick++);
+      setState(() {
+        _refreshTick++;
+        _arrivalsFuture = null;
+      });
     });
   }
+
+  @override
+  void didUpdateWidget(AlarmCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The list rebuilds with fresh alarm objects after each change; only a
+    // different alarm or stop needs reloading. List rows can also be reused
+    // for another alarm after a delete.
+    final old = oldWidget.alarm;
+    final alarm = widget.alarm;
+    if (old.gtfsStopId != alarm.gtfsStopId || old.localeCode != alarm.localeCode) {
+      _stopFuture = _loadStop();
+    }
+    if (old.id != alarm.id || old.gtfsStopId != alarm.gtfsStopId || (!old.enabled && alarm.enabled)) {
+      _arrivalsFuture = null;
+      _lastArrivals = null;
+    }
+  }
+
+  Future<GtfsStop?> _loadStop() =>
+      GtfsDatabase.forLocale(widget.alarm.localeCode).getGtfsStopById(widget.alarm.gtfsStopId);
 
   /// Loads the alarm's upcoming arrivals. On iOS, also saves the soonest
   /// usable one as the alarm's last estimate, for the notification extension.
@@ -195,7 +225,7 @@ class _AlarmCardState extends State<AlarmCard> {
             ),
             const SizedBox(height: 2),
             FutureBuilder(
-              future: GtfsDatabase.forLocale(widget.alarm.localeCode).getGtfsStopById(widget.alarm.gtfsStopId),
+              future: _stopFuture,
               builder: (context, snapshot) {
                 final name = snapshot.data?.displayNameFor(AppStrings.languageCode)
                     ?? AppStrings.text('alarm.loading_stops');
@@ -241,7 +271,7 @@ class _AlarmCardState extends State<AlarmCard> {
   Widget _buildNextArrival() {
     return FutureBuilder<List<RouteArrival>>(
       key: ValueKey(_refreshTick),
-      future: _loadArrivalsAndPersistEstimate(),
+      future: _arrivalsFuture ??= _loadArrivalsAndPersistEstimate(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           final previousArrivals = _lastArrivals;
