@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:transport_alarm/locale_registry.dart';
+import 'package:transport_alarm/transit/models/route_colour_scheme.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:flutter/material.dart';
@@ -107,8 +108,14 @@ class RoutePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = LocaleRegistry.getLocale(route.locale).transitProviders.firstWhere((p) => p.providerCode == route.providerCode);
-    final colours = provider.coloursForRoute(route);
+    // A route whose locale or provider this build doesn't know, such as one
+    // from data saved by an older version, gets theme colours instead.
+    final provider = LocaleRegistry.getLocales([route.locale]).firstOrNull?.transitProviders
+        .where((p) => p.providerCode == route.providerCode)
+        .firstOrNull;
+    final scheme = Theme.of(context).colorScheme;
+    final colours = provider?.coloursForRoute(route) ??
+        RouteColourScheme(iconColour: scheme.secondaryContainer, textColour: scheme.onSecondaryContainer);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(color: colours.iconColour, borderRadius: BorderRadius.circular(12)),
