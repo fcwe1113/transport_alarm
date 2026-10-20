@@ -31,6 +31,8 @@ class _MapScreenState extends State<MapScreen> {
   List<GtfsStop> _stops = [];
   Set<Marker> _visibleMarkers = {};
   bool _loading = true;
+  // Set when the stops couldn't be loaded, in place of the map.
+  String? _loadError;
   BitmapDescriptor? _stopIcon;
   GtfsStop? _selectedPickerStop;
   final GlobalKey<NavigatorState> _nestedNavKey = GlobalKey<NavigatorState>();
@@ -67,6 +69,12 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _loadMapData() async {
+    if (_loadError != null) {
+      setState(() {
+        _loadError = null;
+        _loading = true;
+      });
+    }
     try {
       final locales = await LocaleSelectionService().getEnabledLocales();
       final stops = <GtfsStop>[];
@@ -83,6 +91,11 @@ class _MapScreenState extends State<MapScreen> {
       });
     } catch (e, stackTrace) {
       debugPrint("Map data load failed: $e\n$stackTrace");
+      if (!mounted) return;
+      setState(() {
+        _loadError = AppStrings.text('map.load_failed', {'error': e});
+        _loading = false;
+      });
     }
   }
 
@@ -263,6 +276,22 @@ class _MapScreenState extends State<MapScreen> {
         title: title,
         selectedTab: 1,
         body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_loadError != null) {
+      return AppShell(
+        title: title,
+        selectedTab: 1,
+        body: Center(child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 48),
+            const SizedBox(height: 16),
+            Text(_loadError!, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            ElevatedButton(onPressed: _loadMapData, child: Text(AppStrings.text('common.retry'))),
+          ]),
+        )),
       );
     }
     return AppShell(

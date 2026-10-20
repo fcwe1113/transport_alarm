@@ -65,6 +65,7 @@
   "alarm_card.estimate_updating": "{estimate} (更新中...)",
   "map.title": "地圖",
   "map.choose_stop": "請選擇車站",
+  "map.load_failed": "Couldn't load the map's stops: {error}",
   "stop.no_routes": "無路線途經此站",
   "stop.no_departures": "無計劃出發班次",
   "stop.due": "預計",

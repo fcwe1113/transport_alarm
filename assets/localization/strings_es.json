@@ -65,6 +65,7 @@
   "alarm_card.estimate_updating": "{estimate} (actualizando...)",
   "map.title": "Mapa",
   "map.choose_stop": "Elegir una parada",
+  "map.load_failed": "Couldn't load the map's stops: {error}",
   "stop.no_routes": "No se encontraron rutas para esta parada",
   "stop.no_departures": "No se encontraron salidas programadas",
   "stop.due": "Llegando",
