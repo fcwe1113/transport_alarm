@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
@@ -24,12 +25,42 @@ class AlarmStorageService {
     return File("${(await AppGroupStorage.directory).path}/alarms.json");
   }
 
+  /// The saved alarms. An alarm that can't be read is skipped, and a file
+  /// that can't be read at all counts as no alarms, so one bad entry doesn't
+  /// break the whole list. Either way the file is first copied to
+  /// alarms.json.corrupt, since the next save drops what was skipped.
   Future<List<TransportAlarm>> loadAlarms() async {
     final file = await _file();
     if (!await file.exists()) return [];
-    final rawJson = await file.readAsString();
-    final List<dynamic> data = jsonDecode(rawJson);
-    return data.map((a) => TransportAlarm.fromJson(a as Map<String, dynamic>)).toList();
+    final List<dynamic> data;
+    try {
+      data = jsonDecode(await file.readAsString()) as List<dynamic>;
+    } catch (e) {
+      await _keepCorruptCopy(file, e);
+      return [];
+    }
+    final alarms = <TransportAlarm>[];
+    Object? firstError;
+    for (final entry in data) {
+      try {
+        alarms.add(TransportAlarm.fromJson(entry as Map<String, dynamic>));
+      } catch (e) {
+        firstError ??= e;
+      }
+    }
+    if (firstError != null) await _keepCorruptCopy(file, firstError);
+    return alarms;
+  }
+
+  /// Copies an unreadable alarms file aside, once, for recovering by hand.
+  Future<void> _keepCorruptCopy(File file, Object error) async {
+    debugPrint("Could not read all saved alarms: $error");
+    try {
+      final copy = File('${file.path}.corrupt');
+      if (!await copy.exists()) await file.copy(copy.path);
+    } catch (_) {
+      // Nothing more to do; the readable alarms still load.
+    }
   }
 
   Future<void> _save(List<TransportAlarm> alarms) async {
