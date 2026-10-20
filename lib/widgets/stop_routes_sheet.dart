@@ -34,8 +34,8 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   Timer? _refreshTimer;
   // Bumped every 2 minutes to reload the arrivals.
   int _refreshTick = 0;
-  // The route the arrivals are filtered to, or null for every route.
-  String? _selectedRouteNumber;
+  // The routes the arrivals are filtered to; empty for every route.
+  final Set<String> _selectedRouteNumbers = {};
   late Future<List<TransportRoute>> _routesFuture;
   // Kept between builds, so only a tick or a new route filter fetches live
   // arrivals again, not every rebuild.
@@ -43,9 +43,9 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
 
   void _toggleRouteSelection(TransportRoute route) {
     setState(() {
-      _selectedRouteNumber = _selectedRouteNumber == route.routeNumber
-          ? null
-          : route.routeNumber;
+      if (!_selectedRouteNumbers.remove(route.routeNumber)) {
+        _selectedRouteNumbers.add(route.routeNumber);
+      }
       _arrivalsFuture = null;
     });
   }
@@ -162,7 +162,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
                   // which makes the 8px gap between pills on its own.
                   (route) => _RoutePill(
                     route: route,
-                    selected: _selectedRouteNumber == route.routeNumber,
+                    selected: _selectedRouteNumbers.contains(route.routeNumber),
                     onTap: () => _toggleRouteSelection(route),
                   ),
                 )
@@ -177,7 +177,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   Widget _buildArrivals() {
     return FutureBuilder(
       key: ValueKey(_refreshTick),
-      future: _arrivalsFuture ??= _resolveArrivals(widget.stop, routeNumber: _selectedRouteNumber),
+      future: _arrivalsFuture ??= _resolveArrivals(widget.stop, routeNumbers: Set.of(_selectedRouteNumbers)),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           // todo implement seamless background load
@@ -276,9 +276,11 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 
   /// Each route's next arrival at [stop], live where available and from the
-  /// timetable otherwise. With [routeNumber], every live arrival of that
-  /// route instead.
-  Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop, {String? routeNumber}) async {
+  /// timetable otherwise. With [routeNumbers] picked, every arrival of each
+  /// of those routes instead (all its live ones, or all its timetabled ones
+  /// when it has none live), soonest first.
+  Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop, {Set<String> routeNumbers = const {}}) async {
+    final showAll = routeNumbers.isNotEmpty;
     final db = GtfsDatabase.forLocale(stop.locale);
 
     final results = await Future.wait([
@@ -303,7 +305,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
 
     for (final group in routeGroups.values) {
       final representative = group.first;
-      if (routeNumber != null && routeNumber != representative.routeNumber) continue;
+      if (showAll && !routeNumbers.contains(representative.routeNumber)) continue;
 
       final matchingLive =
           liveEtas
@@ -311,23 +313,12 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
               .toList()
             ..sort((a, b) => a.etaTime!.compareTo(b.etaTime!));
       if (matchingLive.isNotEmpty) {
-        if (routeNumber == null) {
-          arrivals.add(
-            RouteArrival(
-              route: representative,
-              destination: matchingLive.first.destination,
-              minutesFromNow: matchingLive.first.minutesFromNow!,
-              isLive: true,
-            ),
-          );
-        } else {
-          arrivals.addAll(matchingLive.map((a) => RouteArrival(
-              route: representative,
-              destination: a.destination,
-              minutesFromNow: a.minutesFromNow!,
-              isLive: true
-          )));
-        }
+        arrivals.addAll((showAll ? matchingLive : matchingLive.take(1)).map((a) => RouteArrival(
+          route: representative,
+          destination: a.destination,
+          minutesFromNow: a.minutesFromNow!,
+          isLive: true,
+        )));
         continue;
       }
 
@@ -336,16 +327,12 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
               .where((d) => group.any((r) => d.routeShortName == r.routeNumber))
               .toList()
             ..sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
-      if (matchingScheduled.isNotEmpty) {
-        arrivals.add(
-          RouteArrival(
-            route: representative,
-            destination: matchingScheduled.first.destination,
-            minutesFromNow: matchingScheduled.first.minutesFromNow,
-            isLive: false,
-          ),
-        );
-      }
+      arrivals.addAll((showAll ? matchingScheduled : matchingScheduled.take(1)).map((d) => RouteArrival(
+        route: representative,
+        destination: d.destination,
+        minutesFromNow: d.minutesFromNow,
+        isLive: false,
+      )));
     }
 
     arrivals.sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
