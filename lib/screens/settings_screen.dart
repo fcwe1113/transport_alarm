@@ -18,20 +18,29 @@ final _helpUrl = Uri.parse(
   'https://github.com/fcwe1113/transport_alarm/blob/master/${Platform.isIOS ? 'ios' : 'android'}/README.md',
 );
 
-/// Settings landing page; language selection is implemented as a child page.
+/// The settings landing page. Each entry opens its own page, a link or a
+/// data operation.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final options = <({IconData icon, String title})>[
-      (icon: Icons.language, title: 'settings.app_language'),
-      (icon: Icons.public, title: 'settings.enabled_locales'),
-      (icon: Icons.notifications_outlined, title: 'settings.alarm_settings'),
-      (icon: Icons.help_outline, title: 'settings.help'),
-      (icon: Icons.info_outline, title: 'settings.about'),
-      (icon: Icons.download, title: 'drawer.reload_data'),
-      (icon: Icons.refresh, title: 'drawer.refresh_data'),
+    void push(Widget page) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
+
+    // An entry with no onTap isn't built yet.
+    final options = <({IconData icon, String title, String? subtitle, VoidCallback? onTap})>[
+      (icon: Icons.language, title: 'settings.app_language', subtitle: 'settings.app_language.subtitle',
+        onTap: () => push(const AppLanguageSettingsScreen())),
+      (icon: Icons.public, title: 'settings.enabled_locales', subtitle: 'settings.enabled_locales.subtitle',
+        onTap: () => push(const EnabledLocalesSettingsScreen())),
+      (icon: Icons.notifications_outlined, title: 'settings.alarm_settings', subtitle: 'common.coming_soon', onTap: null),
+      (icon: Icons.help_outline, title: 'settings.help', subtitle: 'settings.help.subtitle',
+        onTap: () => openExternalLink(context, _helpUrl)),
+      (icon: Icons.info_outline, title: 'settings.about', subtitle: null, onTap: () => push(const AboutScreen())),
+      (icon: Icons.download, title: 'drawer.reload_data', subtitle: null,
+        onTap: () => _openDataOperation(context, operation: initializeTransitData, forceRefresh: true)),
+      (icon: Icons.refresh, title: 'drawer.refresh_data', subtitle: null,
+        onTap: () => _openDataOperation(context, operation: refreshStaleProviders)),
     ];
 
     return AppShell(
@@ -43,54 +52,9 @@ class SettingsScreen extends StatelessWidget {
             ListTile(
               leading: Icon(option.icon),
               title: Text(AppStrings.text(option.title)),
-              subtitle: option.title == 'settings.app_language'
-                  ? Text(AppStrings.text('settings.app_language.subtitle'))
-                  : option.title == 'settings.enabled_locales'
-                  ? Text(AppStrings.text('settings.enabled_locales.subtitle'))
-                  : option.title == 'settings.help'
-                  ? Text(AppStrings.text('settings.help.subtitle'))
-                  : option.title.startsWith('settings.') && option.title != 'settings.about'
-                  ? Text(AppStrings.text('common.coming_soon'))
-                  : null,
-              onTap: () {
-                switch (option.title) {
-                  case 'settings.app_language':
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const AppLanguageSettingsScreen(),
-                      ),
-                    );
-                    break;
-                  case 'settings.enabled_locales':
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const EnabledLocalesSettingsScreen(),
-                      ),
-                    );
-                    break;
-                  case 'settings.help':
-                    openExternalLink(context, _helpUrl);
-                    break;
-                  case 'settings.about':
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
-                    );
-                    break;
-                  case 'drawer.reload_data':
-                    _openDataOperation(
-                      context,
-                      operation: initializeTransitData,
-                      forceRefresh: true,
-                    );
-                    break;
-                  case 'drawer.refresh_data':
-                    _openDataOperation(
-                      context,
-                      operation: refreshStaleProviders,
-                    );
-                    break;
-                }
-              },
+              subtitle: option.subtitle == null ? null : Text(AppStrings.text(option.subtitle!)),
+              // Kept tappable so unbuilt entries look the same as before.
+              onTap: option.onTap ?? () {},
             ),
         ],
       ),
@@ -98,8 +62,7 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
-
-
+/// Warns about data usage, then runs [operation] on the loading screen.
 Future<void> _openDataOperation(
   BuildContext context, {
   required TransitOperation operation,
@@ -119,5 +82,3 @@ Future<void> _openDataOperation(
     ),
   );
 }
-
-
