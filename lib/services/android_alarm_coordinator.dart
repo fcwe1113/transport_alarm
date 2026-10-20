@@ -355,7 +355,7 @@ class AndroidAlarmCoordinator {
     // skip trips a live feed shows as running or gone past the stop.
     List<RouteArrival>? resolved;
 
-    if (alarm.routeApiConfigs.isNotEmpty) {
+    if (_usesOperatorJsonUrls(alarm)) {
       final results = await Future.wait(
         alarm.routeApiConfigs.map(_fetchRouteEta),
       );
@@ -364,7 +364,9 @@ class AndroidAlarmCoordinator {
         liveDates.addAll(result.arrivals);
       }
     } else {
-      // Compatibility for alarms saved before route-specific API URLs existed.
+      // Other providers' saved URLs (BODS, TfL) aren't this JSON, so their
+      // alarms go through the shared resolver like the stop sheet does. So do
+      // alarms saved before route-specific API URLs existed.
       try {
         final arrivals = await resolveArrivals(
           gtfsStopId: alarm.gtfsStopId,
@@ -475,6 +477,16 @@ class AndroidAlarmCoordinator {
       );
     }
   }
+
+  /// Providers whose saved route URLs return the HK operators' ETA JSON,
+  /// which [_fetchRouteEta] reads directly.
+  static const _operatorJsonProviders = {'kmb', 'ctb'};
+
+  bool _usesOperatorJsonUrls(TransportAlarm alarm) =>
+      alarm.routeApiConfigs.isNotEmpty &&
+      alarm.routeApiConfigs.every(
+        (config) => _operatorJsonProviders.contains(config.providerCode),
+      );
 
   /// Live arrival times from one route's saved operator API URL (the HK
   /// operators' JSON). Unhealthy when the request or its response fails.
