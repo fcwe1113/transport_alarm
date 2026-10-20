@@ -7,17 +7,20 @@ import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:transport_alarm/transit/services/temp_file_cleaner.dart';
 
 /// Downloads every enabled region's timetable and operator data, as on first
-/// setup or a full reload. A [TransitOperation].
+/// setup or a full reload, or only the enabled regions in [onlyLocales]. A
+/// [TransitOperation].
 Future<List<String>> initializeTransitData({
   ProgressCallback? onProgress,
   bool forceRefresh = false,
   CancellationToken? cancelToken,
+  Set<String>? onlyLocales,
 }) async {
   final failures = await _refreshEnabledLocales(
     onlyStale: false,
     forceRefresh: forceRefresh,
     onProgress: onProgress,
     cancelToken: cancelToken,
+    onlyLocales: onlyLocales,
   );
   onProgress?.call(AppStrings.text('transit.setup_complete'), 1.0);
   return failures;
@@ -43,18 +46,22 @@ Future<List<String>> refreshStaleProviders({
 /// For each enabled region: syncs its GTFS timetables, refreshes its
 /// operators, then matches operator stops to GTFS stops where the region
 /// needs it. With [onlyStale], only out-of-date parts are refreshed, and
-/// matching only runs when something changed. Returns a description of each
-/// failed step; a cancel stops everything instead.
+/// matching only runs when something changed. [onlyLocales] limits it to
+/// those regions. Returns a description of each failed step; a cancel stops
+/// everything instead.
 Future<List<String>> _refreshEnabledLocales({
   required bool onlyStale,
   required bool forceRefresh,
   ProgressCallback? onProgress,
   CancellationToken? cancelToken,
+  Set<String>? onlyLocales,
 }) async {
   final failures = <String>[];
-  final locales = await LocaleSelectionService().getEnabledLocales();
+  final locales = (await LocaleSelectionService().getEnabledLocales()).keys
+      .where((code) => onlyLocales == null || onlyLocales.contains(code))
+      .toList();
   try {
-    for (final locale in LocaleRegistry.getLocales(locales.keys.toList())) {
+    for (final locale in LocaleRegistry.getLocales(locales)) {
       // todo uk locale did not show up here
       var changed = !onlyStale;
       for (final gtfsProvider in locale.gtfsProviders) {

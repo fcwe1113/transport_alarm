@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/locale_registry.dart';
 
@@ -39,8 +38,9 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
     });
   }
 
-  /// Saves the draft, leaves this page and, if the regions changed,
-  /// downloads their data.
+  /// Saves the draft, leaves this page and downloads data for the regions
+  /// that need it: newly enabled ones, and GB when its areas changed. A
+  /// region that was only turned off keeps its data, and needs nothing.
   Future<void> _saveSelection() async {
     if (_saving) return;
 
@@ -52,10 +52,13 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
       if (mounted) setState(() => _saving = false);
       return;
     }
-    final selectionChanged = !mapEquals(previous, draft);
-    // A changed selection downloads data, so warn first. Going back keeps the
-    // user on this screen with their unsaved changes.
-    if (selectionChanged) {
+    final toDownload = {
+      for (final entry in draft.entries)
+        if (previous[entry.key] != entry.value) entry.key,
+    };
+    // A download uses data, so warn first. Going back keeps the user on this
+    // screen with their unsaved changes.
+    if (toDownload.isNotEmpty) {
       if (!mounted) return;
       if (!await showDataUsageWarning(context)) {
         if (mounted) setState(() => _saving = false);
@@ -67,11 +70,16 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
 
     final navigator = Navigator.of(context);
     navigator.pop();
-    if (selectionChanged) {
+    if (toDownload.isNotEmpty) {
       await navigator.push<void>(
         MaterialPageRoute<void>(
           builder: (_) => LoadingScreen(
-            operation: initializeTransitData,
+            operation: ({onProgress, forceRefresh = false, cancelToken}) => initializeTransitData(
+              onProgress: onProgress,
+              forceRefresh: forceRefresh,
+              cancelToken: cancelToken,
+              onlyLocales: toDownload,
+            ),
             returnToPrevious: true,
             // No tabs to leave by: the change must finish, fail or be
             // cancelled here, so it can be undone if it doesn't succeed.
