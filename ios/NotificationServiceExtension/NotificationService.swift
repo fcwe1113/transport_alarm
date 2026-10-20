@@ -54,9 +54,6 @@ final class NotificationService: UNNotificationServiceExtension {
             content.body = result.body
             content.categoryIdentifier = result.categoryIdentifier ?? ""
             Self.apply(result.style, to: content)
-            if let debugMessage = result.debugMessage {
-                content.body += "\n\nAlarm update detail: \(debugMessage)"
-            }
             self.finish(content)
         }
     }

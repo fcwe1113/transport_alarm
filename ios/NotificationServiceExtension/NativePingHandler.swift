@@ -15,20 +15,17 @@ enum PingAlertStyle {
 struct PingResult {
     let title: String
     let body: String
-    let debugMessage: String?
     let categoryIdentifier: String?
     let style: PingAlertStyle
 
     init(
         title: String,
         body: String,
-        debugMessage: String? = nil,
         categoryIdentifier: String? = nil,
         style: PingAlertStyle = .update
     ) {
         self.title = title
         self.body = body
-        self.debugMessage = debugMessage
         self.categoryIdentifier = categoryIdentifier
         self.style = style
     }
@@ -102,7 +99,6 @@ final class NativePingHandler {
             return PingResult(
                 title: NativeLocalization.text("native.estimate_slow.title"),
                 body: "\(NativeLocalization.text("native.estimate_slow.body")) \(result.body)",
-                debugMessage: result.debugMessage,
                 categoryIdentifier: result.categoryIdentifier,
                 style: .problem
             )
@@ -161,7 +157,7 @@ final class NativePingHandler {
             return PingResult(title: NativeLocalization.text("native.alarm_no_longer_active.title"), body: NativeLocalization.text("native.alarm_no_longer_active.body"))
         case .disabled:
             try? await acknowledge(pingID: pingID)
-            return PingResult(title: NativeLocalization.text("native.alarm_disabled.title"), body: "\(NativeLocalization.text("native.alarm_disabled.body")) \(Self.alarmDebugJSON(alarms[index]))")
+            return PingResult(title: NativeLocalization.text("native.alarm_disabled.title"), body: NativeLocalization.text("native.alarm_disabled.body"))
         case .beforeWindow(let start):
             try await reschedule(pingID: pingID, at: start, requireAck: false)
             return PingResult(
@@ -259,10 +255,10 @@ final class NativePingHandler {
         do {
             try await reschedule(pingID: pingID, at: Self.ringTime(Date().addingTimeInterval(60)), requireAck: true)
             try saveAlarms(alarms)
-            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
         } catch {
-            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
+            // Still ring; the server's fallback resend brings the next ping.
         }
+        return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
     }
 
     /// Updates the arrival estimate for a pending threshold and schedules the
@@ -312,12 +308,10 @@ final class NativePingHandler {
         thresholdStates[thresholdIndex]["ringCount"] = oldCount + 1
         alarms[index]["thresholdStates"] = thresholdStates
         try? saveAlarms(alarms)
-        do {
-            try await reschedule(pingID: pingID, at: Self.ringTime(Date().addingTimeInterval(60)), requireAck: true)
-            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
-        } catch {
-            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
-        }
+        // Still ring if this fails; the server's fallback resend brings the
+        // next ping.
+        try? await reschedule(pingID: pingID, at: Self.ringTime(Date().addingTimeInterval(60)), requireAck: true)
+        return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
     }
 
     /// Fetches a fresh arrival estimate for the given threshold and stores it
@@ -434,7 +428,7 @@ final class NativePingHandler {
             : PingResult(title: NativeLocalization.text("native.alarm_complete.title"), body: NativeLocalization.text("native.alarm_complete.thresholds_done"))
     }
 
-    private func ringResult(alarm: [String: Any], thresholdMinutes: Int, debugMessage: String? = nil) -> PingResult {
+    private func ringResult(alarm: [String: Any], thresholdMinutes: Int) -> PingResult {
         let routeConfigs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
         let transportMode = routeConfigs.first?["mode"] as? String ?? NativeLocalization.busMode
         let modeValues: [String: Any] = [
@@ -447,7 +441,6 @@ final class NativePingHandler {
         return PingResult(
             title: title,
             body: NativeLocalization.text("native.ring.body", values: bodyValues),
-            debugMessage: debugMessage,
             categoryIdentifier: "transport_alarm_ring",
             style: .ring
         )
@@ -792,40 +785,5 @@ final class NativePingHandler {
         if let string = value as? String { return string }
         if let number = value as? NSNumber { return number.stringValue }
         return nil
-    }
-
-    /// Includes both the Swift error representation and NSError details for
-    /// diagnosing framework errors returned to the notification extension.
-    private static func describe(_ error: Error) -> String {
-        let nsError = error as NSError
-        return "\(String(reflecting: error)) [\(nsError.domain):\(nsError.code)] \(nsError.localizedDescription)"
-    }
-
-    /// Formats the alarm selected by ping ID as JSON for extension debugging.
-    /// Empty strings and dictionaries become null while arrays stay intact.
-    private static func alarmDebugJSON(_ alarm: [String: Any]) -> String {
-        let normalized = replacingEmptyValues(alarm)
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: normalized,
-            options: [.prettyPrinted, .sortedKeys]
-        ), let json = String(data: data, encoding: .utf8) else {
-            return "Could not serialize selected alarm"
-        }
-        return json
-    }
-
-    /// Recursively normalizes empty values without dropping array elements.
-    private static func replacingEmptyValues(_ value: Any) -> Any {
-        if let string = value as? String {
-            return string.isEmpty ? NSNull() : string
-        }
-        if let dictionary = value as? [String: Any] {
-            guard !dictionary.isEmpty else { return NSNull() }
-            return dictionary.mapValues { replacingEmptyValues($0) }
-        }
-        if let array = value as? [Any] {
-            return array.map { replacingEmptyValues($0) }
-        }
-        return value
     }
 }
