@@ -1036,7 +1036,8 @@ class GtfsDatabase {
   }
 
   /// Departures from [stopId] after the GTFS time [after] on the service
-  /// day [day], with each trip's last stop as its destination.
+  /// day [day], counting calendar_dates exceptions, with each trip's last
+  /// stop as its destination.
   Future<List<Map<String, Object?>>> _departuresOnServiceDay(
     Database db,
     String stopId,
@@ -1064,12 +1065,29 @@ class GtfsDatabase {
       FROM gtfs_stop_times AS st
       INNER JOIN gtfs_trips AS t ON st.trip_id = t.trip_id
       INNER JOIN gtfs_routes AS r ON t.route_id = r.route_id
-      INNER JOIN gtfs_calendar AS c ON t.service_id = c.service_id
       WHERE st.stop_id = ?
         AND st.arrival_time > ?
-        AND c.$dayColumn = 1
-        AND c.start_date <= ?
-        AND c.end_date >= ?
+        -- Runs that day by its weekly calendar or as an added date, and
+        -- isn't removed for that date.
+        AND (
+          EXISTS (
+            SELECT 1 FROM gtfs_calendar AS c
+            WHERE c.service_id = t.service_id
+              AND c.$dayColumn = 1
+              AND c.start_date <= ?
+              AND c.end_date >= ?
+          )
+          OR EXISTS (
+            SELECT 1 FROM gtfs_calendar_dates AS added
+            WHERE added.service_id = t.service_id
+              AND added.date = ? AND added.exception_type = 1
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM gtfs_calendar_dates AS removed
+          WHERE removed.service_id = t.service_id
+            AND removed.date = ? AND removed.exception_type = 2
+        )
       ORDER BY st.arrival_time ASC
       LIMIT ?
     )
@@ -1083,7 +1101,7 @@ class GtfsDatabase {
     FROM upcoming AS u
     ORDER BY u.arrival_time ASC
     ''',
-      [stopId, after, dateStr, dateStr, limit],
+      [stopId, after, dateStr, dateStr, dateStr, dateStr, limit],
     );
   }
 
