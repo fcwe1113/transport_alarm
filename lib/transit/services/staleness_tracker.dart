@@ -58,6 +58,14 @@ class StalenessTracker {
     return millis == null ? null : DateTime.fromMillisecondsSinceEpoch(millis);
   }
 
+  /// Forgets every refresh record for [locale], once its data is deleted.
+  Future<void> forgetLocale(String locale) async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in prefs.getKeys().where((key) => key.startsWith('staleness_${locale}_')).toList()) {
+      await prefs.remove(key);
+    }
+  }
+
   String _refreshedAtKey(String locale, String providerCode) =>
       'staleness_${locale}_${providerCode}_refreshed_at';
 

@@ -62,6 +62,7 @@
 		A10000000000000000000006 /* NativeTransitLocale.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* NativeTransitLocale.swift */; };
 		F10000000000000000000011 /* PingAcknowledgementHandler.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000011 /* PingAcknowledgementHandler.swift */; };
 		F10000000000000000000012 /* NativeTransitLocale.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* NativeTransitLocale.swift */; };
+		F10000000000000000000013 /* AlarmWindow.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* AlarmWindow.swift */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		2147030837A49D38E592A116 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62E5DF5D8F2FB65BE9AFEFD /* NotificationService.swift */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
@@ -553,6 +554,7 @@
 				B10000000000000000000004 /* TransportAlarmMetadata.swift in Runner Sources */,
 				F10000000000000000000011 /* PingAcknowledgementHandler.swift in Runner Sources */,
 				F10000000000000000000012 /* NativeTransitLocale.swift in Runner Sources */,
+				F10000000000000000000013 /* AlarmWindow.swift in Runner Sources */,
 				D20000000000000000000001 /* NativeLocalization.swift in Runner Sources */,
 				E50000000000000000000002 /* PingWatchdog.swift in Runner Sources */,
 			);

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:ui';
 
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
@@ -17,17 +16,17 @@ import '../../../refresh_result.dart';
 
 // todo fix double routes present in both providers
 // todo fix stop names
-// query for all reused routenum
-// SELECT t.route_number
-// from operator_routes t
-// GROUP by route_number
-// HAVING COUNT(*) > 1
 
+/// Citybus, through DATA.GOV.HK. It has no all-stops endpoint, so a refresh
+/// collects stop IDs from each route's stop list and fetches each stop's
+/// details.
 class CtbProvider extends TransitProvider {
   final ApiCaller _apiCaller;
+  static const _baseUrl = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb';
   static const _routesEndpointName = "route";
-  static const _routesUrl =
-      'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route/CTB';
+  static const _routesUrl = '$_baseUrl/route/CTB';
+
+  GtfsDatabase get _db => GtfsDatabase.forLocale("hk");
 
   CtbProvider(this._apiCaller);
 
@@ -73,8 +72,7 @@ class CtbProvider extends TransitProvider {
   }
 
   Future<List<TransportRoute>> _fetchRoutes({bool forceRefresh = false}) async {
-    final cachedRoutes = await GtfsDatabase.forLocale("hk")
-        .getOperatorRoutes(providerCode);
+    final cachedRoutes = await _db.getOperatorRoutes(providerCode);
     final routes = await _apiCaller.call(
       providerCode: providerCode,
       endpointName: _routesEndpointName,
@@ -90,18 +88,20 @@ class CtbProvider extends TransitProvider {
     bool forceRefresh = false,
     ProgressCallback? onProgress,
   }) async {
-    final db = GtfsDatabase.forLocale("hk");
+    final db = _db;
     onProgress?.call(
       AppStrings.text('transit.provider_fetch_routes', {
         'providerName': providerName,
       }),
       null,
     );
+    final previousRouteIds = (await db.getOperatorRoutes(providerCode)).map((r) => r.id).toSet();
     final routes = await _fetchRoutes(forceRefresh: forceRefresh);
     await db.upsertOperatorRoutes(routes);
+    // Routes Citybus no longer lists, or saved under an older ID format.
+    await db.deleteOperatorRoutes(previousRouteIds.difference(routes.map((r) => r.id).toSet()));
 
-    // ctb has no central all stops api so we need to compile
-    // the stops list from the route-stop api
+    // No all-stops endpoint: compile the stop list from each route's stops.
     final routeStopItems = <BatchCallItem<TransportRoute, List<String>>>[];
     for (final route in routes) {
       final direction = route.bound == "O" ? "outbound" : "inbound";
@@ -109,8 +109,7 @@ class CtbProvider extends TransitProvider {
         BatchCallItem<TransportRoute, List<String>>(
           key: route,
           endpointName: "route_stop_${route.routeNumber}_${route.bound}",
-          url:
-              'https://rt.data.gov.hk/v1/transport/citybus-nwfb/route-stop/CTB/${route.routeNumber}/$direction',
+          url: '$_baseUrl/route-stop/CTB/${route.routeNumber}/$direction',
           parseRaw: _parseRouteStopIdsRaw,
           forceRefresh: !await db.hasRouteStops(route.id),
         ),
@@ -132,14 +131,23 @@ class CtbProvider extends TransitProvider {
           ),
         );
 
+    // The route list doesn't say which directions a route runs, so both are
+    // listed; a direction with no stops (such as a circular route's inbound)
+    // doesn't run, and is dropped so it isn't refetched as missing data.
+    final unusedDirections = <String>[];
     for (final entry in routeStopResult.results.entries) {
       final route = entry.key;
       final rawStopIds = entry.value;
+      if (rawStopIds.isEmpty) {
+        unusedDirections.add(route.id);
+        continue;
+      }
       final operatorStopIds = rawStopIds
           .map((id) => "$providerCode:$id")
           .toList();
       await db.upsertRouteStops(route.id, operatorStopIds);
     }
+    await db.deleteOperatorRoutes(unusedDirections);
 
     final uniqueRawStopIds = <String>{};
     for (final operatorStopId in await db.getOperatorStopIdsForProvider(
@@ -162,8 +170,7 @@ class CtbProvider extends TransitProvider {
         BatchCallItem<String, TransportStop>(
           key: rawStopId,
           endpointName: "stop_$rawStopId",
-          url:
-              'https://rt.data.gov.hk/v1/transport/citybus-nwfb/stop/$rawStopId',
+          url: '$_baseUrl/stop/$rawStopId',
           parseRaw: ((rawJson) => _parseStopDetailRaw(rawJson, rawStopId)),
           forceRefresh: !await db.hasOperatorStop('$providerCode:$rawStopId'),
         ),
@@ -209,7 +216,7 @@ class CtbProvider extends TransitProvider {
     if (await StalenessTracker().isStale('hk', providerCode)) return true;
 
     // Also stale if a refresh left data missing, whatever its age.
-    final db = GtfsDatabase.forLocale('hk');
+    final db = _db;
     final routes = await db.getOperatorRoutes(providerCode);
     if (routes.isEmpty ||
         !await db.hasOperatorStops(providerCode) ||
@@ -225,14 +232,13 @@ class CtbProvider extends TransitProvider {
   @override
   Future<List<LiveEta>> fetchLiveEta(String rawStopId) async {
     final operatorStopId = "$providerCode:$rawStopId";
-    final routeNumbers = await GtfsDatabase.forLocale("hk")
-        .getRouteNumbersForOperatorStop(operatorStopId);
+    final routeNumbers = await _db.getRouteNumbersForOperatorStop(operatorStopId);
     final allEtas = <LiveEta>[];
     for (final routeNumber in routeNumbers) {
       try {
         allEtas.addAll(await fetchLiveEtaForRoute(rawStopId, routeNumber));
       } catch (_) {
-        // do nothing
+        // One route failing still leaves the others' arrivals.
       }
     }
 
@@ -244,23 +250,27 @@ class CtbProvider extends TransitProvider {
     String rawStopId,
     String routeNumber,
   ) async {
-    final url =
-        'https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/CTB/$rawStopId/$routeNumber';
-    final response = await ApiCaller.get(Uri.parse(url));
-    if (response.statusCode != 200)
+    final response = await ApiCaller.get(Uri.parse('$_baseUrl/eta/CTB/$rawStopId/$routeNumber'));
+    if (response.statusCode != 200) {
       throw Exception("Live ETA fetch failed: ${response.statusCode}");
+    }
 
     final decoded = jsonDecode(response.body);
-    final data = decoded["data"] as List;
+    final data = decoded is Map<String, dynamic> && decoded["data"] is List
+        ? decoded["data"] as List
+        : throw const FormatException("Citybus ETA response has no data list.");
 
-    return data.map((entry) {
-      final etaString = entry["eta"] as String?;
+    // An entry with missing fields or an empty "eta" (no prediction) is read
+    // as far as it goes, rather than failing the route's other arrivals.
+    String text(Object? value) => value?.toString() ?? "";
+    return data.whereType<Map<String, dynamic>>().map((entry) {
+      final etaString = entry["eta"]?.toString();
       return LiveEta(
-        routeNumber: entry["route"] as String,
-        bound: (entry["dir"] as String?) ?? "",
-        destination: {"en": entry["dest_en"] as String, "zh-Hant": entry["dest_tc"] as String, "zh-Hans": entry["dest_sc"] as String},
-        etaTime: etaString != null ? DateTime.parse(etaString).toUtc() : null,
-        remark: entry["rmk_en"] as String?,
+        routeNumber: entry["route"]?.toString() ?? routeNumber,
+        bound: text(entry["dir"]),
+        destination: {"en": text(entry["dest_en"]), "zh-Hant": text(entry["dest_tc"]), "zh-Hans": text(entry["dest_sc"])},
+        etaTime: etaString == null || etaString.isEmpty ? null : DateTime.tryParse(etaString)?.toUtc(),
+        remark: entry["rmk_en"]?.toString(),
       );
     }).toList();
   }
@@ -279,29 +289,35 @@ class CtbProvider extends TransitProvider {
     ).toString();
   }
 
+  /// Each listed route in both directions: outbound as listed, and inbound
+  /// with its origin and destination swapped. Directions that don't run are
+  /// dropped in [refresh] once their stop lists come back empty.
   List<TransportRoute> _parseRoutesRaw(String rawJson) {
     final decoded = jsonDecode(rawJson);
     final List<dynamic> data = decoded["data"];
-    return data.map((r) {
+    return data.expand((r) {
       final routeNumber = r["route"] as String? ?? "";
-      return TransportRoute(
-        id: "$providerCode:$routeNumber",
+      final origin = {
+        "en": r["orig_en"] as String? ?? "",
+        "zh-Hant": r["orig_tc"] as String? ?? "",
+        "zh-Hans": r["orig_sc"] as String? ?? "",
+      };
+      final destination = {
+        "en": r["dest_en"] as String? ?? "",
+        "zh-Hant": r["dest_tc"] as String? ?? "",
+        "zh-Hans": r["dest_sc"] as String? ?? "",
+      };
+      TransportRoute direction(String bound, Map<String, String> from, Map<String, String> to) => TransportRoute(
+        id: "$providerCode:${routeNumber}_$bound",
         names: {"en": routeNumber, "zh-Hant": routeNumber},
         routeNumber: routeNumber,
-        bound: "O",
-        originText: {
-          "en": r["orig_en"] as String? ?? "",
-          "zh-Hant": r["orig_tc"] as String? ?? "",
-          "zh-Hans": r["orig_sc"] as String? ?? "",
-        },
-        destinationText: {
-          "en": r["dest_en"] as String? ?? "",
-          "zh-Hant": r["dest_tc"] as String? ?? "",
-          "zh-Hans": r["dest_sc"] as String? ?? "",
-        },
+        bound: bound,
+        originText: from,
+        destinationText: to,
         providerCode: providerCode,
-        locale: "hk"
+        locale: "hk",
       );
+      return [direction("O", origin, destination), direction("I", destination, origin)];
     }).toList();
   }
 

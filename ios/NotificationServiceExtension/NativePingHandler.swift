@@ -1,11 +1,6 @@
 import Foundation
 import SQLite3
 
-private struct OperatorStop {
-    let provider: String
-    let stopID: String
-}
-
 /// How a ping's notification should get the user's attention.
 enum PingAlertStyle {
     /// A routine status update: silent, and doesn't light the screen.
@@ -20,20 +15,17 @@ enum PingAlertStyle {
 struct PingResult {
     let title: String
     let body: String
-    let debugMessage: String?
     let categoryIdentifier: String?
     let style: PingAlertStyle
 
     init(
         title: String,
         body: String,
-        debugMessage: String? = nil,
         categoryIdentifier: String? = nil,
         style: PingAlertStyle = .update
     ) {
         self.title = title
         self.body = body
-        self.debugMessage = debugMessage
         self.categoryIdentifier = categoryIdentifier
         self.style = style
     }
@@ -94,7 +86,10 @@ final class NativePingHandler {
         do {
             var alarms = try loadAlarms()
             let index = alarms.firstIndex { Self.stringValue($0["pingId"]) == pingID }
+            // A ping the app couldn't cancel, from an alarm since turned off,
+            // changed or deleted, still has its secret in the orphan list.
             pingSecret = index.flatMap { alarms[$0]["pingSecret"] as? String }
+                ?? (index == nil ? orphanedPings()[pingID] : nil)
             alarmID = index.flatMap { Self.stringValue(alarms[$0]["id"]) }
             let decision = try decide(alarm: index.map { alarms[$0] }, now: Date())
             let result = try await act(on: decision, alarms: &alarms, index: index, pingID: pingID)
@@ -104,7 +99,6 @@ final class NativePingHandler {
             return PingResult(
                 title: NativeLocalization.text("native.estimate_slow.title"),
                 body: "\(NativeLocalization.text("native.estimate_slow.body")) \(result.body)",
-                debugMessage: result.debugMessage,
                 categoryIdentifier: result.categoryIdentifier,
                 style: .problem
             )
@@ -151,7 +145,10 @@ final class NativePingHandler {
         pingID: String
     ) async throws -> PingResult {
         guard let index else {
-            try? await acknowledge(pingID: pingID)
+            // Acknowledged once, so the server stops resending it.
+            if pingSecret != nil, (try? await acknowledge(pingID: pingID)) != nil {
+                removeOrphanedPing(pingID)
+            }
             return PingResult(title: NativeLocalization.text("native.alarm_no_longer_active.title"), body: NativeLocalization.text("native.alarm_no_longer_active.body"))
         }
         switch decision {
@@ -160,7 +157,7 @@ final class NativePingHandler {
             return PingResult(title: NativeLocalization.text("native.alarm_no_longer_active.title"), body: NativeLocalization.text("native.alarm_no_longer_active.body"))
         case .disabled:
             try? await acknowledge(pingID: pingID)
-            return PingResult(title: NativeLocalization.text("native.alarm_disabled.title"), body: "\(NativeLocalization.text("native.alarm_disabled.body")) \(Self.alarmDebugJSON(alarms[index]))")
+            return PingResult(title: NativeLocalization.text("native.alarm_disabled.title"), body: NativeLocalization.text("native.alarm_disabled.body"))
         case .beforeWindow(let start):
             try await reschedule(pingID: pingID, at: start, requireAck: false)
             return PingResult(
@@ -210,7 +207,6 @@ final class NativePingHandler {
         alarms[index]["thresholdStates"] = thresholdStates
         alarms[index]["spent"] = false
         alarms[index]["lastEstimatedMinutesUntilThreshold"] = NSNull()
-        alarms[index].removeValue(forKey: "lastEstimatedMinutesUntilArrival")
         try saveAlarms(alarms)
     }
 
@@ -259,10 +255,10 @@ final class NativePingHandler {
         do {
             try await reschedule(pingID: pingID, at: Self.ringTime(Date().addingTimeInterval(60)), requireAck: true)
             try saveAlarms(alarms)
-            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
         } catch {
-            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
+            // Still ring; the server's fallback resend brings the next ping.
         }
+        return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
     }
 
     /// Updates the arrival estimate for a pending threshold and schedules the
@@ -312,12 +308,10 @@ final class NativePingHandler {
         thresholdStates[thresholdIndex]["ringCount"] = oldCount + 1
         alarms[index]["thresholdStates"] = thresholdStates
         try? saveAlarms(alarms)
-        do {
-            try await reschedule(pingID: pingID, at: Self.ringTime(Date().addingTimeInterval(60)), requireAck: true)
-            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
-        } catch {
-            return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes, debugMessage: "Next ping scheduling failed: \(Self.describe(error))")
-        }
+        // Still ring if this fails; the server's fallback resend brings the
+        // next ping.
+        try? await reschedule(pingID: pingID, at: Self.ringTime(Date().addingTimeInterval(60)), requireAck: true)
+        return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
     }
 
     /// Fetches a fresh arrival estimate for the given threshold and stores it
@@ -334,15 +328,6 @@ final class NativePingHandler {
             throw PingHandlerError.invalidAlarmData
         }
         let cachedEstimateUntilThreshold = Self.intValue(alarms[index]["lastEstimatedMinutesUntilThreshold"])
-            ?? Self.intValue(alarms[index]["lastEstimatedMinutesUntilArrival"]).map { $0 - thresholdMinutes }
-        if (alarms[index]["routeApiConfigs"] as? [[String: Any]] ?? []).isEmpty {
-            let alarmLocale = NativeTransitLocales.locale(for: alarms[index]["localeCode"] as? String)
-            let configs = routeAPIConfigsForLegacyAlarm(alarms[index], locale: alarmLocale)
-            if !configs.isEmpty {
-                alarms[index]["routeApiConfigs"] = configs
-                try saveAlarms(alarms)
-            }
-        }
         let isFreshOccurrence = cachedEstimateUntilThreshold == nil &&
             !thresholdStates.isEmpty &&
             thresholdStates.allSatisfy { ($0["outcome"] as? String ?? "pending") == "pending" }
@@ -356,7 +341,6 @@ final class NativePingHandler {
         let freshEstimateUntilThreshold = freshArrivalEstimate.map { $0 - thresholdMinutes }
         if let freshEstimateUntilThreshold {
             alarms[index]["lastEstimatedMinutesUntilThreshold"] = freshEstimateUntilThreshold
-            alarms[index].removeValue(forKey: "lastEstimatedMinutesUntilArrival")
         }
         return (thresholdMinutes, freshEstimateUntilThreshold ?? cachedEstimateUntilThreshold)
     }
@@ -425,7 +409,6 @@ final class NativePingHandler {
         alarm["thresholdStates"] = thresholdStates
         alarm["spent"] = true
         alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
-        alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
         if repeatFrequency(of: alarm) != "none" {
             let nextRepeat = try nextRepeatDate(for: alarm)
             try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)
@@ -445,7 +428,7 @@ final class NativePingHandler {
             : PingResult(title: NativeLocalization.text("native.alarm_complete.title"), body: NativeLocalization.text("native.alarm_complete.thresholds_done"))
     }
 
-    private func ringResult(alarm: [String: Any], thresholdMinutes: Int, debugMessage: String? = nil) -> PingResult {
+    private func ringResult(alarm: [String: Any], thresholdMinutes: Int) -> PingResult {
         let routeConfigs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
         let transportMode = routeConfigs.first?["mode"] as? String ?? NativeLocalization.busMode
         let modeValues: [String: Any] = [
@@ -458,7 +441,6 @@ final class NativePingHandler {
         return PingResult(
             title: title,
             body: NativeLocalization.text("native.ring.body", values: bodyValues),
-            debugMessage: debugMessage,
             categoryIdentifier: "transport_alarm_ring",
             style: .ring
         )
@@ -466,8 +448,7 @@ final class NativePingHandler {
 
     // MARK: Shared alarm data
 
-    /// Returns the alarms JSON file in the shared App Group container.
-
+    /// The alarms JSON file in the shared App Group container.
     private var alarmsFile: URL {
         appGroupDirectory.appendingPathComponent("alarms.json")
     }
@@ -486,6 +467,25 @@ final class NativePingHandler {
     private func saveAlarms(_ alarms: [[String: Any]]) throws {
         let data = try JSONSerialization.data(withJSONObject: alarms, options: [.sortedKeys])
         try data.write(to: alarmsFile, options: [.atomic])
+    }
+
+    /// Pings the app couldn't cancel, as ping ID to secret (written by the
+    /// app's OrphanedPingStore).
+    private var orphanedPingsFile: URL {
+        appGroupDirectory.appendingPathComponent("orphaned_pings.json")
+    }
+
+    private func orphanedPings() -> [String: String] {
+        guard let data = try? Data(contentsOf: orphanedPingsFile),
+              let pings = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return [:] }
+        return pings
+    }
+
+    private func removeOrphanedPing(_ pingID: String) {
+        var pings = orphanedPings()
+        guard pings.removeValue(forKey: pingID) != nil,
+              let data = try? JSONSerialization.data(withJSONObject: pings) else { return }
+        try? data.write(to: orphanedPingsFile, options: [.atomic])
     }
 
     /// Reads the repeat mode, treating a missing repeat configuration as one-shot.
@@ -560,80 +560,9 @@ final class NativePingHandler {
         }
     }
 
-    /// Migrates older alarm records once by saving the provider URL for each
-    /// selected route. New alarms already contain these values at creation.
-    private func routeAPIConfigsForLegacyAlarm(
-        _ alarm: [String: Any],
-        locale: NativeTransitLocale
-    ) -> [[String: Any]] {
-        let routeNumbers = Self.routeNumbers(of: alarm)
-        guard let stopID = alarm["gtfsStopId"] as? String else {
-            return []
-        }
-        let stops = operatorStops(for: stopID, locale: locale) ?? []
-        var configs: [[String: Any]] = []
-        for stop in stops {
-            for routeNumber in routeNumbers {
-                guard let request = NativeTransitETAProviders.legacyRequest(
-                    providerCode: stop.provider,
-                    stopID: stop.stopID,
-                    routeNumber: routeNumber
-                ) else { continue }
-                configs.append([
-                    "routeNumber": routeNumber,
-                    "mode": request.mode,
-                    "providerCode": request.providerCode,
-                    "apiUrl": request.url.absoluteString,
-                ])
-            }
-        }
-        return configs
-    }
-
-    /// Looks up the operator-specific stop IDs mapped to a GTFS stop in the
-    /// bundled database stored in the shared App Group directory.
-    private func operatorStops(for gtfsStopID: String, locale: NativeTransitLocale) -> [OperatorStop]? {
-        let databaseURL = locale.databaseURL(in: appGroupDirectory)
-        var database: OpaquePointer?
-        guard sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
-              let database else {
-            return nil
-        }
-        defer { sqlite3_close(database) }
-        sqlite3_exec(database, "PRAGMA cache_size=-512; PRAGMA mmap_size=0;", nil, nil, nil)
-
-        let sql = """
-            SELECT sm.operator_stop_id, os.provider_code
-            FROM stop_mapping sm
-            INNER JOIN operator_stops os ON os.operator_stop_id = sm.operator_stop_id
-            WHERE sm.gtfs_stop_id = ?
-            """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            return nil
-        }
-        defer { sqlite3_finalize(statement) }
-        bind(gtfsStopID, to: statement, at: 1)
-
-        var stops: [OperatorStop] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            guard let idPointer = sqlite3_column_text(statement, 0),
-                  let providerPointer = sqlite3_column_text(statement, 1) else { continue }
-            let operatorID = String(cString: idPointer)
-            let provider = String(cString: providerPointer)
-            let operatorIDParts = operatorID.split(separator: ":", maxSplits: 1)
-            guard operatorIDParts.count == 2 else { continue }
-            let rawID = String(operatorIDParts[1])
-            if !rawID.isEmpty {
-                stops.append(OperatorStop(provider: provider, stopID: rawID))
-            }
-        }
-        return stops
-    }
-
-    /// Queries today's GTFS service calendar and stop times for the next arrival
-    /// matching the selected routes and stop.
+    /// Minutes until the next timetabled arrival of the selected routes at the
+    /// stop, from the locale's GTFS calendar. Searches today's service day
+    /// and yesterday's, whose trips after midnight carry times past 24:00.
     private func scheduledMinutesUntilArrival(
         stopID: String,
         routeNumbers: [String],
@@ -641,29 +570,55 @@ final class NativePingHandler {
         minimumArrivalMinutes: Int?,
         excludingTrips: Set<String> = []
     ) -> Int? {
-        guard !routeNumbers.isEmpty else { return nil }
-        let databaseURL = locale.databaseURL(in: appGroupDirectory)
-        var database: OpaquePointer?
-        guard sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
-              let database else {
-            return nil
-        }
+        guard !routeNumbers.isEmpty,
+              let database = GBLiveArrivals.openDatabase(locale.databaseURL(in: appGroupDirectory)) else { return nil }
         defer { sqlite3_close(database) }
-        sqlite3_exec(database, "PRAGMA cache_size=-512; PRAGMA mmap_size=0;", nil, nil, nil)
 
-        var calendar = locale.gregorianCalendar
+        let calendar = locale.gregorianCalendar
         let now = Date()
-        let components = calendar.dateComponents([.year, .month, .day, .weekday], from: now)
+        let today = calendar.startOfDay(for: now)
+        let secondsIntoToday = Int(now.timeIntervalSince(today))
+        var soonest: Int?
+        for dayOffset in [0, -1] {
+            guard let serviceDay = calendar.date(byAdding: .day, value: dayOffset, to: today) else { continue }
+            // GTFS times count from the service day's start, so on yesterday's
+            // service day now is 24 hours later.
+            let after = secondsIntoToday - dayOffset * 86400
+            let minutes = scheduledMinutes(
+                database: database,
+                stopID: stopID,
+                routeNumbers: routeNumbers,
+                serviceDay: serviceDay,
+                afterSeconds: after,
+                calendar: calendar,
+                now: now,
+                minimumArrivalMinutes: minimumArrivalMinutes,
+                excludingTrips: excludingTrips
+            )
+            if let minutes, soonest.map({ minutes < $0 }) ?? true { soonest = minutes }
+        }
+        return soonest
+    }
+
+    /// The soonest qualifying departure on one GTFS service day.
+    private func scheduledMinutes(
+        database: OpaquePointer,
+        stopID: String,
+        routeNumbers: [String],
+        serviceDay: Date,
+        afterSeconds: Int,
+        calendar: Calendar,
+        now: Date,
+        minimumArrivalMinutes: Int?,
+        excludingTrips: Set<String>
+    ) -> Int? {
+        let components = calendar.dateComponents([.year, .month, .day, .weekday], from: serviceDay)
         guard let year = components.year, let month = components.month,
               let day = components.day, let weekday = components.weekday else { return nil }
         let weekdayColumns = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
         let weekdayColumn = weekdayColumns[weekday - 1]
         let dateString = String(format: "%04d%02d%02d", year, month, day)
-        let timeFormatter = DateFormatter()
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.timeZone = locale.timeZone
-        timeFormatter.dateFormat = "HH:mm:ss"
-        let localTime = timeFormatter.string(from: now)
+        let afterTime = String(format: "%02d:%02d:%02d", afterSeconds / 3600, (afterSeconds % 3600) / 60, afterSeconds % 60)
         let placeholders = Array(repeating: "?", count: routeNumbers.count).joined(separator: ",")
         let sql = """
             SELECT st.arrival_time, st.trip_id
@@ -693,32 +648,15 @@ final class NativePingHandler {
               )
             ORDER BY st.arrival_time ASC LIMIT 50
             """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement else { return nil }
-        defer { sqlite3_finalize(statement) }
-        bind(stopID, to: statement, at: 1)
-        for (offset, route) in routeNumbers.enumerated() {
-            bind(route, to: statement, at: Int32(offset + 2))
-        }
-        let timeBinding = Int32(routeNumbers.count + 2)
-        bind(localTime, to: statement, at: timeBinding)
-        for offset in Int32(1)...Int32(4) {
-            bind(dateString, to: statement, at: timeBinding + offset)
-        }
-
-        let startOfDay = calendar.startOfDay(for: now)
+        let bindings = [stopID] + routeNumbers + [afterTime, dateString, dateString, dateString, dateString]
         var soonest: Int?
-        while sqlite3_step(statement) == SQLITE_ROW {
-            guard let timePointer = sqlite3_column_text(statement, 0) else { continue }
-            if let tripPointer = sqlite3_column_text(statement, 1),
-               excludingTrips.contains(String(cString: tripPointer)) { continue }
-            let pieces = String(cString: timePointer).split(separator: ":").compactMap { Int($0) }
-            guard pieces.count == 3 else { continue }
-            let departure = startOfDay.addingTimeInterval(TimeInterval(pieces[0] * 3600 + pieces[1] * 60 + pieces[2]))
+        GBLiveArrivals.query(database, sql, bindings) { row in
+            if let tripID = GBLiveArrivals.text(row, 1), excludingTrips.contains(tripID) { return }
+            guard let seconds = GBLiveArrivals.gtfsSeconds(GBLiveArrivals.text(row, 0)) else { return }
+            let departure = serviceDay.addingTimeInterval(TimeInterval(seconds))
             let minutes = Int(departure.timeIntervalSince(now) / 60)
             let meetsThreshold = minimumArrivalMinutes.map { minutes >= $0 } ?? true
-            if minutes >= 0, meetsThreshold, soonest == nil || minutes < soonest! {
+            if minutes >= 0, meetsThreshold, soonest.map({ minutes < $0 }) ?? true {
                 soonest = minutes
             }
         }
@@ -781,15 +719,6 @@ final class NativePingHandler {
         return next.start
     }
 
-    /// Produces a stable local-date key used to distinguish repeat occurrences.
-    private func occurrenceKey(for date: Date, alarm: [String: Any]) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = NativeTransitLocales.deviceTimeZone
-        formatter.dateFormat = "yyyyMMdd"
-        return formatter.string(from: date)
-    }
-
     /// When to schedule a ping that should ring at [target], so it arrives
     /// a few seconds before it rather than up to a minute after.
     private static func ringTime(_ target: Date) -> Date {
@@ -842,30 +771,16 @@ final class NativePingHandler {
     /// the alarm saved none, for matching live buses.
     static func routeDestinations(of alarm: [String: Any]) -> [String: String?] {
         var destinations: [String: String?] = [:]
-        if let routes = alarm["routeNumbers"] as? [String: Any] {
-            for (route, value) in routes {
-                destinations[route] = (value as? [String: Any])?["en"] as? String
-            }
-        } else {
-            for route in routeNumbers(of: alarm) { destinations[route] = .some(nil) }
+        for (route, value) in alarm["routeNumbers"] as? [String: Any] ?? [:] {
+            destinations[route] = (value as? [String: Any])?["en"] as? String
         }
         return destinations
     }
 
-    /// The route numbers selected on an alarm. Alarms now save a map of route
-    /// number to its destination names; older ones saved a plain list.
+    /// The route numbers selected on an alarm, saved as a map of route number
+    /// to its destination names.
     static func routeNumbers(of alarm: [String: Any]) -> [String] {
-        if let routes = alarm["routeNumbers"] as? [String: Any] {
-            return routes.keys.sorted()
-        }
-        return alarm["routeNumbers"] as? [String] ?? []
-    }
-
-    /// Binds a Swift string to a SQLite statement parameter.
-    private func bind(_ value: String, to statement: OpaquePointer, at index: Int32) {
-        value.withCString { pointer in
-            sqlite3_bind_text(statement, index, pointer, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        }
+        (alarm["routeNumbers"] as? [String: Any])?.keys.sorted() ?? []
     }
 
     /// Converts values read from JSONSerialization into an integer when possible.
@@ -880,40 +795,5 @@ final class NativePingHandler {
         if let string = value as? String { return string }
         if let number = value as? NSNumber { return number.stringValue }
         return nil
-    }
-
-    /// Includes both the Swift error representation and NSError details for
-    /// diagnosing framework errors returned to the notification extension.
-    private static func describe(_ error: Error) -> String {
-        let nsError = error as NSError
-        return "\(String(reflecting: error)) [\(nsError.domain):\(nsError.code)] \(nsError.localizedDescription)"
-    }
-
-    /// Formats the alarm selected by ping ID as JSON for extension debugging.
-    /// Empty strings and dictionaries become null while arrays stay intact.
-    private static func alarmDebugJSON(_ alarm: [String: Any]) -> String {
-        let normalized = replacingEmptyValues(alarm)
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: normalized,
-            options: [.prettyPrinted, .sortedKeys]
-        ), let json = String(data: data, encoding: .utf8) else {
-            return "Could not serialize selected alarm"
-        }
-        return json
-    }
-
-    /// Recursively normalizes empty values without dropping array elements.
-    private static func replacingEmptyValues(_ value: Any) -> Any {
-        if let string = value as? String {
-            return string.isEmpty ? NSNull() : string
-        }
-        if let dictionary = value as? [String: Any] {
-            guard !dictionary.isEmpty else { return NSNull() }
-            return dictionary.mapValues { replacingEmptyValues($0) }
-        }
-        if let array = value as? [Any] {
-            return array.map { replacingEmptyValues($0) }
-        }
-        return value
     }
 }

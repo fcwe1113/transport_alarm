@@ -9,19 +9,24 @@ import 'package:flutter/material.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
+/// Runs a transit data operation (a first build, reload or refresh) with
+/// progress, and handles its cancellation and failures.
 class LoadingScreen extends StatefulWidget {
   final bool forceRefresh;
   final TransitOperation operation;
   final bool returnToPrevious;
   final bool showBottomNavigation;
-  // Off for first-time setup, which has no data to fall back on.
+  /// Off for first-time setup, which has no data to fall back on.
   final bool cancellable;
-  // The first data build: setup only counts as done once it succeeds, and a
-  // failure restarts setup.
+  /// The first data build: setup only counts as done once it succeeds, and a
+  /// failure restarts setup.
   final bool firstTimeSetup;
-  // Undoes whatever started this operation, such as a locale change, when
-  // it's cancelled or fails (it throws, or a locale ends up without data).
+  /// Undoes whatever started this operation, such as a locale change, when
+  /// it's cancelled or fails (it throws, or a locale ends up without data).
   final Future<void> Function()? onAbandon;
+  /// Runs once the operation has succeeded, before any dialog waits on the
+  /// user, so a change can be marked done even if the app is closed then.
+  final Future<void> Function()? onSucceeded;
   const LoadingScreen({
     super.key,
     this.forceRefresh = false,
@@ -31,6 +36,7 @@ class LoadingScreen extends StatefulWidget {
     this.cancellable = false,
     this.firstTimeSetup = false,
     this.onAbandon,
+    this.onSucceeded,
   });
 
   @override
@@ -77,27 +83,23 @@ class _LoadingScreenState extends State<LoadingScreen> {
       } finally {
         await WakelockPlus.disable();
       }
-      
-      if (widget.firstTimeSetup && !await _allLocalesHaveData()) {
-        await _restartSetup(failures.join(", "));
-        return;
-      }
-      if (widget.onAbandon != null && !await _allLocalesHaveData()) {
-        await _abandon(failures.join(", "));
-        return;
-      }
 
-      if (mounted && failures.isNotEmpty) {
-        await showDialog(context: context, builder: (context) => AlertDialog(
-          title: Text(AppStrings.text('loading.failures.title')),
-          content: Text(AppStrings.text('loading.failures.body', {
+      if (_failureUndoesOperation && !await _allLocalesHaveData()) {
+        await _handleFailure(failures.join(", "));
+        return;
+      }
+      await widget.onSucceeded?.call();
+
+      if (failures.isNotEmpty) {
+        await _showMessage(
+          title: AppStrings.text('loading.failures.title'),
+          body: AppStrings.text('loading.failures.body', {
             'count': failures.length,
             'failures': failures.join(", "),
-          })),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok')))],
-        ));
+          }),
+        );
       }
-      
+
       await StaleDataReminder().clearSnooze();
       if (widget.firstTimeSetup) {
         await LocaleSelectionService().setSetupCompleted(true);
@@ -115,12 +117,8 @@ class _LoadingScreenState extends State<LoadingScreen> {
       // The operation has already removed its staging and temp files.
       if (mounted) _onOkPressed();
     } catch (e) {
-      if (widget.firstTimeSetup) {
-        await _restartSetup('$e');
-        return;
-      }
-      if (widget.onAbandon != null) {
-        await _abandon('$e');
+      if (_failureUndoesOperation) {
+        await _handleFailure('$e');
         return;
       }
       if (mounted) {
@@ -131,20 +129,36 @@ class _LoadingScreenState extends State<LoadingScreen> {
     }
   }
 
+  /// Whether a failure undoes what started the operation, rather than
+  /// showing an error with a retry button.
+  bool get _failureUndoesOperation => widget.firstTimeSetup || widget.onAbandon != null;
+
+  Future<void> _handleFailure(String details) =>
+      widget.firstTimeSetup ? _restartSetup(details) : _abandon(details);
+
   /// Undoes the change that started a failed operation, tells the user, and
   /// leaves the screen.
   Future<void> _abandon(String details) async {
     await widget.onAbandon?.call();
+    await _showMessage(
+      title: AppStrings.text('locale_change.failed.title'),
+      body: AppStrings.text('locale_change.failed.body', {'details': details}),
+    );
+    if (mounted) _onOkPressed();
+  }
+
+  /// Shows a dialog with an OK button, if the screen is still open.
+  Future<void> _showMessage({required String title, required String body, bool barrierDismissible = true}) async {
     if (!mounted) return;
     await showDialog(
       context: context,
+      barrierDismissible: barrierDismissible,
       builder: (context) => AlertDialog(
-        title: Text(AppStrings.text('locale_change.failed.title')),
-        content: Text(AppStrings.text('locale_change.failed.body', {'details': details})),
+        title: Text(title),
+        content: Text(body),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok')))],
       ),
     );
-    if (mounted) _onOkPressed();
   }
 
   /// Whether every enabled locale ended up with a usable timetable.
@@ -161,15 +175,10 @@ class _LoadingScreenState extends State<LoadingScreen> {
   /// Explains that the first build failed, then starts setup again from the
   /// language page. The setup flag stays false, so relaunching does too.
   Future<void> _restartSetup(String details) async {
-    if (!mounted) return;
-    await showDialog(
-      context: context,
+    await _showMessage(
+      title: AppStrings.text('setup.build_failed.title'),
+      body: AppStrings.text('setup.build_failed.body', {'details': details}),
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Text(AppStrings.text('setup.build_failed.title')),
-        content: Text(AppStrings.text('setup.build_failed.body', {'details': details})),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok')))],
-      ),
     );
     if (!mounted) return;
     Navigator.of(context).pushNamedAndRemoveUntil('/setup-language', (_) => false);
@@ -203,48 +212,59 @@ class _LoadingScreenState extends State<LoadingScreen> {
     final content = Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: _error != null ? [
-            const Icon(Icons.error_outline, color: Colors.red, size: 48,),
-            const SizedBox(height: 16),
-            Text(_error!, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _runOperation,
-              child: Text(AppStrings.text('common.retry'))
-            ),
-          ] : [
-            _progress != null ? LinearProgressIndicator(value: _progress,) : LinearProgressIndicator(),
-            const SizedBox(height: 16,),
-            Text(_message),
-            if (_finished) ...[
-              const SizedBox(height: 24,),
-              ElevatedButton(onPressed: _onOkPressed, child: Text(AppStrings.text('common.ok')))
-            ] else if (widget.cancellable && _cancelToken != null)
-              // Hidden while a new snapshot is being swapped in, which has to
-              // finish once started.
-              ValueListenableBuilder<bool>(
-                valueListenable: _cancelToken!.canCancel,
-                builder: (context, canCancel, _) => !canCancel
-                    ? const SizedBox.shrink()
-                    : Padding(
-                        padding: const EdgeInsets.only(top: 24),
-                        child: OutlinedButton(
-                          // Disabled once pressed, while the operation winds down.
-                          onPressed: _cancelToken!.isCancelled ? null : _cancel,
-                          child: Text(AppStrings.text('common.cancel')),
-                        ),
-                      ),
-              ),
-          ],
+          children: _error != null ? _buildError() : _buildProgress(),
         ),
     );
-    if (widget.showBottomNavigation) {
-      return AppShell(
-        title: AppStrings.text('settings.title'),
-        selectedTab: 2,
-        body: content,
-      );
-    }
-    return Scaffold(body: content);
+    // Back can't leave while the operation runs: it would carry on with no
+    // progress shown and no way to cancel. The cancel button leaves instead.
+    return PopScope(
+      canPop: _finished || _error != null,
+      child: widget.showBottomNavigation
+          ? AppShell(
+              title: AppStrings.text('settings.title'),
+              selectedTab: 2,
+              body: content,
+            )
+          : Scaffold(body: content),
+    );
   }
+
+  List<Widget> _buildError() => [
+    const Icon(Icons.error_outline, color: Colors.red, size: 48,),
+    const SizedBox(height: 16),
+    Text(_error!, textAlign: TextAlign.center),
+    const SizedBox(height: 16),
+    ElevatedButton(
+      onPressed: _runOperation,
+      child: Text(AppStrings.text('common.retry'))
+    ),
+  ];
+
+  /// The progress bar and message, then an OK button once done, or a cancel
+  /// button while the operation can still be cancelled.
+  List<Widget> _buildProgress() => [
+    // A null progress shows an indeterminate bar.
+    LinearProgressIndicator(value: _progress),
+    const SizedBox(height: 16,),
+    Text(_message),
+    if (_finished) ...[
+      const SizedBox(height: 24,),
+      ElevatedButton(onPressed: _onOkPressed, child: Text(AppStrings.text('common.ok')))
+    ] else if (widget.cancellable && _cancelToken != null)
+      // Hidden while a new snapshot is being swapped in, which has to
+      // finish once started.
+      ValueListenableBuilder<bool>(
+        valueListenable: _cancelToken!.canCancel,
+        builder: (context, canCancel, _) => !canCancel
+            ? const SizedBox.shrink()
+            : Padding(
+                padding: const EdgeInsets.only(top: 24),
+                child: OutlinedButton(
+                  // Disabled once pressed, while the operation winds down.
+                  onPressed: _cancelToken!.isCancelled ? null : _cancel,
+                  child: Text(AppStrings.text('common.cancel')),
+                ),
+              ),
+      ),
+  ];
 }

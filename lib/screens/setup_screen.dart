@@ -4,6 +4,8 @@ import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:transport_alarm/widgets/data_usage_warning.dart';
 import 'package:flutter/material.dart';
 
+/// Second setup step: pick the regions whose transit data to download, then
+/// start the first data build.
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
 
@@ -13,7 +15,10 @@ class SetupScreen extends StatefulWidget {
 
 class _SetupScreenState extends State<SetupScreen> {
   final _selectionService = LocaleSelectionService();
+  // Regions are picked into a draft, which only becomes the enabled
+  // selection once confirmed.
   late final Future<Map<String, String>> _draftReady;
+  final _locales = LocaleRegistry.getSupportedLocales()..sort();
 
   @override
   void initState() {
@@ -23,7 +28,6 @@ class _SetupScreenState extends State<SetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final locales = LocaleRegistry.getSupportedLocales()..sort();
     return Scaffold(
       appBar: AppBar(
         title: Text(AppStrings.text('setup.title')),
@@ -47,28 +51,30 @@ class _SetupScreenState extends State<SetupScreen> {
                   return Center(child: Text(snapshot.error.toString()));
                 }
                 return ListView(
-                  children: locales.map((locale) => locale.menuEntry).toList(),
+                  children: [for (final locale in _locales) locale.menuEntry],
                 );
               },
             ),
           ),
-        ],),
-        floatingActionButton: ValueListenableBuilder<Map<String, String>>(
-          valueListenable:
-              LocaleSelectionService.localeSelectionDraftListenable,
-          builder: (context, draft, _) => draft.isEmpty
-              ? const SizedBox.shrink()
-              : FloatingActionButton(
-                  onPressed: _confirmSelection,
-                  child: const Icon(Icons.check),
-                ),
-        ),
+        ],
+      ),
+      // Shown once at least one region is picked.
+      floatingActionButton: ValueListenableBuilder<Map<String, String>>(
+        valueListenable: LocaleSelectionService.localeSelectionDraftListenable,
+        builder: (context, draft, _) => draft.isEmpty
+            ? const SizedBox.shrink()
+            : FloatingActionButton(
+                onPressed: _confirmSelection,
+                child: const Icon(Icons.check),
+              ),
+      ),
     );
   }
 
+  /// Saves the picked regions and starts the first build. Setup stays
+  /// incomplete until that build succeeds.
   Future<void> _confirmSelection() async {
-    final shouldProceed = await showDataUsageWarning(context);
-    if (!shouldProceed) return; // user clicked no on the popup
+    if (!await showDataUsageWarning(context)) return;
 
     await _selectionService.setSetupCompleted(false);
     await _selectionService.commitLocaleSelectionDraft();

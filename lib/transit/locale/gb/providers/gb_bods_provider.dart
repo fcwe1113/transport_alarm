@@ -1,9 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
@@ -19,11 +17,17 @@ import 'package:xml/xml.dart';
 import '../../../models/route_colour_scheme.dart';
 import '../../../models/transport_route.dart';
 
+/// GB live buses: the BODS SIRI-VM vehicle feed, with each vehicle matched
+/// to its GTFS trip and its position turned into an ETA; London stops use
+/// TfL's arrivals API instead. Timetables come from GbGtfsSyncProvider, so
+/// there's nothing to refresh here.
 class GbBodsProvider extends TransitProvider {
   static String? _cachedApiKey;
 
-  final ApiCaller _apiCaller;
   final GtfsDatabase db = LocaleRegistry.getLocale("gb").db;
+
+  /// London stops' ATCO codes start with this; TfL's API covers them.
+  static const _londonStopPrefix = "490";
 
   // Compiled in at build time rather than bundled as a readable asset:
   // flutter run/build --dart-define-from-file=config/build_secrets.json,
@@ -131,7 +135,18 @@ class GbBodsProvider extends TransitProvider {
   String cleanDestination(String destination) =>
       destination.replaceAll("_", " ").replaceAll(RegExp(r"\s+"), " ").trim();
 
-  GbBodsProvider(this._apiCaller);
+  /// TfL's destination names are often shorter or longer than the GTFS ones
+  /// saved on alarms (such as "Oxford Circus" for "Oxford Circus, Regent
+  /// Street"), so at London stops either name containing the other, ignoring
+  /// case, counts. BODS names come from the same data and must match exactly.
+  @override
+  bool destinationMatches(String savedDestination, String liveDestination, {required String rawStopId}) {
+    if (savedDestination == liveDestination) return true;
+    if (!rawStopId.startsWith(_londonStopPrefix) || liveDestination.isEmpty) return false;
+    final saved = savedDestination.toLowerCase();
+    final live = liveDestination.toLowerCase();
+    return live.contains(saved) || saved.contains(live);
+  }
 
   @override
   RouteColourScheme coloursForRoute(TransportRoute route) {
@@ -210,7 +225,7 @@ class GbBodsProvider extends TransitProvider {
       case "Arriva Beds and Bucks":
       case "Arriva Wales":
       case "Arriva YorkShire":
-        return RouteColourScheme(
+        return const RouteColourScheme(
           iconColour: Color(0xFF00C8FF),
           textColour: Colors.white,
         );
@@ -264,35 +279,11 @@ class GbBodsProvider extends TransitProvider {
 
   @override
   Future<List<LiveEta>> fetchLiveEta(String rawStopId) async {
-    if (rawStopId.startsWith("490")) {
-      // special case for london
-      final url = "https://api.tfl.gov.uk/StopPoint/$rawStopId/Arrivals";
-      final response = await ApiCaller.get(Uri.parse(url));
-      if (response.statusCode != 200) {
-        throw Exception(
-          'TfL live feed request failed for stop_id $rawStopId: HTTP ${response.statusCode}',
-        );
-      }
-
-      final decoded = jsonDecode(response.body);
-      if (decoded is! List) {
-        throw const FormatException(
-          'TfL arrivals response must be a JSON list.',
-        );
-      }
-
-      final now = DateTime.now().toUtc();
-      return decoded.whereType<Map<String, dynamic>>().map<LiveEta>((entry) {
-        final timeToStation = (entry['timeToStation'] as num?)?.round();
-        return LiveEta(
-          routeNumber: entry['lineName']?.toString() ?? '',
-          bound: entry['direction']?.toString() ?? '',
-          destination: {"en": cleanDestination(entry["destinationName"]?.toString() ?? "")},
-          etaTime: timeToStation == null
-              ? null
-              : now.add(Duration(seconds: timeToStation)),
-        );
-      }).toList();
+    if (rawStopId.startsWith(_londonStopPrefix)) {
+      return _fetchTflArrivals(
+        Uri.parse("https://api.tfl.gov.uk/StopPoint/$rawStopId/Arrivals"),
+        'stop_id $rawStopId',
+      );
     } else {
       final routeList = await (await db.database).rawQuery(
         '''
@@ -318,40 +309,49 @@ class GbBodsProvider extends TransitProvider {
     }
   }
 
+  /// Arrivals from a TfL arrivals endpoint, a JSON list of predictions.
+  /// [description] names the request in errors.
+  Future<List<LiveEta>> _fetchTflArrivals(Uri url, String description) async {
+    final response = await ApiCaller.get(url);
+    if (response.statusCode != 200) {
+      throw Exception(
+        'TfL live feed request failed for $description: HTTP ${response.statusCode}',
+      );
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! List) {
+      throw const FormatException('TfL arrivals response must be a JSON list.');
+    }
+    final now = DateTime.now().toUtc();
+    return decoded.whereType<Map<String, dynamic>>().map<LiveEta>((entry) {
+      final timeToStation = (entry['timeToStation'] as num?)?.round();
+      return LiveEta(
+        routeNumber: entry['lineName']?.toString() ?? '',
+        bound: entry['direction']?.toString() ?? '',
+        destination: {"en": cleanDestination(entry["destinationName"]?.toString() ?? "")},
+        etaTime: timeToStation == null
+            ? null
+            : now.add(Duration(seconds: timeToStation)),
+      );
+    }).toList();
+  }
+
+  /// Live ETAs for one route at a GB stop. Outside London: fetches the
+  /// route's vehicles from BODS, matches each to the GTFS trip with its
+  /// origin and aimed departure, finds the stop pair it's between, and adds
+  /// the timetabled time left to the stop. A vehicle already past the stop
+  /// is returned with [LiveEta.hasPassed].
   @override
   Future<List<LiveEta>> fetchLiveEtaForRoute(
     String rawStopId,
     String routeNumber,
   ) async {
-    if (rawStopId.startsWith("490")) {
-      // special case for london todo check functionality
-      final url =
-          "https://api.tfl.gov.uk/Line/$routeNumber/Arrivals/$rawStopId";
-      final response = await ApiCaller.get(Uri.parse(url));
-      if (response.statusCode != 200) {
-        throw Exception(
-          'TfL live feed request failed for route name $routeNumber at stop_id $rawStopId: HTTP ${response.statusCode}',
-        );
-      }
-
-      final decoded = jsonDecode(response.body);
-      if (decoded is! List) {
-        throw const FormatException(
-          'TfL arrivals response must be a JSON list.',
-        );
-      }
-      final now = DateTime.now().toUtc();
-      return decoded.whereType<Map<String, dynamic>>().map<LiveEta>((entry) {
-        final timeToStation = (entry['timeToStation'] as num?)?.round();
-        return LiveEta(
-          routeNumber: entry['lineName']?.toString() ?? '',
-          bound: entry['direction']?.toString() ?? '',
-          destination: {"en": cleanDestination(entry["destinationName"]?.toString() ?? "")},
-          etaTime: timeToStation == null
-              ? null
-              : now.add(Duration(seconds: timeToStation)),
-        );
-      }).toList();
+    if (rawStopId.startsWith(_londonStopPrefix)) {
+      // todo check functionality
+      return _fetchTflArrivals(
+        Uri.parse("https://api.tfl.gov.uk/Line/$routeNumber/Arrivals/$rawStopId"),
+        'route name $routeNumber at stop_id $rawStopId',
+      );
     } else {
       final db = await this.db.database;
       final nocRows = await db.rawQuery(
@@ -384,7 +384,6 @@ class GbBodsProvider extends TransitProvider {
 
       // Each VehicleMonitoringDelivery can contain multiple VehicleActivity
       // entries, so extract the requested values independently for every bus.
-      final now = DateTime.now();
       final vehicleActivities = XmlDocument.parse(feedXml)
           .findAllElements('VehicleActivity')
           .map((activity) {
@@ -411,7 +410,6 @@ class GbBodsProvider extends TransitProvider {
               'longitude': double.tryParse(
                 childText(location, 'Longitude') ?? '',
               ),
-              "recordedTime" : activity.getElement("RecordedAtTime")?.innerText,
             };
           })
           // Ignore malformed activities that don't contain the journey/location
@@ -422,8 +420,7 @@ class GbBodsProvider extends TransitProvider {
                 activity['originAimedDepartureTime'] != null &&
                 activity['latitude'] != null &&
                 activity['longitude'] != null &&
-                activity["bound"] != null// &&
-                // DateTime.tryParse(activity["recordedTime"] as String)!.isBefore(now.subtract(Duration(minutes: 2))),
+                activity["bound"] != null,
           ).toList();
 
       final arrivals = <LiveEta>[];
@@ -499,7 +496,8 @@ class GbBodsProvider extends TransitProvider {
             serviceDate,
           ],
         );
-        if (tripCandidates.isEmpty) continue; // exit if cannot find the trip related to the vehicle entry
+        // No timetabled trip matches this vehicle's journey.
+        if (tripCandidates.isEmpty) continue;
 
         final aimedSeconds =
             localDeparture.hour * 3600 +
@@ -634,11 +632,10 @@ class GbBodsProvider extends TransitProvider {
     }
   }
 
+  /// GB routes and stops come from the GTFS import, so there's nothing of
+  /// this provider's own to go stale.
   @override
-  Future<bool> isStale() async {
-    // gb has a centralized bus data source so this is left intentionally empty
-    return false;
-  }
+  Future<bool> isStale() async => false;
 
   @override
   String get providerCode => "bods";
@@ -651,8 +648,8 @@ class GbBodsProvider extends TransitProvider {
     bool forceRefresh = false,
     ProgressCallback? onProgress,
   }) async {
-    // gb has a centralized bus data source so this is left intentionally empty
-    return RefreshResult();
+    // See isStale: the GTFS import covers GB.
+    return const RefreshResult();
   }
 
   @override
@@ -660,7 +657,7 @@ class GbBodsProvider extends TransitProvider {
     required String operatorStopId,
     required TransportRoute route,
   }) {
-    if (operatorStopId.startsWith("490")) {
+    if (operatorStopId.startsWith(_londonStopPrefix)) {
       return "https://api.tfl.gov.uk/Line/${route.routeNumber}/Arrivals/$operatorStopId";
     } else {
       final noc = getRouteNoc(route);

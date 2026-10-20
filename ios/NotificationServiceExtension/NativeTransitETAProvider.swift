@@ -6,9 +6,6 @@ protocol NativeTransitETAProvider {
     /// Database provider code that identifies this operator, such as `kmb`.
     var code: String { get }
 
-    /// Builds a legacy endpoint while older saved alarms are being phased out.
-    func legacyETAURL(stopID: String, routeNumber: String) -> URL?
-
     /// Decodes arrival timestamps from the API response for selected routes.
     func arrivalDates(from data: Data, matching routeNumbers: Set<String>) -> [Date]
 }
@@ -22,34 +19,33 @@ extension NativeTransitETAProvider {
             return []
         }
 
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let fallbackFormatter = ISO8601DateFormatter()
         return rows.compactMap { row in
             guard let route = row["route"] as? String,
                   routeNumbers.contains(route),
                   let rawETA = row["eta"] as? String else {
                 return nil
             }
-            return formatter.date(from: rawETA) ?? fallbackFormatter.date(from: rawETA)
+            return HKETADateFormats.fractional.date(from: rawETA) ?? HKETADateFormats.whole.date(from: rawETA)
         }
     }
 }
 
+/// The ISO 8601 forms HK operators send ETAs in, made once per extension run.
+private enum HKETADateFormats {
+    static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    static let whole = ISO8601DateFormatter()
+}
+
 private struct KMBETAProvider: NativeTransitETAProvider {
     let code = "kmb"
-
-    func legacyETAURL(stopID: String, routeNumber: String) -> URL? {
-        URL(string: "https://data.etabus.gov.hk/v1/transport/kmb/eta/\(stopID)/\(routeNumber)/1")
-    }
 }
 
 private struct CitybusETAProvider: NativeTransitETAProvider {
     let code = "ctb"
-
-    func legacyETAURL(stopID: String, routeNumber: String) -> URL? {
-        URL(string: "https://rt.data.gov.hk/v1/transport/citybus-nwfb/eta/CTB/\(stopID)/\(routeNumber)")
-    }
 }
 
 struct NativeTransitETARequest {
@@ -81,15 +77,6 @@ enum NativeTransitETAProviders {
             return nil
         }
         return NativeTransitETARequest(url: url, mode: mode, providerCode: providerCode)
-    }
-
-    /// Supports alarms saved before route-specific API URLs were added.
-    static func legacyRequest(providerCode: String, stopID: String, routeNumber: String) -> NativeTransitETARequest? {
-        guard let provider = registered[providerCode],
-              let url = provider.legacyETAURL(stopID: stopID, routeNumber: routeNumber) else {
-            return nil
-        }
-        return NativeTransitETARequest(url: url, mode: NativeLocalization.busMode, providerCode: providerCode)
     }
 
     /// Routes response decoding through the operator implementation, returning

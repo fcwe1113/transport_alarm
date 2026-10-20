@@ -1,16 +1,16 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:live_update_countdown/live_update_countdown.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
-import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
-import 'package:transport_alarm/services/alarm_ping_handler.dart';
-import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 
+/// Android's alarm notifications: threshold rings, the live countdown, and
+/// status and problem notices, each on its own channel. iOS notices come
+/// from the notification service extension instead, so this is only set up
+/// on Android.
 class NotificationService {
   static final FlutterLocalNotificationsPlugin plugin =
       FlutterLocalNotificationsPlugin();
@@ -31,51 +31,26 @@ class NotificationService {
   // acknowledged or dismissed.
   static final _insistentFlag = Int32List.fromList(<int>[4]);
 
+  /// Sets up notifications in the app, handles an Acknowledge tap that
+  /// launched it, and asks for notification permission.
   static Future<void> init() async {
-    const androidSettings = AndroidInitializationSettings(
-      '@mipmap/ic_launcher',
-    );
-    final darwinSettings = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-      defaultPresentAlert: true,
-      defaultPresentBadge: true,
-      defaultPresentBanner: true,
-      notificationCategories: [
-        DarwinNotificationCategory(
-          'ping',
-          actions: [
-            DarwinNotificationAction.plain(
-              'acknowledge',
-              AppStrings.text('native.acknowledge'),
-              options: {DarwinNotificationActionOption.foreground},
-            ),
-          ],
-        ),
-      ],
-    );
     await plugin.initialize(
-      settings: InitializationSettings(
-        android: androidSettings,
-        iOS: darwinSettings,
+      settings: const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       ),
       onDidReceiveNotificationResponse: _onNotificationResponse,
     );
-    if (Platform.isAndroid) {
-      await _createAndroidChannels();
-      final launchDetails = await plugin.getNotificationAppLaunchDetails();
-      final response = launchDetails?.notificationResponse;
-      if (launchDetails?.didNotificationLaunchApp == true && response != null) {
-        await _handleNotificationResponse(response);
-      }
-      await plugin
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.requestNotificationsPermission();
+    await _createAndroidChannels();
+    final launchDetails = await plugin.getNotificationAppLaunchDetails();
+    final response = launchDetails?.notificationResponse;
+    if (launchDetails?.didNotificationLaunchApp == true && response != null) {
+      await _handleNotificationResponse(response);
     }
+    await _android?.requestNotificationsPermission();
   }
+
+  static AndroidFlutterLocalNotificationsPlugin? get _android =>
+      plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
 
   /// Initializes notification support in the AlarmManager background isolate.
   static Future<void> initBackground() async {
@@ -87,16 +62,14 @@ class NotificationService {
     await _createAndroidChannels();
   }
 
+  /// Creates or updates the three channels, with names in the app's language.
   static Future<void> _createAndroidChannels() async {
-    final android = plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
+    final android = _android;
     await android?.createNotificationChannel(
-        AndroidNotificationChannel(
-          ringChannelId,
-          ringChannelName,
-          description: AppStrings.text('notification.channel.rings.description'),
+      AndroidNotificationChannel(
+        ringChannelId,
+        ringChannelName,
+        description: AppStrings.text('notification.channel.rings.description'),
         importance: Importance.max,
         playSound: true,
         sound: _alarmSound,
@@ -105,20 +78,20 @@ class NotificationService {
       ),
     );
     await android?.createNotificationChannel(
-        AndroidNotificationChannel(
-          alertChannelId,
-          alertChannelName,
-          description: AppStrings.text('notification.channel.alerts.description'),
+      AndroidNotificationChannel(
+        alertChannelId,
+        alertChannelName,
+        description: AppStrings.text('notification.channel.alerts.description'),
         importance: Importance.high,
         playSound: true,
         enableVibration: true,
       ),
     );
     await android?.createNotificationChannel(
-        AndroidNotificationChannel(
-          statusChannelId,
-          statusChannelName,
-          description: AppStrings.text('notification.channel.updates.description'),
+      AndroidNotificationChannel(
+        statusChannelId,
+        statusChannelName,
+        description: AppStrings.text('notification.channel.updates.description'),
         importance: Importance.defaultImportance,
         playSound: false,
         enableVibration: false,
@@ -126,6 +99,8 @@ class NotificationService {
     );
   }
 
+  /// A threshold ring: the alarm sound, repeating until acknowledged, over
+  /// the lock screen.
   static Future<void> showThresholdRing({
     required int notificationId,
     required String alarmId,
@@ -165,7 +140,8 @@ class NotificationService {
     );
   }
 
-  /// Shows a silent notification with a timeline ending at [estimatedArrivalTime].
+  /// Shows a silent live update with a timeline ending at
+  /// [estimatedArrivalTime], through the live_update_countdown plugin.
   static Future<void> showCountdown({
     required int notificationId,
     required String alarmId,
@@ -176,57 +152,15 @@ class NotificationService {
     required DateTime estimatedArrivalTime,
     required List<DateTime> thresholdTimes,
   }) async {
-    if (Platform.isAndroid) {
-      await LiveUpdateCountdown.show(
-        id: notificationId,
-        title: title,
-        body: body,
-        progressStartTime: progressStartTime,
-        countdownTargetTime: countdownTargetTime,
-        estimatedArrivalTime: estimatedArrivalTime,
-        thresholdTimes: thresholdTimes,
-      );
-      return;
-    }
-
-    await plugin.show(
+    await LiveUpdateCountdown.show(
       id: notificationId,
       title: title,
       body: body,
-      notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          statusChannelId,
-          statusChannelName,
-          importance: Importance.defaultImportance,
-          priority: Priority.defaultPriority,
-          playSound: false,
-          enableVibration: false,
-          ongoing: true,
-          autoCancel: false,
-          progress: _progressValue(
-            progressStartTime,
-            estimatedArrivalTime,
-          ),
-          maxProgress: 1000,
-          showProgress: true,
-          showWhen: true,
-          when: countdownTargetTime.millisecondsSinceEpoch,
-          usesChronometer: true,
-          chronometerCountDown: true,
-        ),
-      ),
-      payload: 'status:$alarmId',
+      progressStartTime: progressStartTime,
+      countdownTargetTime: countdownTargetTime,
+      estimatedArrivalTime: estimatedArrivalTime,
+      thresholdTimes: thresholdTimes,
     );
-  }
-
-  static int _progressValue(DateTime start, DateTime arrival) {
-    final totalMillis = arrival.difference(start).inMilliseconds;
-    if (totalMillis <= 0) return 1000;
-    final elapsedMillis = DateTime.now().difference(start).inMilliseconds;
-    return (elapsedMillis * 1000 / totalMillis)
-        .round()
-        .clamp(0, 1000)
-        .toInt();
   }
 
   static Future<void> showSilentStatus({
@@ -293,25 +227,10 @@ class NotificationService {
   static Future<void> _handleNotificationResponse(
     NotificationResponse response,
   ) async {
+    // Payloads are "ring:<alarmId>" or "status:<alarmId>".
     final payload = response.payload;
-    if (Platform.isAndroid && payload != null) {
-      if (response.actionId == 'acknowledge') {
-        final alarmId = payload.substring(payload.indexOf(':') + 1);
-        await AndroidAlarmCoordinator(
-          AlarmStorageService(),
-        ).acknowledge(alarmId);
-      }
-      return;
-    }
-
-    if (response.actionId == 'acknowledge' && payload != null) {
-      final storage = AlarmStorageService();
-      final server = AlarmServerService();
-      await AlarmPingHandler(
-        storage,
-        server,
-        AlarmLifecycleService(storage: storage, server: server),
-      ).acknowledge(payload);
-    }
+    if (payload == null || response.actionId != 'acknowledge') return;
+    final alarmId = payload.substring(payload.indexOf(':') + 1);
+    await AndroidAlarmCoordinator(AlarmStorageService()).acknowledge(alarmId);
   }
 }

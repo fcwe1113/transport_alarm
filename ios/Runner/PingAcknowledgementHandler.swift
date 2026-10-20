@@ -1,7 +1,9 @@
 import Foundation
 
-/// Applies the notification's Acknowledge action to shared alarm state and
-/// either advances to the next threshold or stops/repeats the alarm ping.
+/// Applies a ring's Acknowledge action (or tap) to the shared alarm state:
+/// moves the server ping on to the next threshold, to the next repeat, or
+/// stops it for a finished one-off alarm. Changes are saved only once the
+/// server has accepted them.
 enum PingAcknowledgementHandler {
     private static let serverBaseURL = URL(string: "https://ios-scheduler.fcwe1113.workers.dev")!
 
@@ -24,7 +26,6 @@ enum PingAcknowledgementHandler {
         if let nextIndex = thresholds.indices.first(where: { $0 > ringingIndex && thresholds[$0]["outcome"] as? String == "pending" }) {
             let nextThreshold = integer(thresholds[nextIndex]["minutesBeforeArrival"]) ?? 0
             let minutesUntilCurrentThreshold = integer(alarm["lastEstimatedMinutesUntilThreshold"])
-                ?? integer(alarm["lastEstimatedMinutesUntilArrival"]).map { $0 - currentThreshold }
             let minutesUntilNext = minutesUntilCurrentThreshold.map {
                 $0 + currentThreshold - nextThreshold
             }
@@ -48,7 +49,6 @@ enum PingAcknowledgementHandler {
                 alarm["thresholdStates"] = thresholds
                 if let minutesUntilNext {
                     alarm["lastEstimatedMinutesUntilThreshold"] = minutesUntilNext
-                    alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
                 }
                 alarms[alarmIndex] = alarm
                 try save(alarms, to: alarmsURL)
@@ -64,7 +64,6 @@ enum PingAcknowledgementHandler {
                 alarm["thresholdStates"] = thresholds
                 alarm["spent"] = true
                 alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
-                alarm.removeValue(forKey: "lastEstimatedMinutesUntilArrival")
                 alarms[alarmIndex] = alarm
                 try save(alarms, to: alarmsURL)
             } catch {
@@ -119,40 +118,11 @@ enum PingAcknowledgementHandler {
         }
     }
 
+    /// The start of a repeating alarm's next occurrence, or nil for a one-off
+    /// alarm. Uses the same window and repeat-day rules as the extension.
     private static func nextRepeatDate(for alarm: [String: Any]) -> Date? {
-        let repeatInfo = alarm["repeat"] as? [String: Any] ?? [:]
-        let frequency = repeatInfo["frequency"] as? String ?? "none"
-        let windowStart = integer(alarm["windowStart"]) ?? 0
-        var calendar = NativeTransitLocales.gregorianCalendar()
-        let now = Date()
-        let today = calendar.startOfDay(for: now)
-
-        switch frequency {
-        case "daily":
-            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: today) else { return nil }
-            return NativeTransitLocales.date(windowStartMinutes: windowStart, on: nextDay, calendar: calendar)
-        case "weekly":
-            let weekdays = Set(repeatInfo["weekdays"] as? [Int] ?? [])
-            for offset in 1...7 {
-                guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
-                let weekday = calendar.component(.weekday, from: day)
-                let dartWeekday = weekday == 1 ? 7 : weekday - 1
-                if weekdays.contains(dartWeekday) {
-                    return NativeTransitLocales.date(windowStartMinutes: windowStart, on: day, calendar: calendar)
-                }
-            }
-        case "monthly":
-            let days = Set(repeatInfo["dayOfMonth"] as? [Int] ?? [])
-            for offset in 1...370 {
-                guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
-                if days.contains(calendar.component(.day, from: day)) {
-                    return NativeTransitLocales.date(windowStartMinutes: windowStart, on: day, calendar: calendar)
-                }
-            }
-        default:
-            return nil
-        }
-        return nil
+        guard let window = AlarmWindow(alarm: alarm), window.frequency != "none" else { return nil }
+        return window.nextOccurrence(after: Date(), calendar: NativeTransitLocales.gregorianCalendar())?.start
     }
 
     private static func save(_ alarms: [[String: Any]], to url: URL) throws {

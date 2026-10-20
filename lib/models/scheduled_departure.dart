@@ -1,9 +1,13 @@
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+/// One timetabled arrival of a trip at a stop, from GTFS stop_times.
 class ScheduledDeparture {
   final String routeShortName;
-  final String arrivalTime; // in "HH:MM:SS"
+  /// "HH:MM:SS" on the locale's clock, from the start of the service day.
+  /// GTFS allows hours past 24 for trips running after midnight.
+  final String arrivalTime;
+  /// The trip's last stop, keyed by language code.
   final Map<String, String> destination;
   final int? directionId;
   final String? tripId;
@@ -18,6 +22,7 @@ class ScheduledDeparture {
     required this.locale,
   });
 
+  /// Whole minutes from now until [arrivalTime] today; negative once passed.
   int get minutesFromNow {
     final parts = arrivalTime.split(":");
     final hours = int.parse(parts[0]);
