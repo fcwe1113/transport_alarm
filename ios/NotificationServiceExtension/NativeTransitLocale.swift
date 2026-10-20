@@ -9,8 +9,19 @@ struct NativeTransitLocale {
     /// IANA timezone identifier used for local transit service dates.
     let timeZoneIdentifier: String
 
-    /// Relative path from the shared App Group directory to this locale's GTFS DB.
-    let databaseRelativePath: String
+    /// This locale's GTFS database in the shared App Group directory. The app
+    /// keeps it at gtfs/<code>.db; older installs had gtfs/gtfs/<code>.db, used
+    /// only if that's the one present.
+    func databaseURL(in appGroupDirectory: URL) -> URL {
+        let current = appGroupDirectory.appendingPathComponent("gtfs/\(code).db")
+        let legacy = appGroupDirectory.appendingPathComponent("gtfs/gtfs/\(code).db")
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: current.path),
+           fileManager.fileExists(atPath: legacy.path) {
+            return legacy
+        }
+        return current
+    }
 
     /// Resolves the configured IANA timezone, or GMT if the identifier is invalid.
     var timeZone: TimeZone {
@@ -28,11 +39,8 @@ struct NativeTransitLocale {
 enum NativeTransitLocales {
     // Keep these codes aligned with the locale saved on BusAlarm in Dart.
     private static let registered: [String: NativeTransitLocale] = [
-        "hk": NativeTransitLocale(
-            code: "hk",
-            timeZoneIdentifier: "Asia/Hong_Kong",
-            databaseRelativePath: "gtfs/gtfs/hk.db"
-        ),
+        "hk": NativeTransitLocale(code: "hk", timeZoneIdentifier: "Asia/Hong_Kong"),
+        "gb": NativeTransitLocale(code: "gb", timeZoneIdentifier: "Europe/London"),
     ]
 
     /// Finds a locale configuration. Existing alarms without a locale code use HK.

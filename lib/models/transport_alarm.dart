@@ -26,6 +26,9 @@ class TransportAlarm {
   final String message;
   final bool enabled; // indicates alarm enabled (similar to ios alarm ui alarm toggle)
   final String? pingId;
+  // Proves to the scheduling server that this device owns pingId; sent with
+  // every reschedule and ack.
+  final String? pingSecret;
   // Cached distance from the active threshold, rather than distance to arrival.
   final int? lastEstimatedMinutesUntilThreshold;
   // Android stores local-device window bounds for the current occurrence.
@@ -58,6 +61,7 @@ class TransportAlarm {
     required this.message,
     this.enabled = true,
     this.pingId,
+    this.pingSecret,
     this.lastEstimatedMinutesUntilThreshold,
     this.androidOccurrenceStartEpochSeconds,
     this.androidOccurrenceEndEpochSeconds,
@@ -81,6 +85,7 @@ class TransportAlarm {
     String? message,
     bool? enabled,
     String? pingId,
+    String? pingSecret,
     bool clearPingId = false,
     int? lastEstimatedMinutesUntilThreshold,
     int? androidOccurrenceStartEpochSeconds,
@@ -109,6 +114,7 @@ class TransportAlarm {
         message: message ?? this.message,
         enabled: enabled ?? this.enabled,
         pingId: clearPingId ? null : pingId ?? this.pingId,
+        pingSecret: clearPingId ? null : pingSecret ?? this.pingSecret,
         lastEstimatedMinutesUntilThreshold: clearLastEstimatedMinutesUntilThreshold
             ? null
             : lastEstimatedMinutesUntilThreshold ?? this.lastEstimatedMinutesUntilThreshold,
@@ -148,6 +154,7 @@ class TransportAlarm {
     'message': message,
     'enabled': enabled,
     'pingId': pingId,
+    'pingSecret': pingSecret,
     'lastEstimatedMinutesUntilThreshold': lastEstimatedMinutesUntilThreshold,
     'androidOccurrenceStartEpochSeconds': androidOccurrenceStartEpochSeconds,
     'androidOccurrenceEndEpochSeconds': androidOccurrenceEndEpochSeconds,
@@ -175,6 +182,7 @@ class TransportAlarm {
     message: json['message'] as String,
     enabled: json['enabled'] as bool,
     pingId: json['pingId'] as String?,
+    pingSecret: json['pingSecret'] as String?,
     lastEstimatedMinutesUntilThreshold:
         _cachedMinutesUntilThreshold(json),
     androidOccurrenceStartEpochSeconds:

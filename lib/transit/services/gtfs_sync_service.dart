@@ -65,7 +65,14 @@ class GtfsSyncService {
             }),
             progress / 100,
           );
-          return FlutterArchive.ZipFileOperation.includeItem;
+          // Only write the files the import reads. Feeds can include large
+          // extras such as shapes.txt; skipping them saves the time and
+          // storage writes, still in this single native extraction pass.
+          if (zipEntry.isDirectory ||
+              requiredFiles.contains(p.basename(zipEntry.name))) {
+            return FlutterArchive.ZipFileOperation.includeItem;
+          }
+          return FlutterArchive.ZipFileOperation.skipItem;
         },
       );
 
@@ -111,8 +118,10 @@ class GtfsSyncService {
     }
   }
 
-  /// Imports filtered files in dependency order, tracking relationship IDs in
-  /// disk-backed indexes so unrelated GTFS rows are never inserted.
+  /// Imports filtered files in dependency order, tracking relationship IDs so
+  /// unrelated GTFS rows are never inserted. Stop, route and service IDs are
+  /// few enough (tens of thousands at most) to keep in memory; trip IDs,
+  /// which can run to hundreds of thousands, use a disk-backed index.
   Future<void> _importFiles(
     Map<String, File> files,
     bool Function(List<dynamic> header, List<dynamic> row)? stopFilter,
@@ -121,14 +130,11 @@ class GtfsSyncService {
   ) async {
     final indexes = <_TemporaryIndex>[];
     try {
-      final includedStopIds = await _TemporaryIndex.create('stop_id');
-      indexes.add(includedStopIds);
+      final includedStopIds = <String>{};
       final includedTripIds = await _TemporaryIndex.create('trip_id');
       indexes.add(includedTripIds);
-      final includedRouteIds = await _TemporaryIndex.create('route_id');
-      indexes.add(includedRouteIds);
-      final includedServiceIds = await _TemporaryIndex.create('service_id');
-      indexes.add(includedServiceIds);
+      final includedRouteIds = <String>{};
+      final includedServiceIds = <String>{};
       await _importFilesWithTempIdIndex(
         files,
         stopFilter,
@@ -154,10 +160,10 @@ class GtfsSyncService {
     bool Function(List<dynamic> header, List<dynamic> row)? stopFilter,
     ProgressCallback? onProgress,
     int totalFiles,
-    _TemporaryIndex includedStopIds,
+    Set<String> includedStopIds,
     _TemporaryIndex includedTripIds,
-    _TemporaryIndex includedRouteIds,
-    _TemporaryIndex includedServiceIds,
+    Set<String> includedRouteIds,
+    Set<String> includedServiceIds,
   ) async {
     final allowAllStops = stopFilter ?? (header, row) => true;
     var parsedCount = 0;
@@ -170,6 +176,7 @@ class GtfsSyncService {
       filterBatch,
       Future<void> Function(List<dynamic>, List<List<dynamic>>)? afterBatch,
       bool reportLines = false,
+      int batchSize = 2000,
     }) async {
       final file = files[fileName];
       if (file == null) return;
@@ -203,21 +210,36 @@ class GtfsSyncService {
         filterBatch: filterBatch,
         cancelToken: cancelToken,
         onLinesRead: onLinesRead,
+        batchSize: batchSize,
       );
       parsedCount++;
+      // Each file is read once. Freeing its space now, rather than when the
+      // whole archive is done, lowers peak storage while the staging
+      // database grows.
+      try {
+        await file.delete();
+      } catch (_) {
+        // The extraction folder is removed after the import either way.
+      }
     }
 
     // Resolve selected stops first, applying both the caller's ATCO filter
     // and recording their IDs for the stop_times relationship.
+    String Function(List<dynamic>)? stopIdOf;
     await parseWithHeader(
       'stops.txt',
       _db.batchInsertStops,
       filter: (header, row) {
-        final stopId = _csvField(header, row, 'stop_id');
-        if (stopId.isEmpty || !allowAllStops(header, row)) return false;
-        return true;
+        // The header is the same for every row, so find the column once.
+        stopIdOf ??= _columnReader(header, 'stop_id');
+        return stopIdOf!(row).isNotEmpty && allowAllStops(header, row);
       },
-      afterBatch: includedStopIds.insertRows,
+      afterBatch: (header, rows) async {
+        final stopId = _columnReader(header, 'stop_id');
+        for (final row in rows) {
+          includedStopIds.add(stopId(row));
+        }
+      },
     );
 
     // Stop times establish which trips serve at least one included stop.
@@ -225,19 +247,16 @@ class GtfsSyncService {
       'stop_times.txt',
       _db.batchInsertStopTimes,
       filterBatch: (header, rows) async {
-        final stopIds = rows
-            .map((row) => _csvField(header, row, 'stop_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
-        final selectedStopIds = await includedStopIds.findExisting(stopIds);
+        final tripId = _columnReader(header, 'trip_id');
+        final stopId = _columnReader(header, 'stop_id');
         return rows.where((row) {
-          final tripId = _csvField(header, row, 'trip_id');
-          final stopId = _csvField(header, row, 'stop_id');
-          return tripId.isNotEmpty && selectedStopIds.contains(stopId);
+          return tripId(row).isNotEmpty && includedStopIds.contains(stopId(row));
         }).toList();
       },
       afterBatch: includedTripIds.insertRows,
       reportLines: true,
+      // Far fewer, larger transactions for the biggest file.
+      batchSize: 25000,
     );
 
     // Retain only trips found in the selected stops' stop times, collecting
@@ -247,26 +266,28 @@ class GtfsSyncService {
       'trips.txt',
       _db.batchInsertTrips,
       filterBatch: (header, rows) async {
-        final candidateIds = rows
-            .map((row) => _csvField(header, row, 'trip_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
+        final tripId = _columnReader(header, 'trip_id');
+        final routeId = _columnReader(header, 'route_id');
+        final serviceId = _columnReader(header, 'service_id');
+        final candidateIds =
+            rows.map(tripId).where((id) => id.isNotEmpty).toSet();
         final includedIds = await includedTripIds.findExisting(candidateIds);
-        final selectedRows = <List<dynamic>>[];
-        for (final row in rows) {
-          final tripId = _csvField(header, row, 'trip_id');
-          if (!includedIds.contains(tripId)) continue;
-          final routeId = _csvField(header, row, 'route_id');
-          final serviceId = _csvField(header, row, 'service_id');
-          if (routeId.isEmpty || serviceId.isEmpty) continue;
-          selectedRows.add(row);
-        }
-        return selectedRows;
+        return rows.where((row) {
+          return includedIds.contains(tripId(row)) &&
+              routeId(row).isNotEmpty &&
+              serviceId(row).isNotEmpty;
+        }).toList();
       },
       afterBatch: (header, rows) async {
-        await includedRouteIds.insertRows(header, rows);
-        await includedServiceIds.insertRows(header, rows);
+        final routeId = _columnReader(header, 'route_id');
+        final serviceId = _columnReader(header, 'service_id');
+        for (final row in rows) {
+          includedRouteIds.add(routeId(row));
+          includedServiceIds.add(serviceId(row));
+        }
       },
+      // Can run to hundreds of thousands of rows, like stop_times.
+      batchSize: 25000,
     );
 
     await parseWithHeader('agency.txt', _db.batchInsertAgencies);
@@ -275,16 +296,8 @@ class GtfsSyncService {
       'routes.txt',
       _db.batchInsertRoutes,
       filterBatch: (header, rows) async {
-        final ids = rows
-            .map((row) => _csvField(header, row, 'route_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
-        final includedIds = await includedRouteIds.findExisting(ids);
-        return rows
-            .where(
-              (row) => includedIds.contains(_csvField(header, row, 'route_id')),
-            )
-            .toList();
+        final routeId = _columnReader(header, 'route_id');
+        return rows.where((row) => includedRouteIds.contains(routeId(row))).toList();
       },
     );
 
@@ -292,17 +305,8 @@ class GtfsSyncService {
       'calendar.txt',
       _db.batchInsertCalendar,
       filterBatch: (header, rows) async {
-        final ids = rows
-            .map((row) => _csvField(header, row, 'service_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
-        final includedIds = await includedServiceIds.findExisting(ids);
-        return rows
-            .where(
-              (row) =>
-                  includedIds.contains(_csvField(header, row, 'service_id')),
-            )
-            .toList();
+        final serviceId = _columnReader(header, 'service_id');
+        return rows.where((row) => includedServiceIds.contains(serviceId(row))).toList();
       },
     );
 
@@ -310,19 +314,23 @@ class GtfsSyncService {
       'calendar_dates.txt',
       _db.batchInsertCalendarDates,
       filterBatch: (header, rows) async {
-        final ids = rows
-            .map((row) => _csvField(header, row, 'service_id'))
-            .where((id) => id.isNotEmpty)
-            .toSet();
-        final includedIds = await includedServiceIds.findExisting(ids);
-        return rows
-            .where(
-              (row) =>
-                  includedIds.contains(_csvField(header, row, 'service_id')),
-            )
-            .toList();
+        final serviceId = _columnReader(header, 'service_id');
+        return rows.where((row) => includedServiceIds.contains(serviceId(row))).toList();
       },
     );
+  }
+
+  /// Reads [name] from rows of a file with [header], finding its column once
+  /// instead of on every row. Values are trimmed, as with [_csvField].
+  String Function(List<dynamic> row) _columnReader(
+    List<dynamic> header,
+    String name,
+  ) {
+    final index = header.indexOf(name);
+    if (index < 0) {
+      throw FormatException('GTFS file is missing the $name column.');
+    }
+    return (row) => row.length > index ? row[index].toString().trim() : '';
   }
 
   String _csvField(
@@ -428,6 +436,9 @@ class _TemporaryIndex {
           await db.execute('CREATE TABLE included_ids (id TEXT PRIMARY KEY)');
         },
       );
+      // Deleted after every import, so it needs no journal or syncing.
+      await database.rawQuery('PRAGMA journal_mode=OFF');
+      await database.execute('PRAGMA synchronous=OFF');
       return _TemporaryIndex._(directory, database, name);
     } catch (_) {
       await directory.delete(recursive: true);

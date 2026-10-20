@@ -11,7 +11,10 @@ workflows:
         - ~/Library/Caches/org.swift.swiftpm
     environment:
       flutter: 3.47.5
-      xcode: latest
+      # Pinned rather than latest while testing whether the time-sensitive
+      # entitlement error is an Xcode issue. 26.1 is the oldest Xcode that can
+      # build for the iOS 26.1 deployment target.
+      xcode: 26.1
       groups:
         - transport_alarm
       ios_signing:
@@ -22,6 +25,23 @@ workflows:
         script: |
           mkdir -p config
           echo "$SECRETS_JSON" | base64 --decode > config/secrets.json
+      - name: Generate build-time secrets
+        # BUILD_SECRETS_JSON is the base64 of config/build_secrets.json
+        # ({"UK_BODS_KEY": "..."}), set as a secure variable in the
+        # transport_alarm group. Dart gets it through --dart-define-from-file;
+        # the notification service extension, which can't run Dart, reads it
+        # from its Info.plist.
+        script: |
+          set -e
+          mkdir -p config
+          echo "$BUILD_SECRETS_JSON" | base64 --decode > config/build_secrets.json
+          BODS_KEY=$(plutil -extract UK_BODS_KEY raw -o - config/build_secrets.json)
+          if [ -z "$BODS_KEY" ]; then
+            echo "UK_BODS_KEY is missing from BUILD_SECRETS_JSON" >&2
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c "Set :UKBodsAPIKey $BODS_KEY" \
+            ios/NotificationServiceExtension/Info.plist
       - name: Debug signing state
         script: |
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "no profiles directory"
@@ -43,9 +63,22 @@ workflows:
         script: cd ios && pod install
       - name: Apply signing
         script: xcode-project use-profiles --archive-method=app-store
+      - name: Inspect signing setup
+        # Debugging the time-sensitive entitlement error: shows the export
+        # options and the profile Runner is set to sign with.
+        script: |
+          echo "=== export_options.plist ==="
+          plutil -p /Users/builder/export_options.plist || true
+          echo "=== Runner signing settings ==="
+          xcodebuild -showBuildSettings \
+            -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release 2>/dev/null \
+            | grep -E "PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_STYLE|PROVISIONING_PROFILE|CODE_SIGN_ENTITLEMENTS|DEVELOPMENT_TEAM" || true
       - name: Build ipa
         script: |
           flutter build ipa --release \
+            --obfuscate \
+            --split-debug-info=build/symbols \
+            --dart-define-from-file=config/build_secrets.json \
             --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID") + 1)) \
             --export-options-plist=/Users/builder/export_options.plist
       - name: Verify IPA entitlements
@@ -58,6 +91,8 @@ workflows:
           codesign -d --entitlements :- /tmp/ipa/Payload/Runner.app || true
     artifacts:
       - build/ios/ipa/*.ipa
+      # Needed with flutter symbolize to read obfuscated crash stack traces.
+      - build/symbols
     publishing:
       app_store_connect:
         auth: integration

@@ -9,50 +9,128 @@ export interface Env {
 }
 
 interface ScheduledPing {
-	id: number;
+	id: string; // random UUID, so IDs can't be guessed
+	secret_hash: string; // SHA-256 of the secret returned to the client
 	device_token: string;
 	scheduled_time: number;
 	require_ack: number; // 0 or 1
 	expire_on: number | null;
 	status: "PENDING" | "SENT";
 	last_sent_at: number | null;
+	fallback_count: number; // resends since the client last rescheduled
 }
 
 interface ScheduleRequestBody {
 	device_token: string;
-	scheduled_time: number; // unix timestamp in seconds
+	// Seconds from now by the Worker's clock, so the phone's clock doesn't
+	// matter. scheduled_time is still accepted from older builds.
+	delay_seconds?: number;
+	scheduled_time?: number; // unix timestamp in seconds
 	require_ack: boolean;
 	expire_on?: number | null;
 }
 
 interface ScheduleUpdateBody {
 	ping_id: string;
-	scheduled_time: string;
+	ping_secret: string;
+	delay_seconds?: number;
+	scheduled_time?: number;
 	require_ack: number;
 	expire_on: number | null;
 }
 
+interface UpdateTokenBody {
+	ping_id: string;
+	ping_secret: string;
+	device_token: string;
+}
+
 interface AckRequestBody {
-	ping_id: number | string;
+	ping_id: string;
+	ping_secret: string;
+}
+
+// A device can't hold more pending pings than this, so one client can't fill
+// the table or make the cron push to it without limit.
+const MAX_PINGS_PER_DEVICE = 25;
+// Furthest ahead a ping can be scheduled (a monthly repeat, plus margin).
+const MAX_SCHEDULE_AHEAD_SECONDS = 400 * 24 * 3600;
+// How long a row lives past its scheduled time when the client sets no
+// expiry: long enough for its fallback resends.
+const DEFAULT_EXPIRY_SECONDS = 20 * 60;
+// A sent ping the client hasn't rescheduled by this long after is sent
+// again, in case the push or the extension run was lost.
+const FALLBACK_AFTER_SECONDS = 5 * 60;
+const MAX_FALLBACKS = 3;
+const DEVICE_TOKEN_PATTERN = /^[0-9a-fA-F]{64,200}$/;
+
+function json(body: unknown, status = 200): Response {
+	return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+}
+
+async function sha256Hex(text: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+	return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function randomSecret(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** The ping's Unix time from delay_seconds, or the older scheduled_time;
+ * null if neither is valid. */
+function resolveScheduledTime(body: { delay_seconds?: unknown; scheduled_time?: unknown }, now: number): number | null {
+	let time: number;
+	if (typeof body.delay_seconds === "number" && Number.isFinite(body.delay_seconds)) {
+		time = now + Math.max(0, Math.floor(body.delay_seconds));
+	} else if (typeof body.scheduled_time === "number" && Number.isFinite(body.scheduled_time)) {
+		time = Math.floor(body.scheduled_time);
+	} else {
+		return null;
+	}
+	return time > now + MAX_SCHEDULE_AHEAD_SECONDS ? null : time;
+}
+
+/** Checks the client owns [pingId]: a Response to return if not, or null. */
+async function rejectUnlessOwner(env: Env, pingId: unknown, secret: unknown): Promise<Response | null> {
+	if (typeof pingId !== "string" || typeof secret !== "string" || !pingId || !secret) {
+		return json({ error: "Missing ping_id or ping_secret" }, 400);
+	}
+	const row = await env.DB.prepare("SELECT secret_hash FROM scheduled_pings WHERE id = ?")
+		.bind(pingId).first<{ secret_hash: string }>();
+	if (!row) return json({ error: "ping_id not found" }, 404);
+	if (row.secret_hash !== (await sha256Hex(secret))) return json({ error: "Forbidden" }, 403);
+	return null;
 }
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		const retry_period = 180; // retry_period is 3 minutes
 		const url = new URL(request.url);
 
 		if (request.method == "POST" && url.pathname === "/schedule") {
 			try {
 				const body = (await request.json()) as ScheduleRequestBody;
-				if (!body.device_token || !body.scheduled_time) {
-					return new Response(JSON.stringify({ error: "Missing device_token or scheduled_time" }), { status: 400 });
+				const now = Math.floor(Date.now() / 1000);
+				const scheduledTime = resolveScheduledTime(body, now);
+				if (typeof body.device_token !== "string" || !DEVICE_TOKEN_PATTERN.test(body.device_token) || scheduledTime === null) {
+					return json({ error: "Invalid device_token, delay_seconds or scheduled_time" }, 400);
+				}
+				const pending = await env.DB.prepare("SELECT COUNT(*) AS count FROM scheduled_pings WHERE device_token = ?")
+					.bind(body.device_token).first<{ count: number }>();
+				if ((pending?.count ?? 0) >= MAX_PINGS_PER_DEVICE) {
+					return json({ error: "Too many scheduled pings for this device" }, 429);
 				}
 
-				const info = await env.DB.prepare(
-					"INSERT INTO scheduled_pings (device_token, scheduled_time, require_ack, expire_on) VALUES (?, ?, ?, ?)"
-				).bind(body.device_token, body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? body.scheduled_time + retry_period).run();
+				// The secret is returned once and only its hash is stored; reschedule
+				// and ack calls must present it.
+				const pingId = crypto.randomUUID();
+				const secret = randomSecret();
+				await env.DB.prepare(
+					"INSERT INTO scheduled_pings (id, secret_hash, device_token, scheduled_time, require_ack, expire_on) VALUES (?, ?, ?, ?, ?, ?)"
+				).bind(pingId, await sha256Hex(secret), body.device_token, scheduledTime, body.require_ack ? 1 : 0, body.expire_on ?? scheduledTime + DEFAULT_EXPIRY_SECONDS).run();
 
-				return new Response(JSON.stringify({ success: true, ping_id: info.meta.last_row_id }), { headers: { "Content-Type": "application/json" } });
+				return json({ success: true, ping_id: pingId, ping_secret: secret });
 			} catch (err) {
 				const message = err instanceof Error ? err.message : "Unknown Error";
 				return new Response(JSON.stringify({ error: message }), { status: 400 });
@@ -62,31 +140,52 @@ export default {
 		if (request.method == "POST" && url.pathname === "/reschedule") {
     			try {
     				const body = (await request.json()) as ScheduleUpdateBody;
-    				if (!body.ping_id || !body.scheduled_time) {
-    					return new Response(JSON.stringify({ error: "Missing ping_id or scheduled_time" }), { status: 400 });
+    				const scheduledTime = resolveScheduledTime(body, Math.floor(Date.now() / 1000));
+    				if (!body.ping_id || scheduledTime === null) {
+    					return json({ error: "Missing ping_id, or invalid delay_seconds or scheduled_time" }, 400);
     				}
+    				const rejected = await rejectUnlessOwner(env, body.ping_id, body.ping_secret);
+    				if (rejected) return rejected;
 
     				const info = await env.DB.prepare(
-    					"UPDATE scheduled_pings SET scheduled_time = ?, require_ack = ?, expire_on = ?, status = 'PENDING', last_sent_at = NULL WHERE id = ?"
-    				).bind(body.scheduled_time, body.require_ack ? 1 : 0, body.expire_on ?? body.scheduled_time + retry_period, body.ping_id).run();
+    					"UPDATE scheduled_pings SET scheduled_time = ?, require_ack = ?, expire_on = ?, status = 'PENDING', last_sent_at = NULL, fallback_count = 0 WHERE id = ?"
+    				).bind(scheduledTime, body.require_ack ? 1 : 0, body.expire_on ?? scheduledTime + DEFAULT_EXPIRY_SECONDS, body.ping_id).run();
 
 					if (info.meta.changes === 0) {
 						return new Response(JSON.stringify({ error: "ping_id not found" }), { status: 404 });
 					}
 
-    				return new Response(JSON.stringify({ success: true, ping_id: info.meta.last_row_id }), { headers: { "Content-Type": "application/json" } });
+    				return json({ success: true, ping_id: body.ping_id });
     			} catch (err) {
     				const message = err instanceof Error ? err.message : "Unknown Error";
     				return new Response(JSON.stringify({ error: message }), { status: 400 });
     			}
     		}
 
+		// Moves a ping to the device's current push token, after iOS issues a
+		// new one. A 404 tells the app the ping is gone and to schedule anew.
+		if (request.method == "POST" && url.pathname === "/update_token") {
+			try {
+				const body = (await request.json()) as UpdateTokenBody;
+				if (typeof body.device_token !== "string" || !DEVICE_TOKEN_PATTERN.test(body.device_token)) {
+					return json({ error: "Invalid device_token" }, 400);
+				}
+				const rejected = await rejectUnlessOwner(env, body.ping_id, body.ping_secret);
+				if (rejected) return rejected;
+				await env.DB.prepare("UPDATE scheduled_pings SET device_token = ? WHERE id = ?")
+					.bind(body.device_token, body.ping_id).run();
+				return json({ success: true, ping_id: body.ping_id });
+			} catch (err) {
+				const message = err instanceof Error ? err.message : "Unknown Error";
+				return json({ error: message }, 400);
+			}
+		}
+
 		if (request.method == "POST" && url.pathname === "/ack") {
 			try {
 				const body = (await request.json()) as AckRequestBody;
-				if (!body.ping_id) {
-					return new Response(JSON.stringify({ error: "Missing ping_id" }), { status: 400 });
-				}
+				const rejected = await rejectUnlessOwner(env, body.ping_id, body.ping_secret);
+				if (rejected) return rejected;
 				await env.DB.prepare("DELETE FROM scheduled_pings WHERE id = ?").bind(body.ping_id).run();
 				return new Response(JSON.stringify({ acknowledged: true }), { headers: { "Content-Type": "application/json" } });
 			} catch (err) {
@@ -103,40 +202,59 @@ export default {
 		// Expired rows no longer represent an active client schedule.
 		await env.DB.prepare("DELETE FROM scheduled_pings WHERE expire_on IS NOT NULL AND expire_on <= ?").bind(now).run();
 
-		// A client reschedule returns the row to PENDING. SENT rows are not
-		// delivered again; only a new due schedule from the client can trigger
-		// another visible push.
+		// A client reschedule returns the row to PENDING. A SENT row the client
+		// hasn't rescheduled is sent again after FALLBACK_AFTER_SECONDS, up to
+		// MAX_FALLBACKS times, so a lost push or extension run doesn't end the
+		// alarm's chain of pings.
 		const { results } = await env.DB.prepare(
-			"SELECT * FROM scheduled_pings WHERE status = 'PENDING' AND scheduled_time <= ? AND (expire_on IS NULL OR expire_on > ?)"
-		).bind(now, now).all<ScheduledPing>();
+			"SELECT * FROM scheduled_pings WHERE ((status = 'PENDING' AND scheduled_time <= ?) OR (status = 'SENT' AND last_sent_at <= ? AND fallback_count < ?)) AND (expire_on IS NULL OR expire_on > ?)"
+		).bind(now, now - FALLBACK_AFTER_SECONDS, MAX_FALLBACKS, now).all<ScheduledPing>();
 
 		console.log(`[Cron run at ${new Date().toISOString()}] found ${results.length} jobs to process`);
 
+		const deadTokens = new Set<string>();
 		for (const job of results) {
+			if (deadTokens.has(job.device_token)) continue;
+			const isFallback = job.status === "SENT";
 			// Claim the row before calling APNs so overlapping cron runs do
 			// not send the same due ping concurrently. A failed provider request
-			// returns it to PENDING for the next cron run to retry.
-			const claim = await env.DB.prepare(
-				"UPDATE scheduled_pings SET status = 'SENT', last_sent_at = ? WHERE id = ? AND status = 'PENDING' AND scheduled_time <= ? AND (expire_on IS NULL OR expire_on > ?)"
-			).bind(now, job.id, now, now).run();
+			// puts the row back for the next cron run to retry.
+			const claim = isFallback
+				? await env.DB.prepare(
+					"UPDATE scheduled_pings SET last_sent_at = ?, fallback_count = fallback_count + 1 WHERE id = ? AND status = 'SENT' AND last_sent_at = ? AND fallback_count = ?"
+				).bind(now, job.id, job.last_sent_at, job.fallback_count).run()
+				: await env.DB.prepare(
+					"UPDATE scheduled_pings SET status = 'SENT', last_sent_at = ? WHERE id = ? AND status = 'PENDING' AND scheduled_time <= ? AND (expire_on IS NULL OR expire_on > ?)"
+				).bind(now, job.id, now, now).run();
 			if (claim.meta.changes === 0) continue;
 
-			let success = false;
+			const result: PushResult = env.APNS_PRIVATE_KEY && env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_TOPIC
+				? await sendVisiblePush(env, job)
+				: await mockSendVisiblePush(job);
 
-			if (env.APNS_PRIVATE_KEY && env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_TOPIC) {
-				success = await sendVisiblePush(env, job);
-			} else {
-				success = await mockSendVisiblePush(job);
-			}
-
-			if (!success) {
-				await env.DB.prepare(
-					"UPDATE scheduled_pings SET status = 'PENDING', last_sent_at = NULL WHERE id = ? AND status = 'SENT' AND last_sent_at = ?"
-				).bind(job.id, now).run();
+			if (result === "deadToken") {
+				// APNs will never deliver to this token again; the app moves its
+				// alarms to the new token, or schedules new pings, on its next launch.
+				deadTokens.add(job.device_token);
+				await env.DB.prepare("DELETE FROM scheduled_pings WHERE device_token = ?").bind(job.device_token).run();
+			} else if (result === "retry") {
+				if (isFallback) {
+					await env.DB.prepare(
+						"UPDATE scheduled_pings SET last_sent_at = ?, fallback_count = ? WHERE id = ? AND status = 'SENT' AND last_sent_at = ?"
+					).bind(job.last_sent_at, job.fallback_count, job.id, now).run();
+				} else {
+					await env.DB.prepare(
+						"UPDATE scheduled_pings SET status = 'PENDING', last_sent_at = NULL WHERE id = ? AND status = 'SENT' AND last_sent_at = ?"
+					).bind(job.id, now).run();
+				}
 			}
 		}
 	}
 };
+
+/** sent: delivered to APNs. retry: try again next cron run. deadToken: APNs
+ * rejected the device token for good. */
+type PushResult = "sent" | "retry" | "deadToken";
 
 function cleanKeyString(rawKey: string): string {
 	let key = rawKey.trim();
@@ -290,7 +408,7 @@ async function getApnsJwtToken(env: Env, apnsKey: CryptoKey): Promise<string> {
 	return token;
 }
 
-async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
+async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<PushResult> {
 	try {
 		const apnsKey = await getApnsCryptoKey(env.APNS_PRIVATE_KEY!);
 		const token = await getApnsJwtToken(env, apnsKey);
@@ -299,9 +417,12 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 
 		const payload = {
 			aps: {
-				alert: { title: "server cronjob ping", body: "you should not be able to see this lol" },
+				// Only shown if the notification service extension fails to
+				// replace it.
+				alert: { title: "Transport Alarm", body: "Checking your alarm…" },
 				category: "ping",
-				sound: "default",
+				// No sound here: the notification service extension picks one
+				// per notice, keeping update pings silent.
 				"mutable-content": 1,
 // 				"content-available": 1,
 			},
@@ -318,6 +439,9 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 				"apns-topic": env.APNS_TOPIC!,
 				"apns-push-type": "alert",
 				"apns-priority": "10",
+				// Each ping replaces the alarm's previous notification rather than
+				// stacking up in Notification Center.
+				"apns-collapse-id": String(job.id),
 				"content-type": "application/json"
 			},
 			body: JSON.stringify(payload)
@@ -326,19 +450,28 @@ async function sendVisiblePush(env: Env, job: ScheduledPing): Promise<boolean> {
 		if (!response.ok) {
 			const errorText = await response.text();
 			console.log(`APNs push failed with HTTP ${response.status} for ping ${job.id}:`, errorText);
-			return false;
+			let reason: unknown;
+			try {
+				reason = (JSON.parse(errorText) as { reason?: unknown }).reason;
+			} catch (_) {
+				reason = undefined;
+			}
+			if (response.status === 410 || (response.status === 400 && reason === "BadDeviceToken")) {
+				return "deadToken";
+			}
+			return "retry";
 		}
 
 // 		console.log("sent ping");
 
-		return true;
+		return "sent";
 	} catch (error) {
 		console.log(`APNs push failed for ping ${job.id}:`, error);
-		return false;
+		return "retry";
 	}
 }
 
-async function mockSendVisiblePush(job: ScheduledPing): Promise<boolean> {
+async function mockSendVisiblePush(job: ScheduledPing): Promise<PushResult> {
 	console.log(`[MOCK APNs PUSH] Triggered for Ping ID: ${job.id} -> Token: ${job.device_token}`);
-	return true;
+	return "sent";
 }

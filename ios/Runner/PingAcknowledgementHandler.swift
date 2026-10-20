@@ -13,6 +13,9 @@ enum PingAcknowledgementHandler {
               let alarmIndex = alarms.firstIndex(where: { string($0["pingId"]) == pingID }) else { return }
 
         var alarm = alarms[alarmIndex]
+        // The server requires the ping's secret to change it.
+        guard let pingSecret = alarm["pingSecret"] as? String else { return }
+        let alarmID = string(alarm["id"])
         var thresholds = alarm["thresholdStates"] as? [[String: Any]] ?? []
         guard let ringingIndex = thresholds.firstIndex(where: { $0["outcome"] as? String == "ringing" }) else { return }
         let currentThreshold = integer(thresholds[ringingIndex]["minutesBeforeArrival"]) ?? 0
@@ -37,6 +40,8 @@ enum PingAcknowledgementHandler {
             do {
                 try await reschedule(
                     pingID: pingID,
+                    secret: pingSecret,
+                    alarmID: alarmID,
                     at: Date().addingTimeInterval(TimeInterval(delayMinutes * 60)),
                     requireAck: minutesUntilNext.map { $0 <= 5 } ?? false
                 )
@@ -55,7 +60,7 @@ enum PingAcknowledgementHandler {
 
         if let nextRepeat = nextRepeatDate(for: alarm) {
             do {
-                try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)
+                try await reschedule(pingID: pingID, secret: pingSecret, alarmID: alarmID, at: nextRepeat, requireAck: false)
                 alarm["thresholdStates"] = thresholds
                 alarm["spent"] = true
                 alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
@@ -69,7 +74,8 @@ enum PingAcknowledgementHandler {
         }
 
         do {
-            try await acknowledgeOnServer(pingID: pingID)
+            if let alarmID { PingWatchdog.disarm(alarmID: alarmID) }
+            try await acknowledgeOnServer(pingID: pingID, secret: pingSecret)
             alarm["thresholdStates"] = thresholds
             alarm["enabled"] = false
             alarm["spent"] = true
@@ -81,14 +87,16 @@ enum PingAcknowledgementHandler {
         }
     }
 
-    private static func reschedule(pingID: String, at date: Date, requireAck: Bool) async throws {
+    private static func reschedule(pingID: String, secret: String, alarmID: String?, at date: Date, requireAck: Bool) async throws {
         var request = URLRequest(url: serverBaseURL.appendingPathComponent("reschedule"))
         request.httpMethod = "POST"
         request.timeoutInterval = 5
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "ping_id": pingID,
-            "scheduled_time": Int(date.timeIntervalSince1970),
+            "ping_secret": secret,
+            // A delay rather than a time, so the server uses its own clock.
+            "delay_seconds": max(0, Int(date.timeIntervalSinceNow.rounded())),
             "require_ack": requireAck,
             "expire_on": NSNull(),
         ])
@@ -96,14 +104,15 @@ enum PingAcknowledgementHandler {
         guard let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status) else {
             throw NSError(domain: "PingAcknowledgement", code: (response as? HTTPURLResponse)?.statusCode ?? -1)
         }
+        if let alarmID { await PingWatchdog.arm(alarmID: alarmID, nextPingAt: date) }
     }
 
-    private static func acknowledgeOnServer(pingID: String) async throws {
+    private static func acknowledgeOnServer(pingID: String, secret: String) async throws {
         var request = URLRequest(url: serverBaseURL.appendingPathComponent("ack"))
         request.httpMethod = "POST"
         request.timeoutInterval = 5
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["ping_id": pingID])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["ping_id": pingID, "ping_secret": secret])
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status) else {
             throw NSError(domain: "PingAcknowledgement", code: (response as? HTTPURLResponse)?.statusCode ?? -1)

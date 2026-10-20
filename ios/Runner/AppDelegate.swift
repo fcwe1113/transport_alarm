@@ -91,6 +91,34 @@ let appGroupId = "group.com.fcwe1113.busArrivalNotificationApp.66RCG95DR7"
         }
         apnsTokenChannel = tokenChannel
 
+        let watchdogChannel = FlutterMethodChannel(
+            name: "com.fcwe1113.transport_alarm/ping_watchdog",
+            binaryMessenger: messenger
+        )
+        watchdogChannel.setMethodCallHandler { call, result in
+            let args = call.arguments as? [String: Any]
+            guard let alarmID = args?["alarmId"] as? String else {
+                result(FlutterMethodNotImplemented)
+                return
+            }
+            switch call.method {
+            case "arm":
+                guard let millis = (args?["nextPingAt"] as? NSNumber)?.doubleValue else {
+                    result(FlutterMethodNotImplemented)
+                    return
+                }
+                Task { @MainActor in
+                    await PingWatchdog.arm(alarmID: alarmID, nextPingAt: Date(timeIntervalSince1970: millis / 1000))
+                    result(true)
+                }
+            case "disarm":
+                PingWatchdog.disarm(alarmID: alarmID)
+                result(true)
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+
         let mapsChannel = FlutterMethodChannel(
             name: "com.fcwe1113.transport_alarm/google_maps",
             binaryMessenger: messenger

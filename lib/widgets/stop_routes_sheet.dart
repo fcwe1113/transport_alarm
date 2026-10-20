@@ -100,10 +100,13 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
                       children: routes
                           .map(
                             (r) => ListTile(
+                              // Sized to its label: a ListTile's leading
+                              // widget can't fill the tile's width.
                               leading: _RoutePill(
                                 route: r,
                                 selected: _selectedRouteNumber == r.routeNumber,
                                 onTap: () => _toggleRouteSelection(r),
+                                fitContent: true,
                               ),
                               title: Text(
                                 r.destinationNameFor(AppStrings.languageCode),

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/transit/cancellation.dart';
@@ -106,7 +107,16 @@ class GtfsDatabase {
       // Create the staging schema for the first archive, or reopen the partial
       // snapshot left by an earlier archive. Carry operator data forward only
       // after the complete timetable snapshot has been populated.
-      await stagingDb.database;
+      // Bulk-load settings for the staging file only. It's discarded if the
+      // import fails and validated before it's installed, so it doesn't need
+      // the journal and syncing that protect the live database; skipping them
+      // makes the import many times faster and far lighter on storage. They
+      // apply to this connection only: the installed file reopens with the
+      // defaults.
+      final stagingConnection = await stagingDb.database;
+      await stagingConnection.rawQuery('PRAGMA journal_mode=OFF');
+      await stagingConnection.execute('PRAGMA synchronous=OFF');
+      await stagingConnection.execute('PRAGMA cache_size=-32768');
       await populate(stagingDb);
       populateSucceeded = true;
 
@@ -376,6 +386,33 @@ class GtfsDatabase {
   // String _val(List<dynamic> row, int index) =>
   //     row.length > index ? row[index].toString() : "";
 
+  /// Inserts [rows] (values in [columns] order) with as few statements as
+  /// possible: many rows per INSERT, within SQLite's 999 bound-parameter limit
+  /// on older Android versions. [replace] makes it INSERT OR REPLACE, for
+  /// tables keyed by GTFS IDs that later archives may repeat.
+  Future<void> _insertRows(
+    DatabaseExecutor db,
+    String table,
+    List<String> columns,
+    List<List<Object?>> rows, {
+    bool replace = false,
+  }) async {
+    if (rows.isEmpty) return;
+    final rowsPerStatement = 999 ~/ columns.length;
+    final verb = replace ? 'INSERT OR REPLACE' : 'INSERT';
+    final rowPlaceholders = '(${List.filled(columns.length, '?').join(',')})';
+    final batch = db.batch();
+    for (var start = 0; start < rows.length; start += rowsPerStatement) {
+      final end = math.min(start + rowsPerStatement, rows.length);
+      batch.rawInsert(
+        '$verb INTO $table (${columns.join(', ')}) VALUES '
+        '${List.filled(end - start, rowPlaceholders).join(',')}',
+        [for (var i = start; i < end; i++) ...rows[i]],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   Future<void> batchInsertRoutes(
     List<dynamic> header,
     List<List<dynamic>> rows,
@@ -396,17 +433,13 @@ class GtfsDatabase {
         index >= 0 && row.length > index ? row[index].toString() : '';
 
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (var row in rows) {
-        batch.insert("gtfs_routes", {
-          "route_id": value(row, routeIdIndex),
-          "route_short_name": value(row, routeNameIndex),
-          "agency_id": value(row, agencyIdIndex),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await batch.commit(noResult: true);
-    });
+    await db.transaction((txn) => _insertRows(txn, 'gtfs_routes', const ['route_id', 'route_short_name', 'agency_id'], [
+      for (final row in rows) [
+          value(row, routeIdIndex),
+          value(row, routeNameIndex),
+          value(row, agencyIdIndex),
+        ],
+    ], replace: true));
   }
 
   Future<void> batchInsertAgencies(
@@ -429,17 +462,13 @@ class GtfsDatabase {
         index >= 0 && row.length > index ? row[index].toString() : '';
 
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final row in rows) {
-        batch.insert('gtfs_agencies', {
-          'agency_id': value(row, agencyIdIndex),
-          'agency_name': value(row, agencyNameIndex),
-          "agency_noc": value(row, agencyNoc),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await batch.commit(noResult: true);
-    });
+    await db.transaction((txn) => _insertRows(txn, 'gtfs_agencies', const ['agency_id', 'agency_name', 'agency_noc'], [
+      for (final row in rows) [
+          value(row, agencyIdIndex),
+          value(row, agencyNameIndex),
+          value(row, agencyNoc),
+        ],
+    ], replace: true));
   }
 
   Future<void> batchInsertTrips(
@@ -463,18 +492,14 @@ class GtfsDatabase {
         index >= 0 && row.length > index ? row[index].toString() : '';
 
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (var row in rows) {
-        batch.insert("gtfs_trips", {
-          "route_id": value(row, routeIdIndex),
-          "service_id": value(row, serviceIdIndex),
-          "trip_id": value(row, tripIdIndex),
-          "direction_id": int.tryParse(value(row, directionIdIndex)) ?? 0,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await batch.commit(noResult: true);
-    });
+    await db.transaction((txn) => _insertRows(txn, 'gtfs_trips', const ['route_id', 'service_id', 'trip_id', 'direction_id'], [
+      for (final row in rows) [
+          value(row, routeIdIndex),
+          value(row, serviceIdIndex),
+          value(row, tripIdIndex),
+          int.tryParse(value(row, directionIdIndex)) ?? 0,
+        ],
+    ], replace: true));
   }
 
   Future<void> batchInsertCalendar(
@@ -504,24 +529,20 @@ class GtfsDatabase {
         index >= 0 && row.length > index ? row[index].toString() : '';
 
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (var row in rows) {
-        batch.insert("gtfs_calendar", {
-          "service_id": value(row, serviceIdIndex),
-          "monday": int.tryParse(value(row, monIndex)) ?? 0,
-          "tuesday": int.tryParse(value(row, tueIndex)) ?? 0,
-          "wednesday": int.tryParse(value(row, wedIndex)) ?? 0,
-          "thursday": int.tryParse(value(row, thuIndex)) ?? 0,
-          "friday": int.tryParse(value(row, friIndex)) ?? 0,
-          "saturday": int.tryParse(value(row, satIndex)) ?? 0,
-          "sunday": int.tryParse(value(row, sunIndex)) ?? 0,
-          "start_date": value(row, startDateIndex),
-          "end_date": value(row, endDateIndex),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await batch.commit(noResult: true);
-    });
+    await db.transaction((txn) => _insertRows(txn, 'gtfs_calendar', const ['service_id', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date'], [
+      for (final row in rows) [
+          value(row, serviceIdIndex),
+          int.tryParse(value(row, monIndex)) ?? 0,
+          int.tryParse(value(row, tueIndex)) ?? 0,
+          int.tryParse(value(row, wedIndex)) ?? 0,
+          int.tryParse(value(row, thuIndex)) ?? 0,
+          int.tryParse(value(row, friIndex)) ?? 0,
+          int.tryParse(value(row, satIndex)) ?? 0,
+          int.tryParse(value(row, sunIndex)) ?? 0,
+          value(row, startDateIndex),
+          value(row, endDateIndex),
+        ],
+    ], replace: true));
   }
 
   Future<void> batchInsertCalendarDates(
@@ -546,17 +567,13 @@ class GtfsDatabase {
         index >= 0 && row.length > index ? row[index].toString() : '';
 
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final row in rows) {
-        batch.insert('gtfs_calendar_dates', {
-          'service_id': value(row, serviceIdIndex),
-          'date': value(row, dateIndex),
-          'exception_type': int.tryParse(value(row, exceptionTypeIndex)) ?? 0,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await batch.commit(noResult: true);
-    });
+    await db.transaction((txn) => _insertRows(txn, 'gtfs_calendar_dates', const ['service_id', 'date', 'exception_type'], [
+      for (final row in rows) [
+          value(row, serviceIdIndex),
+          value(row, dateIndex),
+          int.tryParse(value(row, exceptionTypeIndex)) ?? 0,
+        ],
+    ], replace: true));
   }
 
   Future<void> batchInsertStops(
@@ -580,18 +597,14 @@ class GtfsDatabase {
         index >= 0 && row.length > index ? row[index].toString() : '';
 
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (var row in rows) {
-        batch.insert("gtfs_stops", {
-          "stop_id": value(row, stopIdIndex),
-          "stop_name": value(row, stopNameIndex),
-          "stop_lat": double.tryParse(value(row, stopLatIndex)) ?? 0,
-          "stop_lon": double.tryParse(value(row, stopLonIndex)) ?? 0,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await batch.commit(noResult: true);
-    });
+    await db.transaction((txn) => _insertRows(txn, 'gtfs_stops', const ['stop_id', 'stop_name', 'stop_lat', 'stop_lon'], [
+      for (final row in rows) [
+          value(row, stopIdIndex),
+          value(row, stopNameIndex),
+          double.tryParse(value(row, stopLatIndex)) ?? 0,
+          double.tryParse(value(row, stopLonIndex)) ?? 0,
+        ],
+    ], replace: true));
   }
 
   Future<void> batchInsertStopTimes(
@@ -618,19 +631,15 @@ class GtfsDatabase {
         index >= 0 && row.length > index ? row[index].toString() : '';
 
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (var row in rows) {
-        batch.insert("gtfs_stop_times", {
-          "trip_id": value(row, tripIdIndex),
-          "arrival_time": value(row, arrivalTimeIndex),
-          "departure_time": value(row, departureTimeIndex),
-          "stop_id": value(row, stopIdIndex),
-          "stop_sequence": int.tryParse(value(row, stopSeqIndex)) ?? 0,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await batch.commit(noResult: true);
-    });
+    await db.transaction((txn) => _insertRows(txn, 'gtfs_stop_times', const ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'], [
+      for (final row in rows) [
+          value(row, tripIdIndex),
+          value(row, arrivalTimeIndex),
+          value(row, departureTimeIndex),
+          value(row, stopIdIndex),
+          int.tryParse(value(row, stopSeqIndex)) ?? 0,
+        ],
+    ]));
   }
 
   Future<void> upsertOperatorStops(List<TransportStop> stops) async {

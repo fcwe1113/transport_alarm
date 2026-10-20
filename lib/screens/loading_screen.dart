@@ -6,6 +6,7 @@ import 'package:transport_alarm/transit/services/stale_data_reminder.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
 class LoadingScreen extends StatefulWidget {
@@ -18,6 +19,9 @@ class LoadingScreen extends StatefulWidget {
   // The first data build: setup only counts as done once it succeeds, and a
   // failure restarts setup.
   final bool firstTimeSetup;
+  // Undoes whatever started this operation, such as a locale change, when
+  // it's cancelled or fails (it throws, or a locale ends up without data).
+  final Future<void> Function()? onAbandon;
   const LoadingScreen({
     super.key,
     this.forceRefresh = false,
@@ -26,6 +30,7 @@ class LoadingScreen extends StatefulWidget {
     this.showBottomNavigation = false,
     this.cancellable = false,
     this.firstTimeSetup = false,
+    this.onAbandon,
   });
 
   @override
@@ -53,20 +58,32 @@ class _LoadingScreenState extends State<LoadingScreen> {
       _cancelToken = cancelToken;
     });
     try {
-      final failures = await widget.operation(
-        forceRefresh: widget.forceRefresh,
-        cancelToken: cancelToken,
-        onProgress: (message, progress) {
-          if (!mounted || cancelToken.isCancelled) return;
-          setState(() {
-            _message = message;
-            _progress = progress;
-          });
-        },
-      );
+      // Keep the screen on while data downloads and imports, so the device
+      // doesn't lock partway through a long import.
+      await WakelockPlus.enable();
+      final List<String> failures;
+      try {
+        failures = await widget.operation(
+          forceRefresh: widget.forceRefresh,
+          cancelToken: cancelToken,
+          onProgress: (message, progress) {
+            if (!mounted || cancelToken.isCancelled) return;
+            setState(() {
+              _message = message;
+              _progress = progress;
+            });
+          },
+        );
+      } finally {
+        await WakelockPlus.disable();
+      }
       
       if (widget.firstTimeSetup && !await _allLocalesHaveData()) {
         await _restartSetup(failures.join(", "));
+        return;
+      }
+      if (widget.onAbandon != null && !await _allLocalesHaveData()) {
+        await _abandon(failures.join(", "));
         return;
       }
 
@@ -94,11 +111,16 @@ class _LoadingScreenState extends State<LoadingScreen> {
         });
       }
     } on OperationCancelledException {
+      await widget.onAbandon?.call();
       // The operation has already removed its staging and temp files.
       if (mounted) _onOkPressed();
     } catch (e) {
       if (widget.firstTimeSetup) {
         await _restartSetup('$e');
+        return;
+      }
+      if (widget.onAbandon != null) {
+        await _abandon('$e');
         return;
       }
       if (mounted) {
@@ -107,6 +129,22 @@ class _LoadingScreenState extends State<LoadingScreen> {
         });
       }
     }
+  }
+
+  /// Undoes the change that started a failed operation, tells the user, and
+  /// leaves the screen.
+  Future<void> _abandon(String details) async {
+    await widget.onAbandon?.call();
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('locale_change.failed.title')),
+        content: Text(AppStrings.text('locale_change.failed.body', {'details': details})),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok')))],
+      ),
+    );
+    if (mounted) _onOkPressed();
   }
 
   /// Whether every enabled locale ended up with a usable timetable.
@@ -135,6 +173,13 @@ class _LoadingScreenState extends State<LoadingScreen> {
     );
     if (!mounted) return;
     Navigator.of(context).pushNamedAndRemoveUntil('/setup-language', (_) => false);
+  }
+
+  @override
+  void dispose() {
+    // Release it if the screen closes while the operation is still running.
+    WakelockPlus.disable();
+    super.dispose();
   }
 
   void _cancel() {

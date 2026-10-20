@@ -113,7 +113,10 @@ Future<void> _streamParseAndInsert(
 
   await for (final line in lines) {
     if (line.trim().isEmpty) continue;
-    final row = converter.convert(line).first;
+    // GTFS rows rarely contain quotes; split those directly, which gives the
+    // same fields as the CSV decoder (it returns strings) at a fraction of
+    // the cost, and only decode quoted lines.
+    final row = line.contains('"') ? converter.convert(line).first : line.split(',');
     if (!headerRead) {
       headerRead = true;
       header = row;

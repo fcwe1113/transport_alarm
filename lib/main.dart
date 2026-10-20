@@ -12,6 +12,7 @@ import 'package:transport_alarm/screens/settings_screen.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/l10n/app_language_state.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
+import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
@@ -61,6 +62,7 @@ Future<void> main() async {
       attempts++;
     }
     print("APNS DEVICE TOKEN: ${apnsToken}");
+    AlarmLifecycleService.startIosPingResync();
   } else if (defaultTargetPlatform == TargetPlatform.android) {
     await AndroidAlarmManager.initialize();
     await NotificationService.init();

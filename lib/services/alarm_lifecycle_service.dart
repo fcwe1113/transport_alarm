@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/device_token_service.dart';
+import 'package:transport_alarm/services/ping_watchdog_service.dart';
 import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
@@ -15,6 +18,57 @@ class AlarmLifecycleService {
   final AlarmServerService _server;
 
   const AlarmLifecycleService({required this._storage, required this._server});
+
+  static AppLifecycleListener? _resyncListener;
+  static Future<void> _resyncing = Future.value();
+  static String? _lastSyncedToken;
+  static DateTime? _lastSyncedAt;
+
+  /// iOS: keeps every enabled alarm's server ping pointed at this device's
+  /// current push token, and replaces any ping the server has dropped. Runs
+  /// now, whenever iOS issues a token, and when the app comes back to the
+  /// foreground, which is what the ping watchdog notification asks for.
+  static void startIosPingResync() {
+    if (!Platform.isIOS || _resyncListener != null) return;
+    final lifecycle = AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService());
+    void run() {
+      _resyncing = _resyncing.then((_) async {
+        final token = await DeviceTokenService.getToken();
+        if (token == null) return;
+        // Resuming often shouldn't call the server for every alarm each time.
+        final recent = _lastSyncedAt != null && DateTime.now().difference(_lastSyncedAt!) < const Duration(minutes: 5);
+        if (token == _lastSyncedToken && recent) return;
+        await lifecycle.resyncPings(token);
+        _lastSyncedToken = token;
+        _lastSyncedAt = DateTime.now();
+      }).catchError((_) {});
+    }
+    ApnsTokenService.instance.onToken.listen((_) => run());
+    _resyncListener = AppLifecycleListener(onResume: run);
+    run();
+  }
+
+  /// Moves each enabled alarm's ping to [deviceToken], scheduling a new ping
+  /// for any alarm without one or whose ping the server no longer has (its
+  /// chain of pings stopped). The alarm's progress is kept, so the
+  /// notification extension carries on from where it stopped.
+  Future<void> resyncPings(String deviceToken) async {
+    final alarms = await _storage.loadAlarms();
+    for (final alarm in alarms.where((a) => a.enabled)) {
+      try {
+        final pingId = alarm.pingId;
+        final secret = alarm.pingSecret;
+        if (pingId != null && secret != null &&
+            await _server.updateToken(pingId: pingId, secret: secret, deviceToken: deviceToken)) {
+          continue;
+        }
+        final scheduled = await _schedulePing(alarm);
+        if (scheduled.pingId != pingId) await _storage.updateAlarm(scheduled);
+      } catch (_) {
+        // Tried again on the next launch or resume.
+      }
+    }
+  }
 
   Future<AlarmActionResult> createAlarm(TransportAlarm alarm) async {
     if (Platform.isAndroid) {
@@ -106,6 +160,7 @@ class AlarmLifecycleService {
         if (alarm.pingId != null) {
           await _server.cancelPing(alarm.pingId!);
         }
+        await PingWatchdogService.disarm(alarmId);
         await _storage.updateAlarm(
           alarm.copyWith(
             enabled: false,
@@ -130,6 +185,7 @@ class AlarmLifecycleService {
     if (alarm?.pingId != null) {
       await _server.cancelPing(alarm!.pingId!);
     }
+    await PingWatchdogService.disarm(alarmId);
     await _storage.deleteAlarm(alarmId);
   }
 
@@ -140,6 +196,7 @@ class AlarmLifecycleService {
       if (alarm.pingId != null) {
         await _server.cancelPing(alarm.pingId!); // todo check if can null ping id on last ping given server will delete ping entry on expiry
       }
+      await PingWatchdogService.disarm(alarm.id);
       await _storage.updateAlarm(alarm.copyWith(enabled: false, pingId: null, spent: true));
       return;
     }
@@ -155,20 +212,45 @@ class AlarmLifecycleService {
   Future<TransportAlarm> _schedulePing(TransportAlarm alarm) async {
     final deviceToken = await DeviceTokenService.getToken();
     if (deviceToken == null) return alarm; // no token yet
-    final now = TimeOfDay.now();
+    final scheduledTime = _firstPingTime(alarm);
 
-    final scheduledTime = alarm.isWithinWindow(now) ? DateTime.now().add(Duration(seconds: 10)) : _todayAt(now);
-    // if (scheduledTime.isBefore(DateTime.now())) return // todo api call arrival time if window already started
-
-    final pingId = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
-    return alarm.copyWith(pingId: pingId);
+    final ping = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
+    if (ping == null) return alarm;
+    await PingWatchdogService.arm(alarm.id, scheduledTime);
+    return alarm.copyWith(pingId: ping.id, pingSecret: ping.secret);
   }
 
-  DateTime _todayAt(TimeOfDay time) {
+  /// When the first ping should arrive: shortly if the window is open now,
+  /// otherwise at the next window start on a day the alarm repeats on.
+  DateTime _firstPingTime(TransportAlarm alarm) {
     final now = DateTime.now();
-    var result = DateTime(now.year, now.month, now.day, time.hour, time.minute, now.second + 5); // add 5 seconds because .isbefore() checks seconds as well
-    if (result.isBefore(now)) result = result.add(Duration(days: 1));
-    return result;
+    if (alarm.isWithinWindow(TimeOfDay.now())) {
+      return now.add(const Duration(seconds: 10));
+    }
+    for (var offset = 0; offset <= 370; offset++) {
+      final day = DateTime(now.year, now.month, now.day + offset);
+      final start = DateTime(
+        day.year,
+        day.month,
+        day.day,
+        alarm.windowStart.hour,
+        alarm.windowStart.minute,
+      );
+      if (start.isAfter(now) && _repeatsOn(alarm.repeat, day)) return start;
+    }
+    return now.add(const Duration(seconds: 10));
+  }
+
+  bool _repeatsOn(RepeatPattern repeat, DateTime day) {
+    switch (repeat.frequency) {
+      case RepeatFrequency.none:
+      case RepeatFrequency.daily:
+        return true;
+      case RepeatFrequency.weekly:
+        return (repeat.weekdays ?? const []).contains(day.weekday);
+      case RepeatFrequency.monthly:
+        return (repeat.dayOfMonth ?? const []).contains(day.day);
+    }
   }
 
   bool _allThresholdsConcluded(TransportAlarm alarm) {
@@ -181,8 +263,10 @@ class AlarmLifecycleService {
 
     final nextDate = _computeNextOccurrenceDate(alarm.repeat);
     final scheduledTime = DateTime(nextDate.year, nextDate.month, nextDate.day, alarm.windowStart.hour, alarm.windowStart.minute);
-    final pingId = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
-    return alarm.copyWith(pingId: pingId);
+    final ping = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
+    if (ping == null) return alarm;
+    await PingWatchdogService.arm(alarm.id, scheduledTime);
+    return alarm.copyWith(pingId: ping.id, pingSecret: ping.secret);
   }
 
   DateTime _computeNextOccurrenceDate(RepeatPattern repeat) {

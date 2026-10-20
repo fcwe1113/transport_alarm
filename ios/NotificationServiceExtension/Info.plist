@@ -20,6 +20,9 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Filled in at build time from BUILD_SECRETS_JSON (see codemagic.yaml). -->
+	<key>UKBodsAPIKey</key>
+	<string></string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
