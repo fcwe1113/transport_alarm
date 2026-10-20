@@ -1,5 +1,6 @@
 import 'dart:math';
 
+/// The great-circle distance in metres between two points given in degrees.
 double haversineDistanceMeters(double lat1, double lng1, double lat2, double lng2) {
   const earthRadiusMeters = 6371000.0;
   final dLat = _degToRad(lat2 - lat1);
