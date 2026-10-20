@@ -473,8 +473,11 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
           ],
           _buildThresholdField(),
           const SizedBox(height: 24,),
-          _buildRingAttemptsField(),
-          const SizedBox(height: 24,),
+          // Android rings once with a looping sound, so only iOS caps rings.
+          if (!Platform.isAndroid) ...[
+            _buildRingAttemptsField(),
+            const SizedBox(height: 24,),
+          ],
           ..._buildRepeatSelector(),
           const SizedBox(height: 12,),
 
