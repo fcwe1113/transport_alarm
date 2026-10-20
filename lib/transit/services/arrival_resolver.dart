@@ -166,10 +166,16 @@ Future<List<LiveEta>> _fetchLiveEtaForFilteredRoutes(
         // data has (e.g. zh-Hans) can't be compared against an English one,
         // and with the provider's own cleanup applied to the live name.
         final key = routeNumber.value.containsKey(currentLang) ? currentLang : "en";
+        final savedDestination = routeNumber.value[key];
         results.addAll(etas.where((e) {
           final liveDestination = e.destination[key];
-          return liveDestination != null &&
-              routeNumber.value[key] == provider.cleanDestination(liveDestination);
+          return savedDestination != null &&
+              liveDestination != null &&
+              provider.destinationMatches(
+                savedDestination,
+                provider.cleanDestination(liveDestination),
+                rawStopId: parts.rawId,
+              );
         }));
       } catch (_) {
         onFailed?.call();

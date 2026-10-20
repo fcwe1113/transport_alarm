@@ -33,6 +33,13 @@ abstract class TransitProvider {
   /// Providers whose names need no cleanup return [destination] unchanged.
   String cleanDestination(String destination);
 
+  /// Whether a live arrival heading to [liveDestination] (already cleaned)
+  /// is going to the alarm's [savedDestination], at [rawStopId]. Exact by
+  /// default; providers whose live names differ from their timetable's can
+  /// relax it.
+  bool destinationMatches(String savedDestination, String liveDestination, {required String rawStopId}) =>
+      savedDestination == liveDestination;
+
   /// Live arrivals at an operator stop, for every route.
   Future<List<LiveEta>> fetchLiveEta(String rawStopId);
 

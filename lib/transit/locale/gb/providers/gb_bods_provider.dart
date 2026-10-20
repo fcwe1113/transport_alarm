@@ -135,6 +135,19 @@ class GbBodsProvider extends TransitProvider {
   String cleanDestination(String destination) =>
       destination.replaceAll("_", " ").replaceAll(RegExp(r"\s+"), " ").trim();
 
+  /// TfL's destination names are often shorter or longer than the GTFS ones
+  /// saved on alarms (such as "Oxford Circus" for "Oxford Circus, Regent
+  /// Street"), so at London stops either name containing the other, ignoring
+  /// case, counts. BODS names come from the same data and must match exactly.
+  @override
+  bool destinationMatches(String savedDestination, String liveDestination, {required String rawStopId}) {
+    if (savedDestination == liveDestination) return true;
+    if (!rawStopId.startsWith(_londonStopPrefix) || liveDestination.isEmpty) return false;
+    final saved = savedDestination.toLowerCase();
+    final live = liveDestination.toLowerCase();
+    return live.contains(saved) || saved.contains(live);
+  }
+
   @override
   RouteColourScheme coloursForRoute(TransportRoute route) {
     switch (route.agency) {
