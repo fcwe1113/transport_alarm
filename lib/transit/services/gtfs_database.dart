@@ -23,6 +23,13 @@ class GtfsDatabase {
   static final Map<String, Future<void>> _replacementBarriers = {};
   static final Map<String, Future<void>> _refreshTails = {};
   static final Map<String, String> _deferredStagingPaths = {};
+  // Each install writes a new value to gtfs/<locale>.generation. An isolate
+  // that didn't do the install, such as Android's background alarm isolate,
+  // sees the value change and reopens, instead of reading the replaced file
+  // through its old connection for as long as it lives.
+  static final Map<String, String?> _openedGenerations = {};
+  static final Map<String, DateTime> _generationCheckedAt = {};
+  static const _generationCheckInterval = Duration(seconds: 15);
   final String locale;
   final String? _explicitDatabasePath;
   // Shared per stop so concurrent callers (route pills, arrivals, stop sheet)
@@ -46,8 +53,15 @@ class GtfsDatabase {
     if (_explicitDatabasePath == null) {
       await _replacementBarriers[locale];
     }
-    if (_databases.containsKey(_cacheKey) && _databases[_cacheKey]!.isOpen) {
-      return _databases[_cacheKey]!;
+    final cached = _databases[_cacheKey];
+    if (cached != null && cached.isOpen) {
+      if (_explicitDatabasePath != null || !await _replacedElsewhere()) {
+        return cached;
+      }
+      _databases.remove(_cacheKey);
+      _routesForStopCache.clear();
+      // Queries already running on the old connection get time to finish.
+      unawaited(Future<void>.delayed(const Duration(seconds: 30), cached.close));
     }
     late final File databaseFile;
     if (_explicitDatabasePath != null) {
@@ -67,9 +81,37 @@ class GtfsDatabase {
         await legacyFile.copy(databaseFile.path);
       }
     }
+    if (_explicitDatabasePath == null) {
+      _openedGenerations[locale] = await _readGeneration();
+      _generationCheckedAt[locale] = DateTime.now();
+    }
     final db = await _initDB(databaseFile.path);
     _databases[_cacheKey] = db;
     return db;
+  }
+
+  File _generationFile(String gtfsDirectory) =>
+      File('$gtfsDirectory/$locale.generation');
+
+  Future<String?> _readGeneration() async {
+    try {
+      final file = _generationFile('${(await AppGroupStorage.directory).path}/gtfs');
+      return await file.exists() ? await file.readAsString() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Whether another isolate has installed a new database since this one
+  /// opened it. Checked at most every [_generationCheckInterval].
+  Future<bool> _replacedElsewhere() async {
+    final now = DateTime.now();
+    final lastCheck = _generationCheckedAt[locale];
+    if (lastCheck != null && now.difference(lastCheck) < _generationCheckInterval) {
+      return false;
+    }
+    _generationCheckedAt[locale] = now;
+    return await _readGeneration() != _openedGenerations[locale];
   }
 
   /// Builds a replacement in a separate SQLite file and installs it only after
@@ -155,6 +197,15 @@ class GtfsDatabase {
         _databases[locale] = installed;
         _routesForStopCache.clear();
         await _validateSnapshot(installed);
+        // Tell other isolates to reopen; this one already has the new file.
+        // Failing to isn't a failed install, so it mustn't roll it back.
+        final generation = DateTime.now().microsecondsSinceEpoch.toString();
+        try {
+          await _generationFile(dbDir.path).writeAsString(generation, flush: true);
+          _openedGenerations[locale] = generation;
+        } catch (e) {
+          debugPrint("Could not record the $locale database generation: $e");
+        }
         if (await backupFile.exists()) {
           try {
             await backupFile.delete();
