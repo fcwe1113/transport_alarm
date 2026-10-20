@@ -9,9 +9,21 @@ import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 
 import '../locale_registry.dart';
+import '../transit/models/route_colour_scheme.dart';
 import '../transit/models/transport_route.dart';
 import '../transit/models/gtfs_stop.dart';
+import '../transit/transit_provider.dart';
 
+/// The provider [providerCode] in [locale], or null when this build doesn't
+/// know the locale or provider.
+TransitProvider? _providerFor(String locale, String providerCode) =>
+    LocaleRegistry.getLocales([locale]).firstOrNull?.transitProviders
+        .where((p) => p.providerCode == providerCode)
+        .firstOrNull;
+
+/// A map stop's bottom sheet. Normally it shows the stop's routes and its
+/// next arrivals, refreshed every 2 minutes and filtered by tapping a route.
+/// In [pickerMode], for choosing an alarm's stop, it lists the routes only.
 class StopRoutesSheet extends StatefulWidget {
   final GtfsStop stop;
   final bool pickerMode;
@@ -28,7 +40,9 @@ class StopRoutesSheet extends StatefulWidget {
 
 class _StopRoutesSheetState extends State<StopRoutesSheet> {
   Timer? _refreshTimer;
+  // Bumped every 2 minutes to reload the arrivals.
   int _refreshTick = 0;
+  // The route the arrivals are filtered to, or null for every route.
   String? _selectedRouteNumber;
   late Future<List<TransportRoute>> _routesFuture;
 
@@ -59,15 +73,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.pickerMode) {
-      return _buildPickerContent(context);
-    } else {
-      return _buildFullContent(context);
-    }
-  }
-
-  Widget _buildPickerContent(BuildContext context) {
-    final db = GtfsDatabase.forLocale(widget.stop.locale);
+    // Half the screen: the map keeps the stop centred above it.
     return SafeArea(
       child: Container(
         height: MediaQuery.of(context).size.height * 0.5,
@@ -80,176 +86,172 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            Expanded(
-              child: FutureBuilder<List<TransportRoute>>(
-                future: db.getRoutesForGtfsStop(widget.stop.id),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const SizedBox(
-                      height: 32,
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-                  final routes = TransportRoute.dedupeByRouteNumber(
-                    snapshot.data ?? [],
-                  );
-                  if (routes.isEmpty)
-                    return Text(AppStrings.text('stop.no_routes'));
-                  return Scrollbar(
-                    child: ListView(
-                      children: routes
-                          .map(
-                            (r) => ListTile(
-                              // Sized to its label: a ListTile's leading
-                              // widget can't fill the tile's width.
-                              leading: _RoutePill(
-                                route: r,
-                                selected: _selectedRouteNumber == r.routeNumber,
-                                onTap: () => _toggleRouteSelection(r),
-                                fitContent: true,
-                              ),
-                              title: Text(
-                                r.destinationNameFor(AppStrings.languageCode),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  );
-                },
-              ),
-            ),
+            if (widget.pickerMode)
+              Expanded(child: _buildPickerRoutes())
+            else ...[
+              _buildRouteStrip(),
+              const SizedBox(height: 4),
+              Expanded(child: _buildArrivals()),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildFullContent(BuildContext context) {
-    // final db = GtfsDatabase.forLocale(widget.stop.locale);
-    return SafeArea(
-      child: Container(
-        height: MediaQuery.of(context).size.height * 0.5,
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.stop.displayNameFor(AppStrings.languageCode),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            FutureBuilder(
-              future: _routesFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const SizedBox(
-                    height: 32,
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                final routes = snapshot.data ?? [];
-                final dedupedRoutes = TransportRoute.dedupeByRouteNumber(
-                  routes,
-                );
-                if (dedupedRoutes.isEmpty) return const SizedBox.shrink();
-
-                return SizedBox(
-                  height: 32,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: dedupedRoutes
-                        .map(
-                          (route) => Padding(
-                            padding: const EdgeInsetsGeometry.only(right: 8),
-                            child: _RoutePill(
-                              route: route,
-                              selected:
-                                  _selectedRouteNumber == route.routeNumber,
-                              onTap: () => _toggleRouteSelection(route),
-                            ),
-                          ),
-                        )
-                        .toList(),
+  /// Picker mode's list of the stop's routes and their destinations.
+  Widget _buildPickerRoutes() {
+    return FutureBuilder<List<TransportRoute>>(
+      future: _routesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+            height: 32,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final routes = TransportRoute.dedupeByRouteNumber(
+          snapshot.data ?? [],
+        );
+        if (routes.isEmpty) {
+          return Text(AppStrings.text('stop.no_routes'));
+        }
+        return Scrollbar(
+          child: ListView(
+            children: routes
+                .map(
+                  (r) => ListTile(
+                    // Sized to its label: a ListTile's leading
+                    // widget can't fill the tile's width.
+                    leading: _RoutePill(
+                      route: r,
+                      selected: _selectedRouteNumber == r.routeNumber,
+                      onTap: () => _toggleRouteSelection(r),
+                      fitContent: true,
+                    ),
+                    title: Text(
+                      r.destinationNameFor(AppStrings.languageCode),
+                    ),
                   ),
-                );
-              },
-            ),
-            const SizedBox(height: 4),
-            Expanded(
-              child: FutureBuilder(
-                key: ValueKey(_refreshTick),
-                future: _resolveArrivals(widget.stop, routeNumber: _selectedRouteNumber),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    // todo implement seamless background load
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final arrivals = snapshot.data ?? [];
-                  if (arrivals.isEmpty) {
-                    return Text(AppStrings.text('stop.no_departures'));
-                  }
-
-                  return Scrollbar(
-                    child: ListView(
-                      children: arrivals.map((a) {
-                        final label = a.minutesFromNow <= 0
-                            ? AppStrings.text('stop.due')
-                            : a.minutesFromNow > 60
-                            ? AppStrings.text('stop.hours', {
-                                'hours': (a.minutesFromNow / 60)
-                                    .toStringAsFixed(2),
-                              })
-                            : AppStrings.text('stop.minutes', {
-                                'minutes': a.minutesFromNow,
-                              });
-                        return ListTile(
-                          leading: _RoutePill(
-                            route: a.route,
-                            selected:
-                                _selectedRouteNumber == a.route.routeNumber,
-                            // onTap: () => _toggleRouteSelection(a.route),
-                            fitContent: true,
-                          ),
-                          title: Text(
-                            _arrivalDestination(a),
-                          ),
-                          subtitle: Text(
-                            AppStrings.text(
-                              a.isLive ? 'stop.live' : 'stop.scheduled',
-                            ),
-                          ),
-                          trailing: Text(
-                            label,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: a.isLive ? Colors.blueAccent : null,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
+                )
+                .toList(),
+          ),
+        );
+      },
     );
   }
 
+  /// A row of the stop's routes; tapping one filters the arrivals to it.
+  Widget _buildRouteStrip() {
+    return FutureBuilder(
+      future: _routesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+            height: 32,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final routes = snapshot.data ?? [];
+        final dedupedRoutes = TransportRoute.dedupeByRouteNumber(
+          routes,
+        );
+        if (dedupedRoutes.isEmpty) return const SizedBox.shrink();
+
+        return SizedBox(
+          height: 32,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: dedupedRoutes
+                .map(
+                  (route) => Padding(
+                    padding: const EdgeInsetsGeometry.only(right: 8),
+                    child: _RoutePill(
+                      route: route,
+                      selected:
+                          _selectedRouteNumber == route.routeNumber,
+                      onTap: () => _toggleRouteSelection(route),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The next arrival of each route, or every arrival of the selected route.
+  Widget _buildArrivals() {
+    return FutureBuilder(
+      key: ValueKey(_refreshTick),
+      future: _resolveArrivals(widget.stop, routeNumber: _selectedRouteNumber),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          // todo implement seamless background load
+          return const Center(child: CircularProgressIndicator());
+        }
+        final arrivals = snapshot.data ?? [];
+        if (arrivals.isEmpty) {
+          return Text(AppStrings.text('stop.no_departures'));
+        }
+
+        return Scrollbar(
+          child: ListView(
+            children: arrivals.map((a) {
+              return ListTile(
+                leading: _RoutePill(
+                  route: a.route,
+                  selected:
+                      _selectedRouteNumber == a.route.routeNumber,
+                  fitContent: true,
+                ),
+                title: Text(
+                  _arrivalDestination(a),
+                ),
+                subtitle: Text(
+                  AppStrings.text(
+                    a.isLive ? 'stop.live' : 'stop.scheduled',
+                  ),
+                ),
+                trailing: Text(
+                  _arrivalLabel(a.minutesFromNow),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: a.isLive ? Colors.blueAccent : null,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  String _arrivalLabel(int minutesFromNow) {
+    if (minutesFromNow <= 0) return AppStrings.text('stop.due');
+    if (minutesFromNow > 60) {
+      return AppStrings.text('stop.hours', {'hours': (minutesFromNow / 60).toStringAsFixed(2)});
+    }
+    return AppStrings.text('stop.minutes', {'minutes': minutesFromNow});
+  }
+
+  /// Live ETAs at [stop] from every provider that serves it. A provider
+  /// whose request fails is left out, so the rest still show.
   Future<List<LiveEta>> _fetchLiveEtaForStop(GtfsStop stop) async {
     final operatorStopIds = await LocaleRegistry.getLocale(stop.locale).db
         .getOperatorStopIds(stop.id);
 
+    // Operator stop IDs are saved as "provider:id".
     final idsByProvider = <String, List<String>>{};
     for (final operatorStopId in operatorStopIds) {
-      final parts = operatorStopId.split(":");
-      final providerCode = parts[0];
-      final rawId = parts[1];
-      idsByProvider.putIfAbsent(providerCode, () => []).add(rawId);
+      final separator = operatorStopId.indexOf(":");
+      if (separator <= 0) continue;
+      idsByProvider
+          .putIfAbsent(operatorStopId.substring(0, separator), () => [])
+          .add(operatorStopId.substring(separator + 1));
     }
 
     final allEtas = <LiveEta>[];
@@ -257,17 +259,13 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
     for (final entry in idsByProvider.entries) {
       final providerCode = entry.key;
       final rawIds = entry.value;
-      final provider = LocaleRegistry.getLocale(widget.stop.locale)
-          .transitProviders
-          .where((p) => p.providerCode == providerCode)
-          .firstOrNull;
-      if (provider == null) continue; // skip stops with no valid providers
+      final provider = _providerFor(stop.locale, providerCode);
+      if (provider == null) continue;
       for (final rawId in rawIds) {
         try {
-          final etas = await provider.fetchLiveEta(rawId);
-          allEtas.addAll(etas);
+          allEtas.addAll(await provider.fetchLiveEta(rawId));
         } catch (_) {
-          // do nothing
+          // Shown from the timetable instead.
         }
       }
     }
@@ -279,15 +277,15 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   /// destination when it has none, cleaned by the route's provider.
   String _arrivalDestination(RouteArrival arrival) {
     final languageCode = AppStrings.languageCode;
-    final provider = LocaleRegistry.getLocale(arrival.route.locale)
-        .transitProviders
-        .firstWhere((p) => p.providerCode == arrival.route.providerCode);
-    return provider.cleanDestination(
-      arrival.destination[languageCode] ??
-          arrival.route.destinationNameFor(languageCode),
-    );
+    final destination = arrival.destination[languageCode] ??
+        arrival.route.destinationNameFor(languageCode);
+    final provider = _providerFor(arrival.route.locale, arrival.route.providerCode);
+    return provider?.cleanDestination(destination) ?? destination;
   }
 
+  /// Each route's next arrival at [stop], live where available and from the
+  /// timetable otherwise. With [routeNumber], every live arrival of that
+  /// route instead.
   Future<List<RouteArrival>> _resolveArrivals(GtfsStop stop, {String? routeNumber}) async {
     final db = GtfsDatabase.forLocale(stop.locale);
 
@@ -363,10 +361,13 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
   }
 }
 
+/// A tappable route pill, outlined when it's the selected route.
 class _RoutePill extends StatelessWidget {
   final TransportRoute route;
   final bool selected;
   final VoidCallback? onTap;
+  /// Sizes the pill to its label, for use as a ListTile's leading widget,
+  /// which can't fill the tile's width.
   final bool fitContent;
 
   const _RoutePill({
@@ -378,9 +379,9 @@ class _RoutePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = LocaleRegistry.getLocale(route.locale).transitProviders
-        .firstWhere((p) => p.providerCode == route.providerCode);
-    final colours = provider.coloursForRoute(route);
+    final scheme = Theme.of(context).colorScheme;
+    final colours = _providerFor(route.locale, route.providerCode)?.coloursForRoute(route) ??
+        RouteColourScheme(iconColour: scheme.secondaryContainer, textColour: scheme.onSecondaryContainer);
 
     return Material(
       color: colours.iconColour,
