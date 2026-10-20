@@ -7,7 +7,6 @@ import 'package:transport_alarm/transit/locale/gb/providers/gb_bods_provider.dar
 
 import '../../../l10n/app_strings.dart';
 import '../../models/locale_config.dart';
-import '../../services/api_caller.dart';
 import '../../services/gtfs_sync_service.dart';
 import '../../services/locale_selection_service.dart';
 import '../../transit_provider.dart';
@@ -16,8 +15,6 @@ import '../transit_locale.dart';
 /// Great Britain: BODS timetables and live bus locations, imported only for
 /// the ATCO areas (council areas) picked in its menu entry.
 class GbLocale extends TransitLocale {
-  final _apiCaller = ApiCaller();
-
   @override
   final LocaleConfig config = const LocaleConfig(
     code: 'gb',
@@ -32,7 +29,7 @@ class GbLocale extends TransitLocale {
   late final Widget menuEntry = _AtcoListMenuEntry(config: config);
 
   @override
-  late final List<TransitProvider> transitProviders = [GbBodsProvider(_apiCaller)];
+  late final List<TransitProvider> transitProviders = [GbBodsProvider()];
 
   @override
   bool get matchingRequired => false;
