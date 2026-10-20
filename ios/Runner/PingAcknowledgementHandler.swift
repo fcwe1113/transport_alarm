@@ -130,7 +130,7 @@ enum PingAcknowledgementHandler {
         switch frequency {
         case "daily":
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: today) else { return nil }
-            return NativeTransitLocales.date(windowStartMinutes: windowStart, on: nextDay, calendar: calendar)
+            return NativeTransitLocales.date(minutesAfterMidnight: windowStart, on: nextDay, calendar: calendar)
         case "weekly":
             let weekdays = Set(repeatInfo["weekdays"] as? [Int] ?? [])
             for offset in 1...7 {
@@ -138,7 +138,7 @@ enum PingAcknowledgementHandler {
                 let weekday = calendar.component(.weekday, from: day)
                 let dartWeekday = weekday == 1 ? 7 : weekday - 1
                 if weekdays.contains(dartWeekday) {
-                    return NativeTransitLocales.date(windowStartMinutes: windowStart, on: day, calendar: calendar)
+                    return NativeTransitLocales.date(minutesAfterMidnight: windowStart, on: day, calendar: calendar)
                 }
             }
         case "monthly":
@@ -146,7 +146,7 @@ enum PingAcknowledgementHandler {
             for offset in 1...370 {
                 guard let day = calendar.date(byAdding: .day, value: offset, to: today) else { continue }
                 if days.contains(calendar.component(.day, from: day)) {
-                    return NativeTransitLocales.date(windowStartMinutes: windowStart, on: day, calendar: calendar)
+                    return NativeTransitLocales.date(minutesAfterMidnight: windowStart, on: day, calendar: calendar)
                 }
             }
         default:

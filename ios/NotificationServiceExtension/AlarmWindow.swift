@@ -44,7 +44,7 @@ struct AlarmWindow {
     func occurrence(startingOn day: Date, calendar: Calendar) -> DateInterval? {
         let dayStart = calendar.startOfDay(for: day)
         guard let start = NativeTransitLocales.date(
-            windowStartMinutes: startMinutes,
+            minutesAfterMidnight: startMinutes,
             on: dayStart,
             calendar: calendar
         ) else { return nil }
@@ -53,7 +53,7 @@ struct AlarmWindow {
             : dayStart
         guard let endDay,
               let end = NativeTransitLocales.date(
-                  windowStartMinutes: endMinutes,
+                  minutesAfterMidnight: endMinutes,
                   on: endDay,
                   calendar: calendar
               ),
