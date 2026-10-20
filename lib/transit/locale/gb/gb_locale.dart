@@ -13,32 +13,39 @@ import '../../services/locale_selection_service.dart';
 import '../../transit_provider.dart';
 import '../transit_locale.dart';
 
+/// Great Britain: BODS timetables and live bus locations, imported only for
+/// the ATCO areas (council areas) picked in its menu entry.
 class GbLocale extends TransitLocale {
   final _apiCaller = ApiCaller();
 
   @override
-  LocaleConfig config = LocaleConfig(
+  final LocaleConfig config = const LocaleConfig(
     code: 'gb',
     displayName: {"en": 'United Kingdom'},
     timeZoneIdentifier: 'Europe/London',
   );
 
   @override
-  List<GtfsSyncProvider> gtfsProviders = [GbGtfsSyncProvider()];
+  final List<GtfsSyncProvider> gtfsProviders = [GbGtfsSyncProvider()];
 
   @override
-  late Widget menuEntry = _AtcoListMenuEntry(config: config);
+  late final Widget menuEntry = _AtcoListMenuEntry(config: config);
 
   @override
-  late List<TransitProvider> transitProviders = [GbBodsProvider(_apiCaller)];
+  late final List<TransitProvider> transitProviders = [GbBodsProvider(_apiCaller)];
 
   @override
-  bool matchingRequired = false;
+  bool get matchingRequired => false;
 
   @override
   bool get gtfsOnly => true;
 }
 
+typedef _AtcoArea = ({String code, String name});
+
+/// The UK entry in the region pickers: a tree of BODS regions and their
+/// ATCO areas, each with a checkbox. The picked area codes are saved,
+/// comma-separated, as the locale's draft selection; none leaves it off.
 class _AtcoListMenuEntry extends StatefulWidget {
   const _AtcoListMenuEntry({required this.config});
 
@@ -50,10 +57,9 @@ class _AtcoListMenuEntry extends StatefulWidget {
 
 class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
   final _selectionService = LocaleSelectionService();
-  late Set<String> _selected; // if list empty treat as locale unselected
-  late Map<String, List<({String code, String name})>> _atcoByRegion;
+  Set<String> _selected = {};
+  Map<String, List<_AtcoArea>> _atcoByRegion = {};
   bool _loaded = false;
-  bool _saving = false;
 
   @override
   void initState() {
@@ -61,41 +67,39 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
     _loadSelection();
   }
 
-  Future<void> _loadAtco() async {
+  /// The areas in lib/transit/locale/gb/atco.json, grouped by region and
+  /// sorted by name.
+  Future<Map<String, List<_AtcoArea>>> _loadAtco() async {
     final atcoAreas = jsonDecode(await rootBundle.loadString("lib/transit/locale/gb/atco.json")) as Map<String, dynamic>;
-    final byRegion = <String, List<({String code, String name})>>{};
+    final byRegion = <String, List<_AtcoArea>>{};
     for (final entry in atcoAreas.entries) {
       final area = Map<String, dynamic>.from(entry.value as Map);
-      final region = area['region'] as String;
-      byRegion.putIfAbsent(region, () => []).add((
-      code: entry.key,
-      name: area['name'] as String,
+      byRegion.putIfAbsent(area['region'] as String, () => []).add((
+        code: entry.key,
+        name: area['name'] as String,
       ));
     }
     for (final areas in byRegion.values) {
       areas.sort((a, b) => a.name.compareTo(b.name));
     }
-    if(!mounted) return;
-    setState(() {
-      _atcoByRegion = byRegion;
-    });
+    return byRegion;
   }
 
   Future<void> _loadSelection() async {
-    await _loadAtco();
-    final enabledLocales = await _selectionService.getLocaleSelectionDraft();
+    final byRegion = await _loadAtco();
+    final draft = await _selectionService.getLocaleSelectionDraft();
     if (!mounted) return;
-    if (enabledLocales.containsKey(widget.config.code)) {
-      _selected = enabledLocales[widget.config.code]!.split(",").toSet();
-    } else {
-      _selected = <String>{};
-    }
     setState(() {
+      _atcoByRegion = byRegion;
+      _selected = (draft[widget.config.code] ?? '')
+          .split(",")
+          .where((code) => code.isNotEmpty)
+          .toSet();
       _loaded = true;
     });
   }
 
-  /// Updates the UK locale's temporary selection for the confirmation screen.
+  /// Updates the UK locale's draft selection for the confirmation screen.
   void _saveSelected(Set<String> selected) {
     _selectionService.updateLocaleSelectionDraftEntry(
       widget.config.code,
@@ -106,39 +110,34 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
   @override
   Widget build(BuildContext context) {
     if (!_loaded) return const Center(child: CircularProgressIndicator(),);
-    final List<String> allAtcoCodes = _atcoByRegion.values
+    final allAtcoCodes = _atcoByRegion.values
         .expand((areas) => areas.map((area) => area.code))
-        .toList();
+        .toSet();
     return ExpansionTile(
-          key: const PageStorageKey<String>('enabled-uk-atco-areas'),
-          leading: Checkbox(
-            tristate: true,
-            value: _checkboxState(allAtcoCodes.toSet()),
-            onChanged: _saving
-                ? null
-                : (_) => _toggleAtcoCodes(allAtcoCodes.toSet()),
-          ),
-          title: Text(
-            AppStrings.text('settings.locale.united_kingdom'),
-          ),
-          children: [
-            for (final region in _atcoByRegion.keys.toList()..sort())
-              _buildAtcoRegion(region, _atcoByRegion[region]!),
-          ],
+      key: const PageStorageKey<String>('enabled-uk-atco-areas'),
+      leading: Checkbox(
+        tristate: true,
+        value: _checkboxState(allAtcoCodes),
+        onChanged: (_) => _toggleAtcoCodes(allAtcoCodes),
+      ),
+      title: Text(
+        AppStrings.text('settings.locale.united_kingdom'),
+      ),
+      children: [
+        for (final region in _atcoByRegion.keys.toList()..sort())
+          _buildAtcoRegion(region, _atcoByRegion[region]!),
+      ],
     );
   }
 
-  Widget _buildAtcoRegion(
-      String region,
-      List<({String code, String name})> areas,
-      ) {
+  Widget _buildAtcoRegion(String region, List<_AtcoArea> areas) {
     final codes = areas.map((area) => area.code).toSet();
     return ExpansionTile(
       key: PageStorageKey<String>('enabled-uk-atco-region-$region'),
       leading: Checkbox(
         tristate: true,
         value: _checkboxState(codes),
-        onChanged: _saving ? null : (_) => _toggleAtcoCodes(codes),
+        onChanged: (_) => _toggleAtcoCodes(codes),
       ),
       title: Text(region),
       children: [
@@ -146,17 +145,16 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
           CheckboxListTile(
             value: _selected.contains(area.code),
             title: Text(area.name),
-            // subtitle: Text(area.code),
-            onChanged: _saving
-                ? null
-                : (enabled) => _setAtcoCodes({area.code}, enabled == true),
+            onChanged: (enabled) => _setAtcoCodes({area.code}, enabled == true),
           ),
       ],
     );
   }
 
+  /// Ticked when every one of [codes] is picked, empty when none is, and
+  /// dashed (null) in between.
   bool? _checkboxState(Set<String> codes) {
-    final selectedCount = codes.intersection(_selected.toSet()).length;
+    final selectedCount = codes.intersection(_selected).length;
     if (selectedCount == 0) return false;
     if (selectedCount == codes.length) return true;
     return null;
@@ -173,8 +171,8 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
     });
   }
 
+  /// Picks all of [codes], or clears them all if they're already all picked.
   void _toggleAtcoCodes(Set<String> codes) {
     _setAtcoCodes(codes, _checkboxState(codes) != true);
   }
-
 }
