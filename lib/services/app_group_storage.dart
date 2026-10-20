@@ -9,21 +9,26 @@ class AppGroupStorage {
     'com.fcwe1113.transport_alarm/app_group',
   );
 
+  static Directory? _directory;
+
+  /// The shared directory: the App Group container on iOS, the app's
+  /// documents directory elsewhere. Looked up once per isolate; a failed
+  /// lookup throws and is tried again on the next call.
   static Future<Directory> get directory async {
+    final cached = _directory;
+    if (cached != null) return cached;
     final Directory result;
     if (Platform.isIOS) {
-      print("retrieving working dirs");
       final path = await _channel.invokeMethod<String>('containerPath');
       if (path == null || path.isEmpty) {
         throw StateError('The iOS App Group container is unavailable.');
       }
       result = Directory(path);
-      print("retrieved working dirs: ${result.toString()}");
     } else {
       result = await getApplicationDocumentsDirectory();
     }
     await result.create(recursive: true);
-    return result;
+    return _directory = result;
   }
 
   /// Mirrors the selected app language into the iOS App Group for extensions.
