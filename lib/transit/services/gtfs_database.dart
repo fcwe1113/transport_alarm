@@ -634,8 +634,8 @@ class GtfsDatabase {
     await db.transaction((txn) => _insertRows(txn, 'gtfs_stop_times', const ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'], [
       for (final row in rows) [
           value(row, tripIdIndex),
-          value(row, arrivalTimeIndex),
-          value(row, departureTimeIndex),
+          _normalizedTime(value(row, arrivalTimeIndex)),
+          _normalizedTime(value(row, departureTimeIndex)),
           value(row, stopIdIndex),
           int.tryParse(value(row, stopSeqIndex)) ?? 0,
         ],
@@ -1562,6 +1562,20 @@ class GtfsDatabase {
     return int.parse(parts[0]) * 3600 +
         int.parse(parts[1]) * 60 +
         int.parse(parts[2]);
+  }
+
+  /// A GTFS time as zero-padded "HH:MM:SS", since GTFS allows "9:05:00" and
+  /// times are compared and sorted as text. Empty (to be interpolated) and
+  /// unreadable values are kept as they are.
+  String _normalizedTime(String raw) {
+    final time = raw.trim();
+    final parts = time.split(":");
+    if (parts.length != 3) return time;
+    final hours = int.tryParse(parts[0]);
+    final minutes = int.tryParse(parts[1]);
+    final seconds = int.tryParse(parts[2]);
+    if (hours == null || minutes == null || seconds == null) return time;
+    return _secondsToTime(hours * 3600 + minutes * 60 + seconds);
   }
 
   String _secondsToTime(int totalSeconds) {
