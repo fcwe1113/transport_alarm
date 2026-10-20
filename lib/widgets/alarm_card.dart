@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' show max;
 
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
@@ -93,14 +94,23 @@ class _AlarmCardState extends State<AlarmCard> {
         ) &&
         alarm.lastEstimatedMinutesUntilThreshold == null &&
         alarm.androidFallbackArrivalEpochSeconds == null;
+    // Skips the same buses as the alarm checks: those too close to make the
+    // first threshold when the occurrence started.
+    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final ignoreArrivalsBefore = alarm.ignoreArrivalsBeforeEpochSeconds ??
+        (waitingForFirstEligibleBus
+            ? nowSeconds +
+                alarm.thresholdStates
+                        .map((state) => state.minutesBeforeArrival)
+                        .reduce((a, b) => a > b ? a : b) *
+                    60
+            : null);
     final arrivals = await resolveArrivals(
       gtfsStopId: alarm.gtfsStopId,
       routeNumberFilter: alarm.routeNumbers,
-      minimumMinutesFromNow: waitingForFirstEligibleBus
-          ? alarm.thresholdStates
-                .map((state) => state.minutesBeforeArrival)
-                .reduce((a, b) => a > b ? a : b)
-          : null,
+      minimumMinutesFromNow: ignoreArrivalsBefore == null
+          ? null
+          : max(0, (ignoreArrivalsBefore - nowSeconds + 59) ~/ 60),
       locale: alarm.localeCode,
     );
     _lastArrivals = arrivals;
@@ -115,6 +125,7 @@ class _AlarmCardState extends State<AlarmCard> {
         await AlarmStorageService().updateLastEstimate(
           alarm.id,
           estimate,
+          ignoreArrivalsBefore: ignoreArrivalsBefore,
         );
       }
     }

@@ -95,8 +95,13 @@ class AlarmStorageService {
 
   /// Saves an arrival [estimate] (minutes from now) as the time left until
   /// the alarm's active threshold, which the iOS notification extension
-  /// falls back on when a fetch fails.
-  Future<void> updateLastEstimate(String alarmId, int estimate) =>
+  /// falls back on when a fetch fails. Also saves [ignoreArrivalsBefore] if
+  /// the alarm has no cutoff yet, so the extension skips the same buses.
+  Future<void> updateLastEstimate(
+    String alarmId,
+    int estimate, {
+    int? ignoreArrivalsBefore,
+  }) =>
       _modify(alarmId, (alarm) {
         final activeThreshold = alarm.thresholdStates
             .where((state) =>
@@ -105,8 +110,15 @@ class AlarmStorageService {
             .firstOrNull;
         if (activeThreshold == null) return null;
         final minutesUntilThreshold = estimate - activeThreshold.minutesBeforeArrival;
-        if (alarm.lastEstimatedMinutesUntilThreshold == minutesUntilThreshold) return null;
-        return alarm.copyWith(lastEstimatedMinutesUntilThreshold: minutesUntilThreshold);
+        final cutoff = alarm.ignoreArrivalsBeforeEpochSeconds ?? ignoreArrivalsBefore;
+        if (alarm.lastEstimatedMinutesUntilThreshold == minutesUntilThreshold &&
+            alarm.ignoreArrivalsBeforeEpochSeconds == cutoff) {
+          return null;
+        }
+        return alarm.copyWith(
+          lastEstimatedMinutesUntilThreshold: minutesUntilThreshold,
+          ignoreArrivalsBeforeEpochSeconds: cutoff,
+        );
       });
 
   /// Replaces the alarm [alarmId] with what [change] returns, or leaves the
