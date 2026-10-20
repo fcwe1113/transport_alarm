@@ -19,8 +19,8 @@ class EnabledLocalesSettingsScreen extends StatefulWidget {
 }
 
 class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScreen> {
-
   final _selectionService = LocaleSelectionService();
+  final _locales = LocaleRegistry.getSupportedLocales()..sort();
   bool _loading = true;
   bool _saving = false;
 
@@ -30,6 +30,7 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
     _loadSelection();
   }
 
+  /// Starts a draft from the enabled regions; the menu entries edit it.
   Future<void> _loadSelection() async {
     await _selectionService.beginLocaleSelectionDraft();
     if (!mounted) return;
@@ -38,6 +39,8 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
     });
   }
 
+  /// Saves the draft, leaves this page and, if the regions changed,
+  /// downloads their data.
   Future<void> _saveSelection() async {
     if (_saving) return;
 
@@ -78,7 +81,6 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
 
   @override
   Widget build(BuildContext context) {
-    final locales = LocaleRegistry.getSupportedLocales()..sort();
     return AppShell(
       title: AppStrings.text('settings.enabled_locales'),
       selectedTab: 2,
@@ -88,18 +90,16 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
           onPressed: _loading || _saving ? null : _saveSelection,
           icon: _saving
               ? const SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          )
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Icon(Icons.check),
         ),
       ],
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
-        children: locales.map((l) => l.menuEntry).toList()
-      ),
+          : ListView(children: [for (final locale in _locales) locale.menuEntry]),
     );
   }
 }
