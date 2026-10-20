@@ -108,8 +108,26 @@ class AlarmLifecycleService {
       }
     }
     try {
+      final existing = (await _storage.loadAlarms())
+          .where((saved) => saved.id == alarm.id)
+          .firstOrNull;
+      // An edit replaces the saved alarm only after its new ping is
+      // scheduled, so a failure leaves the old alarm working.
       final scheduled = await _schedulePing(alarm);
-      await _storage.addAlarm(scheduled);
+      if (existing == null) {
+        await _storage.addAlarm(scheduled);
+      } else {
+        // Cancel while the old ping is still saved: cancelPing reads its
+        // secret from storage.
+        if (existing.pingId != null && existing.pingId != scheduled.pingId) {
+          try {
+            await _server.cancelPing(existing.pingId!);
+          } catch (_) {
+            // The extension acknowledges a ping no saved alarm owns.
+          }
+        }
+        await _storage.updateAlarm(scheduled);
+      }
       return const AlarmActionResult.success();
     } catch (e) {
       return AlarmActionResult.failure(e.toString());

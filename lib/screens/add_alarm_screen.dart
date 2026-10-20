@@ -315,9 +315,6 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     );
 
     final lifecycle = AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService());
-    if (widget.alarmToEdit != null && !Platform.isAndroid) {
-      await lifecycle.deleteAlarm(newAlarm.id); // iOS still replaces its server-scheduled ping.
-    }
     if (!Platform.isAndroid) setState(() => _isSaving = true);
     final result = await lifecycle.createAlarm(newAlarm);
     if (mounted) setState(() => _isSaving = false);
