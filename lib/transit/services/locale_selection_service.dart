@@ -13,6 +13,8 @@ class LocaleSelectionService {
   static const _key = "enabled_locales";
   static const _appLanguageKey = "app_language_code";
   static const _setupCompletedKey = "setup_completed";
+  // The selection before a locale change, kept until its download succeeds.
+  static const _pendingChangeKey = "locale_change_previous";
   static Map<String, String>? _localeSelectionDraft;
   static final ValueNotifier<Map<String, String>> _draftNotifier =
       ValueNotifier<Map<String, String>>(<String, String>{});
@@ -100,6 +102,35 @@ class LocaleSelectionService {
       return decoded.cast<String, String>();
     }
     throw FormatException('Invalid saved locale map: $savedLocale');
+  }
+
+  /// Records [previous] as the selection to go back to if the locale change
+  /// starting now doesn't finish, even if the app is killed partway.
+  Future<void> markLocaleChangePending(Map<String, String> previous) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pendingChangeKey, jsonEncode(previous));
+  }
+
+  /// Called once a locale change has succeeded, or been undone.
+  Future<void> clearPendingLocaleChange() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_pendingChangeKey);
+  }
+
+  /// Puts back the selection from before a locale change that never
+  /// finished, such as when the app was killed during its download, so the
+  /// enabled regions match the installed data. Call at launch, before
+  /// anything reads the enabled regions.
+  Future<void> rollBackUnfinishedLocaleChange() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_pendingChangeKey);
+    if (saved == null) return;
+    try {
+      await setEnabledLocales(_decodeLocale(saved));
+    } on FormatException {
+      // Nothing usable to go back to; keep the current selection.
+    }
+    await prefs.remove(_pendingChangeKey);
   }
 
   /// Installs from before the setup_completed flag existed count as set up

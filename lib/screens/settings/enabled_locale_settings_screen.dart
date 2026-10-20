@@ -64,6 +64,9 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
         if (mounted) setState(() => _saving = false);
         return;
       }
+      // If the app is killed before the download ends, the next launch goes
+      // back to [previous] (see rollBackUnfinishedLocaleChange).
+      await _selectionService.markLocaleChangePending(previous);
     }
     await _selectionService.commitLocaleSelectionDraft();
     if (!mounted) return;
@@ -87,7 +90,11 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
             cancellable: true,
             // A cancelled or failed download leaves the installed data as it
             // was, so restore the selection that matches it.
-            onAbandon: () => _selectionService.setEnabledLocales(previous),
+            onAbandon: () async {
+              await _selectionService.setEnabledLocales(previous);
+              await _selectionService.clearPendingLocaleChange();
+            },
+            onSucceeded: _selectionService.clearPendingLocaleChange,
           ),
         ),
       );

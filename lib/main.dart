@@ -32,6 +32,9 @@ Future<void> main() async {
   // running yet, and it isn't awaited so startup isn't held up.
   unawaited(TempFileCleaner.sweep());
   final selectionService = LocaleSelectionService();
+  // Before anything reads the enabled regions: a locale change killed
+  // partway leaves regions enabled that have no data.
+  await selectionService.rollBackUnfinishedLocaleChange();
   final appLanguageCode = await selectionService.getAppLanguageCode();
   await AppStrings.load(appLanguageCode);
   appLanguageCodeNotifier.value = appLanguageCode;

@@ -24,6 +24,9 @@ class LoadingScreen extends StatefulWidget {
   /// Undoes whatever started this operation, such as a locale change, when
   /// it's cancelled or fails (it throws, or a locale ends up without data).
   final Future<void> Function()? onAbandon;
+  /// Runs once the operation has succeeded, before any dialog waits on the
+  /// user, so a change can be marked done even if the app is closed then.
+  final Future<void> Function()? onSucceeded;
   const LoadingScreen({
     super.key,
     this.forceRefresh = false,
@@ -33,6 +36,7 @@ class LoadingScreen extends StatefulWidget {
     this.cancellable = false,
     this.firstTimeSetup = false,
     this.onAbandon,
+    this.onSucceeded,
   });
 
   @override
@@ -84,6 +88,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
         await _handleFailure(failures.join(", "));
         return;
       }
+      await widget.onSucceeded?.call();
 
       if (failures.isNotEmpty) {
         await _showMessage(
