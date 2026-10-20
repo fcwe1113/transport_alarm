@@ -194,7 +194,9 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
     }
 
     final days = _monthlyDayController.text;
-    final splitDays = days.split(",").map((d) => int.tryParse(d)!).whereType<int>().toSet();
+    // Empty items such as "1,,2" or a trailing comma are skipped here; the
+    // monthly check below reports them.
+    final splitDays = days.split(",").map((d) => int.tryParse(d.trim())).whereType<int>().toSet();
     if (_repeatPattern.frequency == RepeatFrequency.weekly) {
       if (_selectedWeekdays.isEmpty) {
         errors.add(AppStrings.text('alarm.validation.no_weekdays'));
