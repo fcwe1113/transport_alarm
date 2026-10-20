@@ -14,11 +14,18 @@ class RepeatPattern {
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
-    return other is RepeatPattern &&  other.frequency == this.frequency && _listEquals(other.weekdays, weekdays) && other.dayOfMonth == DateTime.daysPerWeek;
+    return other is RepeatPattern &&
+        other.frequency == frequency &&
+        _listEquals(other.weekdays, weekdays) &&
+        _listEquals(other.dayOfMonth, dayOfMonth);
   }
 
   @override
-  int get hashCode => Object.hash(frequency, weekdays == null ? null : Object.hashAll(weekdays!), dayOfMonth);
+  int get hashCode => Object.hash(
+    frequency,
+    weekdays == null ? null : Object.hashAll(weekdays!),
+    dayOfMonth == null ? null : Object.hashAll(dayOfMonth!),
+  );
 
   static bool _listEquals(List<int>? a, List<int>? b) {
     if (a == null) return b == null;
