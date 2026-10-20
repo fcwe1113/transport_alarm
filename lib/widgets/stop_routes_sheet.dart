@@ -147,7 +147,7 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const SizedBox(
-            height: 32,
+            height: _RoutePill.outerHeight,
             child: Center(child: CircularProgressIndicator()),
           );
         }
@@ -158,19 +158,17 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
         if (dedupedRoutes.isEmpty) return const SizedBox.shrink();
 
         return SizedBox(
-          height: 32,
+          height: _RoutePill.outerHeight,
           child: ListView(
             scrollDirection: Axis.horizontal,
             children: dedupedRoutes
                 .map(
-                  (route) => Padding(
-                    padding: const EdgeInsetsGeometry.only(right: 8),
-                    child: _RoutePill(
-                      route: route,
-                      selected:
-                          _selectedRouteNumber == route.routeNumber,
-                      onTap: () => _toggleRouteSelection(route),
-                    ),
+                  // Each pill already has space for its ring on both sides,
+                  // which makes the 8px gap between pills on its own.
+                  (route) => _RoutePill(
+                    route: route,
+                    selected: _selectedRouteNumber == route.routeNumber,
+                    onTap: () => _toggleRouteSelection(route),
                   ),
                 )
                 .toList(),
@@ -387,29 +385,44 @@ class _RoutePill extends StatelessWidget {
     final colours = LocaleRegistry.provider(route.locale, route.providerCode)?.coloursForRoute(route) ??
         RouteColourScheme(iconColour: scheme.secondaryContainer, textColour: scheme.onSecondaryContainer);
 
-    return Material(
-      color: colours.iconColour,
-      borderRadius: BorderRadius.circular(11),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(11),
-        child: Container(
-          height: 28,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: BoxDecoration(
-            border: selected
-                ? Border.all(color: colours.textColour, width: 2)
-                : null,
-            borderRadius: BorderRadius.circular(11),
+    // The selection ring sits a gap outside the pill, so it never touches the
+    // pill's colour and shows against the sheet on every operator, in light
+    // or dark mode. The space is kept when unselected so nothing shifts.
+    return Container(
+      padding: const EdgeInsets.all(_ringGap),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: selected ? scheme.onSurface : Colors.transparent,
+          width: _ringWidth,
+        ),
+        borderRadius: BorderRadius.circular(_pillRadius + _ringGap + _ringWidth),
+      ),
+      child: Material(
+        color: colours.iconColour,
+        borderRadius: BorderRadius.circular(_pillRadius),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(_pillRadius),
+          child: Container(
+            height: _pillHeight,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            alignment: fitContent ? null : Alignment.center,
+            child: fitContent
+                ? Center(widthFactor: 1, child: _label(colours.textColour))
+                : _label(colours.textColour),
           ),
-          alignment: fitContent ? null : Alignment.center,
-          child: fitContent
-              ? Center(widthFactor: 1, child: _label(colours.textColour))
-              : _label(colours.textColour),
         ),
       ),
     );
   }
+
+  static const _pillHeight = 28.0;
+  static const _pillRadius = 11.0;
+  static const _ringGap = 2.0;
+  static const _ringWidth = 2.0;
+
+  /// The pill's full height, ring and gap included.
+  static const outerHeight = _pillHeight + 2 * (_ringGap + _ringWidth);
 
   Widget _label(Color textColour) {
     return Text(
