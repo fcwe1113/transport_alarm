@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Loads the shared JSON string catalog used by Flutter and native targets.
@@ -30,6 +30,8 @@ class AppStrings {
     'transportModeTitle': transportMode(mode, titleCase: true),
   };
 
+  /// Loads [languageCode]'s catalog from assets/localization, or English
+  /// when there's none for it.
   static Future<void> load(String languageCode) async {
     Future<Map<String, String>> loadCatalog(String code) async {
       final json = await rootBundle.loadString(
@@ -49,6 +51,8 @@ class AppStrings {
     }
   }
 
+  /// The string for [key] with each "{name}" replaced from [values], or the
+  /// key itself when no catalog has it.
   static String text(String key, [Map<String, Object?> values = const {}]) {
     var result = _catalog[key] ?? _fallbackCatalog[key] ?? key;
     for (final entry in values.entries) {
@@ -68,6 +72,6 @@ class AppStrings {
         'Silent arrival tracking and status updates.',
     'notification.channel.alerts': 'Alarm problems',
     'notification.channel.alerts.description':
-        'Alerts when live arrival times can\'t be loaded or no bus is found.',
+        "Alerts when live arrival times can't be loaded or no bus is found.",
   };
 }
