@@ -246,6 +246,43 @@ class GtfsDatabase {
     }
   }
 
+  /// Deletes the locale's database and its side files, when the region is
+  /// turned off. Waits for any refresh of it to finish first, and holds new
+  /// lookups until the files are gone. Other isolates drop their connection
+  /// once they see the generation file is gone.
+  Future<void> deleteLocaleData() async {
+    final previousRefresh = _refreshTails[locale] ?? Future<void>.value();
+    final deleteFinished = Completer<void>();
+    _refreshTails[locale] = deleteFinished.future;
+    await previousRefresh;
+
+    final barrier = Completer<void>();
+    _replacementBarriers[locale] = barrier.future;
+    try {
+      final cachedDb = _databases.remove(locale);
+      if (cachedDb != null && cachedDb.isOpen) await cachedDb.close();
+      _routesForStopCache.clear();
+      _deferredStagingPaths.remove(locale);
+      _openedGenerations.remove(locale);
+      _generationCheckedAt.remove(locale);
+
+      final dbPath = '${(await AppGroupStorage.directory).path}/gtfs/$locale.db';
+      for (final suffix in ['', '-journal', '-wal', '-shm', '.backup']) {
+        final file = File('$dbPath$suffix');
+        if (await file.exists()) await file.delete();
+      }
+      final generationFile = _generationFile(File(dbPath).parent.path);
+      if (await generationFile.exists()) await generationFile.delete();
+    } finally {
+      _replacementBarriers.remove(locale);
+      barrier.complete();
+      deleteFinished.complete();
+      if (identical(_refreshTails[locale], deleteFinished.future)) {
+        _refreshTails.remove(locale);
+      }
+    }
+  }
+
   Future<void> _copyOperatorData(Database source, Database target) async {
     final validStopRows = await target.query(
       'gtfs_stops',

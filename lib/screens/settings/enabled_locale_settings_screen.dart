@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:transport_alarm/locale_registry.dart';
 
 import '../../l10n/app_strings.dart';
+import '../../services/region_cleanup_service.dart';
 import '../../transit/services/locale_selection_service.dart';
 import '../../transit_bootstrap.dart';
 import '../../widgets/app_shell.dart';
@@ -40,7 +41,8 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
 
   /// Saves the draft, leaves this page and downloads data for the regions
   /// that need it: newly enabled ones, and GB when its areas changed. A
-  /// region that was only turned off keeps its data, and needs nothing.
+  /// region turned off has its alarms and data deleted, once any download
+  /// has succeeded, so a failed change leaves everything as it was.
   Future<void> _saveSelection() async {
     if (_saving) return;
 
@@ -56,8 +58,20 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
       for (final entry in draft.entries)
         if (previous[entry.key] != entry.value) entry.key,
     };
-    // A download uses data, so warn first. Going back keeps the user on this
-    // screen with their unsaved changes.
+    final removed = previous.keys.toSet().difference(draft.keys.toSet());
+    final cleanup = RegionCleanupService();
+
+    // Going back from either warning keeps the user on this screen with their
+    // unsaved changes.
+    final affectedAlarms = await cleanup.alarmsInRegions(removed);
+    if (affectedAlarms.isNotEmpty) {
+      if (!mounted) return;
+      if (!await _confirmAlarmRemoval(affectedAlarms.length)) {
+        if (mounted) setState(() => _saving = false);
+        return;
+      }
+    }
+    // A download uses data, so warn first.
     if (toDownload.isNotEmpty) {
       if (!mounted) return;
       if (!await showDataUsageWarning(context)) {
@@ -73,7 +87,9 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
 
     final navigator = Navigator.of(context);
     navigator.pop();
-    if (toDownload.isNotEmpty) {
+    if (toDownload.isEmpty) {
+      await cleanup.removeRegions(removed);
+    } else {
       await navigator.push<void>(
         MaterialPageRoute<void>(
           builder: (_) => LoadingScreen(
@@ -94,11 +110,31 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
               await _selectionService.setEnabledLocales(previous);
               await _selectionService.clearPendingLocaleChange();
             },
-            onSucceeded: _selectionService.clearPendingLocaleChange,
+            onSucceeded: () async {
+              await _selectionService.clearPendingLocaleChange();
+              await cleanup.removeRegions(removed);
+            },
           ),
         ),
       );
     }
+  }
+
+  /// Asks before deleting the [count] alarms in the regions turned off.
+  Future<bool> _confirmAlarmRemoval(int count) async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('locale_change.remove_alarms.title')),
+        content: Text(AppStrings.text('locale_change.remove_alarms.body', {'count': count})),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('common.go_back'))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('common.continue'))),
+        ],
+      ),
+    );
+    return proceed == true;
   }
 
   @override

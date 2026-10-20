@@ -74,6 +74,13 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
     return true;
   }
 
+  @override
+  Future<void> forget() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_etagKey);
+    await prefs.remove(_lastModifiedKey);
+  }
+
   /// Downloads the archive, imports it into a staging database and swaps
   /// it in, then saves its validators for the next staleness check.
   @override

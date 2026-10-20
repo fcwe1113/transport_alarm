@@ -26,6 +26,10 @@ abstract class GtfsSyncProvider {
 
   /// Whether the installed timetable is missing or due for a refresh.
   Future<bool> checkIsStale();
+
+  /// Forgets any records of its own about the installed feed, once the
+  /// locale's data is deleted.
+  Future<void> forget();
 }
 
 /// Imports one GTFS archive into a (usually staging) database.

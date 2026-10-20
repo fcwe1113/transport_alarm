@@ -46,6 +46,10 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
     );
   }
 
+  /// Keeps nothing of its own beyond the staleness records.
+  @override
+  Future<void> forget() async {}
+
   /// The selected ATCO area codes, saved comma-separated as this locale's
   /// enabled value.
   Future<Set<String>> _selectedAreas() async =>

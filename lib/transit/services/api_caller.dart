@@ -36,6 +36,18 @@ class ApiCaller {
   static String _fetchedKey(String providerCode, String endpointName) =>
       "${providerCode}_${endpointName}_last_fetched";
 
+  /// Forgets when each of [providerCode]'s endpoints was fetched, so they're
+  /// all fetched again next time, as when its region's data is deleted.
+  static Future<void> forgetProvider(String providerCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where(
+      (key) => key.startsWith('${providerCode}_') && key.endsWith('_last_fetched'),
+    );
+    for (final key in keys.toList()) {
+      await prefs.remove(key);
+    }
+  }
+
   /// A one-off GET, timing out after [requestTimeout].
   static Future<http.Response> get(Uri uri) =>
       _request((client) => client.get(uri));
