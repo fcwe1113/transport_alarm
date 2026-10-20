@@ -118,11 +118,12 @@ class KmbProvider extends TransitProvider {
     final items = <BatchCallItem<TransportRoute, List<String>>>[];
     for (final route in routesToLink) {
       final direction = route.bound == "O" ? "outbound" : "inbound";
+      final serviceType = _serviceType(route);
       items.add(
         BatchCallItem<TransportRoute, List<String>>(
           key: route,
-          endpointName: "route_stop_${route.routeNumber}_${route.bound}_1",
-          url: '$_baseUrl/route-stop/${route.routeNumber}/$direction/1',
+          endpointName: "route_stop_${route.routeNumber}_${route.bound}_$serviceType",
+          url: '$_baseUrl/route-stop/${route.routeNumber}/$direction/$serviceType',
           parseRaw: _parseRouteStopIdsRaw,
           forceRefresh: !await db.hasRouteStops(route.id),
         ),
@@ -217,12 +218,17 @@ class KmbProvider extends TransitProvider {
     final separator = operatorStopId.indexOf(":");
     if (separator < 0 || separator == operatorStopId.length - 1) return null;
     final rawStopId = operatorStopId.substring(separator + 1);
-    final routeIdParts = route.id.split("_");
-    final serviceType = routeIdParts.length > 1 ? routeIdParts.last : "1";
     return Uri.https(
       "data.etabus.gov.hk",
-      "/v1/transport/kmb/eta/$rawStopId/${route.routeNumber}/$serviceType",
+      "/v1/transport/kmb/eta/$rawStopId/${route.routeNumber}/${_serviceType(route)}",
     ).toString();
+  }
+
+  /// The route's service type, the last part of its ID; "1" if it has none.
+  static String _serviceType(TransportRoute route) {
+    final routeIdParts = route.id.split("_");
+    final serviceType = routeIdParts.length > 1 ? routeIdParts.last : "";
+    return serviceType.isEmpty ? "1" : serviceType;
   }
 
   List<TransportStop> _parseStopsRaw(String rawJson) {
