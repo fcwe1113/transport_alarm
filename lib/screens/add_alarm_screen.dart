@@ -37,10 +37,8 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
   final _formKey = GlobalKey<FormState>();
 
   TimeOfDay _leftTime = TimeOfDay.now();
-  TimeOfDay _rightTime = TimeOfDay.now().replacing(
-      minute: (TimeOfDay.now().minute + 15) % 60,
-      hour: TimeOfDay.now().hour + (TimeOfDay.now().minute + 15 >= 60 ? 1 : 0)
-  );
+  // 15 minutes after the start, wrapping past midnight.
+  late TimeOfDay _rightTime = _fromMinutes(_toMinutes(_leftTime) + 15);
   int _sliderMinutes = 15;
 
   bool _isLoadingStops = true;
