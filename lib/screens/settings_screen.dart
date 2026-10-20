@@ -26,9 +26,7 @@ class SettingsScreen extends StatelessWidget {
     final options = <({IconData icon, String title})>[
       (icon: Icons.language, title: 'settings.app_language'),
       (icon: Icons.public, title: 'settings.enabled_locales'),
-      (icon: Icons.public, title: 'settings.transit_locale'),
-      (icon: Icons.access_time, title: 'settings.time_zone'),
-      (icon: Icons.notifications_outlined, title: 'settings.notifications'),
+      (icon: Icons.notifications_outlined, title: 'settings.alarm_settings'),
       (icon: Icons.help_outline, title: 'settings.help'),
       (icon: Icons.info_outline, title: 'settings.about'),
       (icon: Icons.download, title: 'drawer.reload_data'),
