@@ -9,6 +9,8 @@ import 'package:transport_alarm/services/alarm_storage_service.dart';
 /// cancels them.
 class AlarmServerService {
   static const _baseUrl = "https://ios-scheduler.fcwe1113.workers.dev";
+  // Without one, a request on a dead connection can hang for minutes.
+  static const _timeout = Duration(seconds: 10);
 
   /// Schedules a new ping, returning its ID and the secret that later
   /// reschedule and ack calls must send, or null if the server refused.
@@ -46,11 +48,12 @@ class AlarmServerService {
     await _post("ack", {"ping_id": pingId, "ping_secret": secret});
   }
 
+  /// Throws a TimeoutException after [_timeout].
   Future<http.Response> _post(String path, Map<String, Object?> body) => http.post(
     Uri.parse("$_baseUrl/$path"),
     headers: {"content-type": "application/json"},
     body: jsonEncode(body),
-  );
+  ).timeout(_timeout);
 
   /// Seconds from now until [time]. The server adds this to its own clock,
   /// so a wrong phone clock doesn't shift pings.
