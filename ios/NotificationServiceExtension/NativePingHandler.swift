@@ -560,8 +560,9 @@ final class NativePingHandler {
         }
     }
 
-    /// Queries today's GTFS service calendar and stop times for the next arrival
-    /// matching the selected routes and stop.
+    /// Minutes until the next timetabled arrival of the selected routes at the
+    /// stop, from the locale's GTFS calendar. Searches today's service day
+    /// and yesterday's, whose trips after midnight carry times past 24:00.
     private func scheduledMinutesUntilArrival(
         stopID: String,
         routeNumbers: [String],
@@ -575,17 +576,49 @@ final class NativePingHandler {
 
         let calendar = locale.gregorianCalendar
         let now = Date()
-        let components = calendar.dateComponents([.year, .month, .day, .weekday], from: now)
+        let today = calendar.startOfDay(for: now)
+        let secondsIntoToday = Int(now.timeIntervalSince(today))
+        var soonest: Int?
+        for dayOffset in [0, -1] {
+            guard let serviceDay = calendar.date(byAdding: .day, value: dayOffset, to: today) else { continue }
+            // GTFS times count from the service day's start, so on yesterday's
+            // service day now is 24 hours later.
+            let after = secondsIntoToday - dayOffset * 86400
+            let minutes = scheduledMinutes(
+                database: database,
+                stopID: stopID,
+                routeNumbers: routeNumbers,
+                serviceDay: serviceDay,
+                afterSeconds: after,
+                calendar: calendar,
+                now: now,
+                minimumArrivalMinutes: minimumArrivalMinutes,
+                excludingTrips: excludingTrips
+            )
+            if let minutes, soonest.map({ minutes < $0 }) ?? true { soonest = minutes }
+        }
+        return soonest
+    }
+
+    /// The soonest qualifying departure on one GTFS service day.
+    private func scheduledMinutes(
+        database: OpaquePointer,
+        stopID: String,
+        routeNumbers: [String],
+        serviceDay: Date,
+        afterSeconds: Int,
+        calendar: Calendar,
+        now: Date,
+        minimumArrivalMinutes: Int?,
+        excludingTrips: Set<String>
+    ) -> Int? {
+        let components = calendar.dateComponents([.year, .month, .day, .weekday], from: serviceDay)
         guard let year = components.year, let month = components.month,
               let day = components.day, let weekday = components.weekday else { return nil }
         let weekdayColumns = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
         let weekdayColumn = weekdayColumns[weekday - 1]
         let dateString = String(format: "%04d%02d%02d", year, month, day)
-        let timeFormatter = DateFormatter()
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.timeZone = locale.timeZone
-        timeFormatter.dateFormat = "HH:mm:ss"
-        let localTime = timeFormatter.string(from: now)
+        let afterTime = String(format: "%02d:%02d:%02d", afterSeconds / 3600, (afterSeconds % 3600) / 60, afterSeconds % 60)
         let placeholders = Array(repeating: "?", count: routeNumbers.count).joined(separator: ",")
         let sql = """
             SELECT st.arrival_time, st.trip_id
@@ -615,32 +648,15 @@ final class NativePingHandler {
               )
             ORDER BY st.arrival_time ASC LIMIT 50
             """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement else { return nil }
-        defer { sqlite3_finalize(statement) }
-        bind(stopID, to: statement, at: 1)
-        for (offset, route) in routeNumbers.enumerated() {
-            bind(route, to: statement, at: Int32(offset + 2))
-        }
-        let timeBinding = Int32(routeNumbers.count + 2)
-        bind(localTime, to: statement, at: timeBinding)
-        for offset in Int32(1)...Int32(4) {
-            bind(dateString, to: statement, at: timeBinding + offset)
-        }
-
-        let startOfDay = calendar.startOfDay(for: now)
+        let bindings = [stopID] + routeNumbers + [afterTime, dateString, dateString, dateString, dateString]
         var soonest: Int?
-        while sqlite3_step(statement) == SQLITE_ROW {
-            guard let timePointer = sqlite3_column_text(statement, 0) else { continue }
-            if let tripPointer = sqlite3_column_text(statement, 1),
-               excludingTrips.contains(String(cString: tripPointer)) { continue }
-            let pieces = String(cString: timePointer).split(separator: ":").compactMap { Int($0) }
-            guard pieces.count == 3 else { continue }
-            let departure = startOfDay.addingTimeInterval(TimeInterval(pieces[0] * 3600 + pieces[1] * 60 + pieces[2]))
+        GBLiveArrivals.query(database, sql, bindings) { row in
+            if let tripID = GBLiveArrivals.text(row, 1), excludingTrips.contains(tripID) { return }
+            guard let seconds = GBLiveArrivals.gtfsSeconds(GBLiveArrivals.text(row, 0)) else { return }
+            let departure = serviceDay.addingTimeInterval(TimeInterval(seconds))
             let minutes = Int(departure.timeIntervalSince(now) / 60)
             let meetsThreshold = minimumArrivalMinutes.map { minutes >= $0 } ?? true
-            if minutes >= 0, meetsThreshold, soonest == nil || minutes < soonest! {
+            if minutes >= 0, meetsThreshold, soonest.map({ minutes < $0 }) ?? true {
                 soonest = minutes
             }
         }
@@ -765,12 +781,6 @@ final class NativePingHandler {
     /// to its destination names.
     static func routeNumbers(of alarm: [String: Any]) -> [String] {
         (alarm["routeNumbers"] as? [String: Any])?.keys.sorted() ?? []
-    }
-
-    /// Binds a Swift string to a SQLite statement parameter. SQLite copies it
-    /// (SQLITE_TRANSIENT), so it needn't outlive the call.
-    private func bind(_ value: String, to statement: OpaquePointer, at index: Int32) {
-        sqlite3_bind_text(statement, index, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
     }
 
     /// Converts values read from JSONSerialization into an integer when possible.
