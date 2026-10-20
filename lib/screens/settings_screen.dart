@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
+import 'package:transport_alarm/screens/settings/about_screen.dart';
 import 'package:transport_alarm/screens/settings/app_language_settings_screen.dart';
 import 'package:transport_alarm/screens/settings/enabled_locale_settings_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
@@ -9,7 +10,7 @@ import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:transport_alarm/widgets/data_usage_warning.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:transport_alarm/widgets/external_link.dart';
 
 /// Setup and troubleshooting notes for this platform, kept in the repo's
 /// ios/ and android/ READMEs.
@@ -48,7 +49,7 @@ class SettingsScreen extends StatelessWidget {
                   ? Text(AppStrings.text('settings.enabled_locales.subtitle'))
                   : option.title == 'settings.help'
                   ? Text(AppStrings.text('settings.help.subtitle'))
-                  : option.title.startsWith('settings.')
+                  : option.title.startsWith('settings.') && option.title != 'settings.about'
                   ? Text(AppStrings.text('common.coming_soon'))
                   : null,
               onTap: () {
@@ -68,7 +69,12 @@ class SettingsScreen extends StatelessWidget {
                     );
                     break;
                   case 'settings.help':
-                    _openHelp(context);
+                    openExternalLink(context, _helpUrl);
+                    break;
+                  case 'settings.about':
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => const AboutScreen()),
+                    );
                     break;
                   case 'drawer.reload_data':
                     _openDataOperation(
@@ -93,17 +99,6 @@ class SettingsScreen extends StatelessWidget {
 }
 
 
-
-Future<void> _openHelp(BuildContext context) async {
-  final messenger = ScaffoldMessenger.of(context);
-  final opened = await launchUrl(_helpUrl, mode: LaunchMode.externalApplication)
-      .catchError((_) => false);
-  if (!opened) {
-    messenger.showSnackBar(
-      SnackBar(content: Text(AppStrings.text('settings.help.open_failed'))),
-    );
-  }
-}
 
 Future<void> _openDataOperation(
   BuildContext context, {
