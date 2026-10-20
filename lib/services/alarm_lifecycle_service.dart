@@ -8,7 +8,6 @@ import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/orphaned_ping_store.dart';
 import 'package:transport_alarm/services/ping_watchdog_service.dart';
-import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 
@@ -260,22 +259,11 @@ class AlarmLifecycleService {
         alarm.windowStart.hour,
         alarm.windowStart.minute,
       );
-      if (start.isAfter(now) && _repeatsOn(alarm.repeat, day)) return start;
+      if (start.isAfter(now) && alarm.repeat.occursOn(day)) return start;
     }
     return now.add(const Duration(seconds: 10));
   }
 
-  static bool _repeatsOn(RepeatPattern repeat, DateTime day) {
-    switch (repeat.frequency) {
-      case RepeatFrequency.none:
-      case RepeatFrequency.daily:
-        return true;
-      case RepeatFrequency.weekly:
-        return (repeat.weekdays ?? const []).contains(day.weekday);
-      case RepeatFrequency.monthly:
-        return (repeat.dayOfMonth ?? const []).contains(day.day);
-    }
-  }
 }
 
 /// Whether an alarm change worked, with the error to show if not.

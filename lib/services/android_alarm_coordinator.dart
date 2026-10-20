@@ -828,7 +828,7 @@ class AndroidAlarmCoordinator {
   WindowOccurrence? _activeWindow(TransportAlarm alarm, DateTime now) {
     for (var offset = -1; offset <= 0; offset++) {
       final date = DateTime(now.year, now.month, now.day + offset);
-      if (!_repeatMatches(alarm.repeat, date)) continue;
+      if (!alarm.repeat.occursOn(date)) continue;
       final occurrence = _windowForStart(alarm, date);
       if (!now.isBefore(occurrence.start) && now.isBefore(occurrence.end)) {
         return occurrence;
@@ -865,21 +865,9 @@ class AndroidAlarmCoordinator {
       final date = DateTime(after.year, after.month, after.day + offset);
       final occurrence = _windowForStart(alarm, date);
       if (!occurrence.start.isAfter(after)) continue;
-      if (_repeatMatches(alarm.repeat, date)) return occurrence;
+      if (alarm.repeat.occursOn(date)) return occurrence;
     }
     throw StateError('Could not find the next repeat window.');
-  }
-
-  bool _repeatMatches(RepeatPattern repeat, DateTime date) {
-    switch (repeat.frequency) {
-      case RepeatFrequency.none:
-      case RepeatFrequency.daily:
-        return true;
-      case RepeatFrequency.weekly:
-        return (repeat.weekdays ?? const []).contains(date.weekday);
-      case RepeatFrequency.monthly:
-        return (repeat.dayOfMonth ?? const []).contains(date.day);
-    }
   }
 
   /// A 30-bit hash of the alarm ID (FNV-1a), stable across launches, for
