@@ -1,10 +1,14 @@
 import 'package:transport_alarm/locale_registry.dart';
 
+/// A stop from a locale's GTFS timetable. HK stops also carry the names of
+/// the operator stops matched to them, which are better and translated.
 class GtfsStop {
   final String id;
+  /// The GTFS stop_name, in the feed's language.
   final String name;
   final double lat;
   final double lng;
+  /// Each matched operator stop's names, keyed by language code.
   final List<Map<String, String>> operatorNames;
   final String locale;
 
@@ -17,9 +21,12 @@ class GtfsStop {
     required this.locale,
   });
 
+  /// The stop's name in [languageCode], falling back to English and then
+  /// the GTFS name.
   String displayNameFor(String languageCode) {
     if (LocaleRegistry.getLocale(locale).gtfsOnly) {
-      return name; // todo check functionality
+      // No operator stops to take translated names from.
+      return name;
     } else {
       return localizedNameFromOperators(
         operatorNames,
@@ -29,6 +36,8 @@ class GtfsStop {
     }
   }
 
+  /// The longest cleaned name among [names] in [languageCode] (or English),
+  /// or [fallbackName] when there's none.
   static String localizedNameFromOperators(
     Iterable<Map<String, String>> names,
     String languageCode, {
@@ -48,11 +57,19 @@ class GtfsStop {
     return candidates.isEmpty ? fallbackName : candidates.first;
   }
 
+  /// The distinct parts of an operator stop name, split on "|", "<BR>" and
+  /// "/", without leading "[...]" tags.
   static List<String> extractNameFragments(String rawName) {
-    return rawName.split("|").expand((segment) => segment.split(RegExp(r"<BR>|/", caseSensitive: false)))
-        .map((f) => f.replaceAll(RegExp(r"^\[.*?\]\s*"), "").trim()).where((f) => f.isNotEmpty).toSet().toList();
+    return rawName
+        .split("|")
+        .expand((segment) => segment.split(RegExp(r"<BR>|/", caseSensitive: false)))
+        .map((f) => f.replaceAll(RegExp(r"^\[.*?\]\s*"), "").trim())
+        .where((f) => f.isNotEmpty)
+        .toSet()
+        .toList();
   }
 
+  /// The longest fragment of [rawName], usually its most complete name.
   static String cleanStopName(String rawName) {
     final fragments = extractNameFragments(rawName);
 
@@ -61,6 +78,8 @@ class GtfsStop {
     return fragments.first;
   }
 
+  /// Upper-case letters and digits only, for matching operator stop names
+  /// to GTFS ones. Only suits Latin-script names.
   static String normalizeForMatching(String name) {
     return name.toUpperCase().replaceAll(RegExp(r"[^A-Z0-9]"), "");
   }
