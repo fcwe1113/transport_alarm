@@ -1,10 +1,10 @@
-import 'package:transport_alarm/transit/cancellation.dart';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
@@ -14,26 +14,23 @@ import 'package:transport_alarm/transit/services/staleness_tracker.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:http/http.dart' as http;
 
-/// Downloads and combines the UK GTFS archives selected in Settings.
+/// Downloads and combines the UK GTFS archives for the ATCO areas selected
+/// in Settings. Each area belongs to a BODS region; each needed region's
+/// archive is downloaded in turn, and only stops in the selected areas (and
+/// what serves them) are imported.
 class GbGtfsSyncProvider implements GtfsSyncProvider {
   @override
   final String locale = 'gb';
 
-  /// The selected region key is appended to this base URL.
+  /// Required by [GtfsSyncProvider]; downloads use [_regionDownloadBaseUrl].
   @override
   final String feedUrl = 'https://data.bus-data.dft.gov.uk/api/v1/dataset/';
 
+  /// A region's archive is at this URL plus "/(region key)/".
   static const String _regionDownloadBaseUrl =
       'https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file';
 
-  static const Duration ttlThreshold = Duration(days: 7);
-  // static const String _installedRegionsKey = 'gtfs_uk_installed_regions';
-  static const int _pageSize = 100;
-  static const int _areaBatchSize = 40;
   static const Duration _ttl = Duration(days: 7);
-
-  String _preferenceKey(String region, String suffix) =>
-      'gtfs_${locale}_${region}_$suffix';
 
   /// Checks local data age and avoids querying BODS more often than needed.
   @override
@@ -49,14 +46,18 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
     );
   }
 
+  /// The selected ATCO area codes, saved comma-separated as this locale's
+  /// enabled value.
+  Future<Set<String>> _selectedAreas() async =>
+      ((await LocaleSelectionService().getEnabledLocales())[locale] ?? '')
+          .split(",")
+          .where((area) => area.isNotEmpty)
+          .toSet();
+
   /// The selected ATCO areas, so changing them makes the data stale.
   Future<String?> _areaSignature() async {
-    final selectedAreas =
-        (await LocaleSelectionService().getEnabledLocales())[locale]
-            ?.split(",")
-            .where((area) => area.isNotEmpty)
-            .toSet();
-    if (selectedAreas == null || selectedAreas.isEmpty) return null;
+    final selectedAreas = await _selectedAreas();
+    if (selectedAreas.isEmpty) return null;
     return (selectedAreas.toList()..sort()).join(',');
   }
 
@@ -65,22 +66,14 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
   Future<void> syncFeed({
     ProgressCallback? onProgress,
     CancellationToken? cancelToken,
-  }) async { // todo adapt temp db for data import to prevent oom crash
-    final selectedAreas =
-        (await LocaleSelectionService().getEnabledLocales())[locale]
-            ?.split(",")
-            .toSet();
-    if (selectedAreas!.isEmpty) {
+  }) async {
+    // Empty codes are left out: an empty prefix would match every stop.
+    final selectedAreas = await _selectedAreas();
+    if (selectedAreas.isEmpty) {
       throw StateError(
         'Select at least one UK ATCO area before downloading data.',
       );
     }
-
-    // get list of enables regions
-    // get region zip
-    // filter stops by atco code
-    // import everything else by "if it touches an included stop"
-    // continue of every region
 
     final atcoCodes = jsonDecode(
       await rootBundle.loadString("lib/transit/locale/gb/atco.json"),
@@ -139,14 +132,11 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
           onProgress: onProgress,
         );
 
-        // Process/filter/import this ZIP here before the loop downloads the
-        // next region. The archive is retained in workDirectory for that step.
-
-        // use stop_id to filter stops.txt and stop_times.txt
-        // use trip_id from stop_times.txt to filter service_id and route_id in trips.txt
-        // use route_id in trips.txt to filter routes.txt
-        // use service_id to filter calendar_dates.txt and calendar.txt
-
+        // Imported before the next download, keeping one archive on disk at
+        // a time. Stops are filtered by area here; the sync service then keeps
+        // only the trips, routes and services that touch those stops. Every
+        // region but the last is staged without committing, so the regions
+        // are swapped in together.
         try {
           final db = GtfsDatabase.forLocale(locale);
           int? stopIdColumn;
