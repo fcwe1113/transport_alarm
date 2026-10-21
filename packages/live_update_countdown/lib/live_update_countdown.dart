@@ -9,6 +9,7 @@ class LiveUpdateCountdown {
     required int id,
     required String title,
     required String body,
+    required String subText,
     required DateTime progressStartTime,
     required DateTime countdownTargetTime,
     required DateTime estimatedArrivalTime,
@@ -18,6 +19,7 @@ class LiveUpdateCountdown {
           'id': id,
           'title': title,
           'body': body,
+          'subText': subText,
           'progressStartMillis': progressStartTime.millisecondsSinceEpoch,
           'countdownTargetMillis': countdownTargetTime.millisecondsSinceEpoch,
           'estimatedArrivalMillis':

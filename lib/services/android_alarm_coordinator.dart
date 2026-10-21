@@ -274,6 +274,7 @@ class AndroidAlarmCoordinator {
         await NotificationService.showCountdown(
           notificationId: _countdownNotificationId(alarm.id),
           alarmId: alarm.id,
+          transportMode: alarm.transportMode,
           title: AppStrings.text('notification.next_transport_alarm', {
             ...AppStrings.transportModeValues(alarm.transportMode),
           }),
@@ -313,6 +314,7 @@ class AndroidAlarmCoordinator {
       await NotificationService.showCountdown(
         notificationId: _countdownNotificationId(alarm.id),
         alarmId: alarm.id,
+        transportMode: alarm.transportMode,
         title: AppStrings.text(
           'notification.transport_arriving_soon',
           AppStrings.transportModeValues(alarm.transportMode),

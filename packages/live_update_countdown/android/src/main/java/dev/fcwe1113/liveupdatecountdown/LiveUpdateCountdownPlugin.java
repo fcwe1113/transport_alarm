@@ -56,6 +56,8 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
             int id = ((Number) arguments.get("id")).intValue();
             String title = (String) arguments.get("title");
             String body = (String) arguments.get("body");
+            // Localised by the app, which knows the alarm's transport mode.
+            String subText = (String) arguments.get("subText");
             long progressStartMillis =
                     ((Number) arguments.get("progressStartMillis")).longValue();
             long countdownTargetMillis =
@@ -63,7 +65,7 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
             long estimatedArrivalMillis =
                     ((Number) arguments.get("estimatedArrivalMillis")).longValue();
             List<?> thresholdTimes = (List<?>) arguments.get("thresholdTimesMillis");
-            postCountdown(id, title, body, progressStartMillis,
+            postCountdown(id, title, body, subText, progressStartMillis,
                     countdownTargetMillis, estimatedArrivalMillis, thresholdTimes);
             result.success(true);
         } catch (Exception exception) {
@@ -71,7 +73,7 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
         }
     }
 
-    private void postCountdown(int id, String title, String body,
+    private void postCountdown(int id, String title, String body, String subText,
                                long progressStartMillis,
                                long countdownTargetMillis,
                                long estimatedArrivalMillis,
@@ -136,7 +138,7 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
                         .setSmallIcon(icon)
                         .setContentTitle(title)
                         .setContentText(NativeLocalization.text(context, "live_update.content", contentValues))
-                        .setSubText(NativeLocalization.text(context, "live_update.subtext"))
+                        .setSubText(subText)
                         .setWhen(countdownTargetMillis)
                         .setShowWhen(true)
                         .setUsesChronometer(true)

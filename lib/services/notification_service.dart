@@ -145,6 +145,7 @@ class NotificationService {
   static Future<void> showCountdown({
     required int notificationId,
     required String alarmId,
+    required String transportMode,
     required String title,
     required String body,
     required DateTime progressStartTime,
@@ -156,6 +157,10 @@ class NotificationService {
       id: notificationId,
       title: title,
       body: body,
+      subText: AppStrings.text(
+        'live_update.subtext',
+        AppStrings.transportModeValues(transportMode),
+      ),
       progressStartTime: progressStartTime,
       countdownTargetTime: countdownTargetTime,
       estimatedArrivalTime: estimatedArrivalTime,
