@@ -25,6 +25,9 @@ This app does not help you find the best way to get from A to B, what it however
 - A place to see real time disruption information, consult other apps or your transport department in this case
 ## Notes while using the app
 - I do not have special access to transit data, and the app is as good as what the publicly available APIs provide. While I hope to iron out all the irregularities possible, expect the app to perform terrible if you know your local transit API to be terrible.
+## AI use statement
+- Vibecoding tools were used while making this app
+- The current app icon is AI generated
 
 ## Supported locales
 
@@ -47,6 +50,8 @@ Feel free to provide translations if you know how to by providing a translated c
 - Add northern ireland support for uk
 - Add new locale support (Taiwan, Germany, Netherlands, Japan, Singapore, France, Spain, etc)
 - Replace the currently ai-generated app icon (sorry i suck at art :( )
+- Allow ios to acknowledge alarm without opening the app
+- build an alarm by clicking on an arriving bus in the map screen
 
 ## Special Thanks
 
