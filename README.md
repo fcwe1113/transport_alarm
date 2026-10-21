@@ -40,10 +40,11 @@ Feel free to provide translations if you know how to by providing a translated c
 ## Current roadmap
 
 - Publish the app onto App store and Play store
-- fill in locale support holes for currently supported regions (hk: new lantau bus, minibuses, uk: better Scotland and Wales support)
-- add support for trains and trams (hk: MTR, gb: national rail, sheffield/manchester/birmingham/london trams and Glasgow/Newcastle/London underground)
-- add northern ireland support for uk
-- add new locale support (Taiwan, Germany, Netherlands, Japan, Singapore, France, Spain, etc)
+- Fill in locale support holes for currently supported regions (hk: new lantau bus, minibuses, uk: better Scotland and Wales support)
+- Add support for trains and trams (hk: MTR, gb: national rail, sheffield/manchester/birmingham/london trams and Glasgow/Newcastle/London underground)
+- Add northern ireland support for uk
+- Add new locale support (Taiwan, Germany, Netherlands, Japan, Singapore, France, Spain, etc)
+- Replace the currently ai-generated app icon (sorry i suck at art :( )
 
 As this is an early release, expect bugs and errors. I had tried to weed out all potential crashes but if there's any please report them on the repository
 
