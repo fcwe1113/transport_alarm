@@ -12,7 +12,7 @@ This app utilizes the publicly available APIs to tell you exactly when is your r
 - Open-source, link to the source code below
 - Error tolerant, with fallback to scheduled times when live data is unavailable
 
-This app is available on both iOS and Android (pending store review), consult the version specific READMEs for more information([iOS](https://github.com/fcwe1113/transport_alarm/blob/master/ios/README.md), [Android](https://github.com/fcwe1113/transport_alarm/blob/master/android/README.md))
+This app is available on both iOS and Android (pending store review, [testflight link](https://testflight.apple.com/join/waM96fPP) and release APK are available for now), consult the version specific READMEs for more information([iOS](https://github.com/fcwe1113/transport_alarm/blob/master/ios/README.md), [Android](https://github.com/fcwe1113/transport_alarm/blob/master/android/README.md))
 
 ## Obvious question: Whats this app different from Citymapper/Google Maps(or the transit app of your choice)
 
