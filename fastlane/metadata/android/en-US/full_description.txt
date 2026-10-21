@@ -1,0 +1,26 @@
+Transport Alarm reminds you when to leave so you don't miss your bus. Pick a stop and the routes you take, set a time window and how many minutes before arrival you want to be alerted, and the app watches live arrival times and rings when your bus is that close.
+
+<b>Features</b>
+<ul>
+<li>Live arrival times straight from your region's public transport APIs, with a fallback to timetables when live data is unavailable</li>
+<li>Several alert thresholds per alarm, repeating daily, weekly or monthly</li>
+<li>A full-screen alarm over the lock screen, and a live countdown in the notification shade</li>
+<li>Transport data is built on your phone, so no account and no personal data leave the device</li>
+<li>No ads, no tracking, free and open source (AGPL-3.0)</li>
+</ul>
+
+<b>Supported regions</b>
+<ul>
+<li>Hong Kong (KMB, Citybus)</li>
+<li>Great Britain (buses via the Bus Open Data Service, London via TfL)</li>
+</ul>
+
+<b>What it isn't</b>
+Transport Alarm is not a journey planner and doesn't show disruption information. Its arrival times are only as good as the public data each operator provides.
+
+<b>Notes</b>
+<ul>
+<li>The map uses Google Maps.</li>
+<li>Builds from this repository and from Google Play are signed differently, so one can't update the other. Switching means uninstalling first, which deletes your alarms.</li>
+<li>Android requires notifications and "Alarms &amp; reminders" access for alarms to ring. See the Android README in the repository for recommended settings.</li>
+</ul>
