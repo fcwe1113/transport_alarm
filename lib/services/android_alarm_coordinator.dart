@@ -38,6 +38,7 @@ class AndroidAlarmCoordinator {
       clearLastEstimatedMinutesUntilThreshold: true,
       clearIgnoreArrivalsBefore: true,
       clearAndroidFallbackArrival: true,
+      clearAndroidLastArrival: true,
       clearAndroidLiveNotice: true,
       androidOccurrenceStartEpochSeconds: _epochSeconds(occurrence.start),
       androidOccurrenceEndEpochSeconds: _epochSeconds(occurrence.end),
@@ -121,6 +122,7 @@ class AndroidAlarmCoordinator {
         clearLastEstimatedMinutesUntilThreshold: startsRepeat,
         clearIgnoreArrivalsBefore: startsRepeat,
         clearAndroidFallbackArrival: startsRepeat,
+        clearAndroidLastArrival: startsRepeat,
         clearAndroidLiveNotice: startsRepeat,
         androidProgressStartEpochSeconds:
             alarm.androidProgressStartEpochSeconds ?? _epochSeconds(DateTime.now()),
@@ -225,9 +227,27 @@ class AndroidAlarmCoordinator {
     }
     await _scheduleLiveCheck(alarm, gotLiveData: lookup.liveFound);
 
+    // A check that finds nothing keeps aiming at the last arrival found while
+    // it's still ahead, so a failed request or a bus briefly missing from the
+    // live feed doesn't drop the countdown and the armed ring. [staleSince]
+    // says when that arrival was found, for the countdown to show.
+    final found = lookup.arrivalAt;
+    final lastArrival = _fromEpochSeconds(alarm.androidLastArrivalEpochSeconds);
+    final keepLast = found == null && lastArrival != null && lastArrival.isAfter(now);
+    final arrivalAt = found ?? (keepLast ? lastArrival : null);
+    final staleSince = keepLast
+        ? _fromEpochSeconds(alarm.androidLastArrivalFoundEpochSeconds)
+        : null;
+    if (found != null) {
+      alarm = alarm.copyWith(
+        androidLastArrivalEpochSeconds: _epochSeconds(found),
+        androidLastArrivalFoundEpochSeconds: _epochSeconds(now),
+      );
+      await _storage.updateAlarm(alarm);
+    }
+
     if (activeThresholdIndex >= 0) {
       final threshold = alarm.thresholdStates[activeThresholdIndex];
-      final arrivalAt = lookup.arrivalAt;
       if (arrivalAt == null) {
         await _waitForArrival(alarm);
         return;
@@ -281,6 +301,7 @@ class AndroidAlarmCoordinator {
           body: _ringBody(alarm, await _stopName(alarm)),
           progressStartTime: _androidProgressStartTime(alarm, now),
           countdownTargetTime: thresholdAt,
+          staleSince: staleSince,
           estimatedArrivalTime: arrivalAt,
           thresholdTimes: alarm.thresholdStates
               .map(
@@ -298,7 +319,7 @@ class AndroidAlarmCoordinator {
     }
 
     // Once thresholds are acknowledged, the final transport alert is visible but silent.
-    final finalArrivalAt = lookup.arrivalAt;
+    final finalArrivalAt = arrivalAt;
     if (finalArrivalAt == null) {
       await _waitForArrival(alarm);
       return;
@@ -327,6 +348,7 @@ class AndroidAlarmCoordinator {
               ),
         progressStartTime: _androidProgressStartTime(alarm, now),
         countdownTargetTime: finalArrivalAt,
+        staleSince: staleSince,
         estimatedArrivalTime: finalArrivalAt,
         thresholdTimes: alarm.thresholdStates
             .map(
@@ -703,6 +725,7 @@ class AndroidAlarmCoordinator {
         clearIgnoreArrivalsBefore: true,
         clearAndroidOccurrence: true,
         clearAndroidFallbackArrival: true,
+        clearAndroidLastArrival: true,
       );
       await _storage.updateAlarm(concluded);
       if (!dueToWindowEnd) {
@@ -726,6 +749,7 @@ class AndroidAlarmCoordinator {
       clearLastEstimatedMinutesUntilThreshold: true,
       clearIgnoreArrivalsBefore: true,
       clearAndroidFallbackArrival: true,
+      clearAndroidLastArrival: true,
       clearAndroidProgressStartEpochSeconds: true,
       androidOccurrenceStartEpochSeconds: _epochSeconds(nextWindow.start),
       androidOccurrenceEndEpochSeconds: _epochSeconds(nextWindow.end),

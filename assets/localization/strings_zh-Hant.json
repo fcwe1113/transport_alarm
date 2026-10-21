@@ -210,6 +210,7 @@
   "native.update_unavailable.storage": "無法開啟鬧鐘資料夾。",
   "native.update_timeout.title": "鬧鐘更新超時",
   "native.update_timeout.body": "鬧鐘更新耗時過長。",
+  "live_update.stale": "No update for {minutes} min",
   "live_update.subtext": "開始→{transportMode}抵達",
   "live_update.content": "{body} • 預計{time}",
   "live_activity.title": "交通工具鬧鐘",

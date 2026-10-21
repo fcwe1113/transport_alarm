@@ -210,6 +210,7 @@
   "native.update_unavailable.storage": "The shared alarm data folder could not be opened.",
   "native.update_timeout.title": "Alarm update timed out",
   "native.update_timeout.body": "The alarm update took too long.",
+  "live_update.stale": "No update for {minutes} min",
   "live_update.subtext": "Now → {transportMode} arrival",
   "live_update.content": "{body} • ETA {time}",
   "live_activity.title": "Transport alarm",

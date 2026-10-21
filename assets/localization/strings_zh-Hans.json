@@ -210,6 +210,7 @@
   "native.update_unavailable.storage": "无法开启闹钟资料夹。",
   "native.update_timeout.title": "闹钟更新超时",
   "native.update_timeout.body": "闹钟更新耗时过长。",
+  "live_update.stale": "No update for {minutes} min",
   "live_update.subtext": "开始→{transportMode}抵达",
   "live_update.content": "{body} • 预计{time}",
   "live_activity.title": "交通工具闹钟",

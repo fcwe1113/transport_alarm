@@ -59,6 +59,10 @@ class TransportAlarm {
   final int? androidProgressStartEpochSeconds;
   /// Android: the timetable bus being counted down to while there's no live one.
   final int? androidFallbackArrivalEpochSeconds;
+  /// Android: the last arrival a check found, and when it found it. A check
+  /// that finds none keeps counting down to it while it's still ahead.
+  final int? androidLastArrivalEpochSeconds;
+  final int? androidLastArrivalFoundEpochSeconds;
   /// Android: which live-data notice is showing (an AndroidLiveNotice name), or null.
   final String? androidLiveNotice;
 
@@ -90,6 +94,8 @@ class TransportAlarm {
     this.androidOccurrenceEndEpochSeconds,
     this.androidProgressStartEpochSeconds,
     this.androidFallbackArrivalEpochSeconds,
+    this.androidLastArrivalEpochSeconds,
+    this.androidLastArrivalFoundEpochSeconds,
     this.androidLiveNotice,
   });
 
@@ -117,6 +123,8 @@ class TransportAlarm {
     int? androidOccurrenceEndEpochSeconds,
     int? androidProgressStartEpochSeconds,
     int? androidFallbackArrivalEpochSeconds,
+    int? androidLastArrivalEpochSeconds,
+    int? androidLastArrivalFoundEpochSeconds,
     String? androidLiveNotice,
     bool clearAndroidLiveNotice = false,
     bool clearLastEstimatedMinutesUntilThreshold = false,
@@ -124,6 +132,7 @@ class TransportAlarm {
     bool clearAndroidOccurrence = false,
     bool clearAndroidProgressStartEpochSeconds = false,
     bool clearAndroidFallbackArrival = false,
+    bool clearAndroidLastArrival = false,
   }) {
     return TransportAlarm(
         id: id,
@@ -163,6 +172,12 @@ class TransportAlarm {
         androidFallbackArrivalEpochSeconds: clearAndroidFallbackArrival
             ? null
             : androidFallbackArrivalEpochSeconds ?? this.androidFallbackArrivalEpochSeconds,
+        androidLastArrivalEpochSeconds: clearAndroidLastArrival
+            ? null
+            : androidLastArrivalEpochSeconds ?? this.androidLastArrivalEpochSeconds,
+        androidLastArrivalFoundEpochSeconds: clearAndroidLastArrival
+            ? null
+            : androidLastArrivalFoundEpochSeconds ?? this.androidLastArrivalFoundEpochSeconds,
         androidLiveNotice: clearAndroidLiveNotice
             ? null
             : androidLiveNotice ?? this.androidLiveNotice,
@@ -193,6 +208,8 @@ class TransportAlarm {
     'androidOccurrenceEndEpochSeconds': androidOccurrenceEndEpochSeconds,
     'androidProgressStartEpochSeconds': androidProgressStartEpochSeconds,
     'androidFallbackArrivalEpochSeconds': androidFallbackArrivalEpochSeconds,
+    'androidLastArrivalEpochSeconds': androidLastArrivalEpochSeconds,
+    'androidLastArrivalFoundEpochSeconds': androidLastArrivalFoundEpochSeconds,
     'androidLiveNotice': androidLiveNotice,
   };
 
@@ -229,6 +246,10 @@ class TransportAlarm {
         json['androidProgressStartEpochSeconds'] as int?,
     androidFallbackArrivalEpochSeconds:
         json['androidFallbackArrivalEpochSeconds'] as int?,
+    androidLastArrivalEpochSeconds:
+        json['androidLastArrivalEpochSeconds'] as int?,
+    androidLastArrivalFoundEpochSeconds:
+        json['androidLastArrivalFoundEpochSeconds'] as int?,
     androidLiveNotice: json['androidLiveNotice'] as String?,
   );
 

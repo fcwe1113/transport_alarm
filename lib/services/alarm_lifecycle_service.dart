@@ -192,6 +192,7 @@ class AlarmLifecycleService {
         clearPingId: true,
         clearAndroidOccurrence: true,
         clearAndroidFallbackArrival: true,
+        clearAndroidLastArrival: true,
       ),
     );
     return const AlarmActionResult.success();

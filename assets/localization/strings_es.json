@@ -210,6 +210,7 @@
   "native.update_unavailable.storage": "No se pudo abrir la carpeta de datos compartidos de la alarma.",
   "native.update_timeout.title": "Se agotó el tiempo de actualización de la alarma",
   "native.update_timeout.body": "La actualización de la alarma tardó demasiado.",
+  "live_update.stale": "No update for {minutes} min",
   "live_update.subtext": "Ahora → llegada del {transportMode}",
   "live_update.content": "{body} • Llegada est. {time}",
   "live_activity.title": "Alarma de transporte",

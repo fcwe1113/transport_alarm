@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' show max;
 import 'dart:typed_data';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -142,7 +143,9 @@ class NotificationService {
   }
 
   /// Shows a silent live update with a timeline ending at
-  /// [estimatedArrivalTime], through the live_update_countdown plugin.
+  /// [estimatedArrivalTime], through the live_update_countdown plugin. With
+  /// [staleSince], the arrival is from an earlier check, and the subtext
+  /// says how long ago.
   static Future<void> showCountdown({
     required int notificationId,
     required String alarmId,
@@ -153,15 +156,20 @@ class NotificationService {
     required DateTime countdownTargetTime,
     required DateTime estimatedArrivalTime,
     required List<DateTime> thresholdTimes,
+    DateTime? staleSince,
   }) async {
     await LiveUpdateCountdown.show(
       id: notificationId,
       title: title,
       body: body,
-      subText: AppStrings.text(
-        'live_update.subtext',
-        AppStrings.transportModeValues(transportMode),
-      ),
+      subText: staleSince == null
+          ? AppStrings.text(
+              'live_update.subtext',
+              AppStrings.transportModeValues(transportMode),
+            )
+          : AppStrings.text('live_update.stale', {
+              'minutes': max(1, DateTime.now().difference(staleSince).inMinutes),
+            }),
       progressStartTime: progressStartTime,
       countdownTargetTime: countdownTargetTime,
       estimatedArrivalTime: estimatedArrivalTime,
