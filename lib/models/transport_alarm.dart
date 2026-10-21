@@ -42,6 +42,10 @@ class TransportAlarm {
   /// Proves to the scheduling server that this device owns [pingId]; sent
   /// with every reschedule and ack.
   final String? pingSecret;
+  /// The phone that scheduled [pingId] (AppGroupStorage.deviceId), so a phone
+  /// restored from this one's backup doesn't take over its pings. Null for
+  /// pings scheduled before this was recorded.
+  final String? pingDeviceId;
   /// Minutes until the active threshold at the last estimate, for when a
   /// later fetch fails.
   final int? lastEstimatedMinutesUntilThreshold;
@@ -79,6 +83,7 @@ class TransportAlarm {
     this.enabled = true,
     this.pingId,
     this.pingSecret,
+    this.pingDeviceId,
     this.lastEstimatedMinutesUntilThreshold,
     this.ignoreArrivalsBeforeEpochSeconds,
     this.androidOccurrenceStartEpochSeconds,
@@ -104,6 +109,7 @@ class TransportAlarm {
     bool? enabled,
     String? pingId,
     String? pingSecret,
+    String? pingDeviceId,
     bool clearPingId = false,
     int? lastEstimatedMinutesUntilThreshold,
     int? ignoreArrivalsBeforeEpochSeconds,
@@ -136,6 +142,7 @@ class TransportAlarm {
         enabled: enabled ?? this.enabled,
         pingId: clearPingId ? null : pingId ?? this.pingId,
         pingSecret: clearPingId ? null : pingSecret ?? this.pingSecret,
+        pingDeviceId: clearPingId ? null : pingDeviceId ?? this.pingDeviceId,
         lastEstimatedMinutesUntilThreshold: clearLastEstimatedMinutesUntilThreshold
             ? null
             : lastEstimatedMinutesUntilThreshold ?? this.lastEstimatedMinutesUntilThreshold,
@@ -179,6 +186,7 @@ class TransportAlarm {
     'enabled': enabled,
     'pingId': pingId,
     'pingSecret': pingSecret,
+    'pingDeviceId': pingDeviceId,
     'lastEstimatedMinutesUntilThreshold': lastEstimatedMinutesUntilThreshold,
     'ignoreArrivalsBeforeEpochSeconds': ignoreArrivalsBeforeEpochSeconds,
     'androidOccurrenceStartEpochSeconds': androidOccurrenceStartEpochSeconds,
@@ -208,6 +216,7 @@ class TransportAlarm {
     enabled: json['enabled'] as bool,
     pingId: json['pingId'] as String?,
     pingSecret: json['pingSecret'] as String?,
+    pingDeviceId: json['pingDeviceId'] as String?,
     lastEstimatedMinutesUntilThreshold:
         json['lastEstimatedMinutesUntilThreshold'] as int?,
     ignoreArrivalsBeforeEpochSeconds:

@@ -49,14 +49,17 @@ import UserNotifications
 
     // MARK: Method channels
 
-    /// The App Group container's path, and the app language for the
-    /// extensions' notices.
+    /// The App Group container's path, this phone's ID for owning server
+    /// pings, and the app language for the extensions' notices.
     private func setUpAppGroupChannel(_ messenger: FlutterBinaryMessenger) {
         FlutterMethodChannel(name: "com.fcwe1113.transport_alarm/app_group", binaryMessenger: messenger)
             .setMethodCallHandler { call, result in
                 switch call.method {
                 case "containerPath":
                     result(AppGroup.containerURL?.path)
+                case "deviceId":
+                    // Not carried over when a backup is restored onto another phone.
+                    result(UIDevice.current.identifierForVendor?.uuidString)
                 case "setAppLanguageCode":
                     guard let languageCode = (call.arguments as? [String: Any])?["languageCode"] as? String else {
                         result(FlutterMethodNotImplemented)

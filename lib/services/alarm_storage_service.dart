@@ -121,6 +121,13 @@ class AlarmStorageService {
         );
       });
 
+  /// Records [deviceId] as the owner of the alarm's current ping [pingId],
+  /// unless the ping has changed since.
+  Future<void> setPingDevice(String alarmId, String pingId, String deviceId) =>
+      _modify(alarmId, (alarm) => alarm.pingId == pingId && alarm.pingDeviceId != deviceId
+          ? alarm.copyWith(pingDeviceId: deviceId)
+          : null);
+
   /// Replaces the alarm [alarmId] with what [change] returns, or leaves the
   /// file untouched when the alarm is gone or [change] returns null.
   Future<void> _modify(String alarmId, TransportAlarm? Function(TransportAlarm alarm) change) =>

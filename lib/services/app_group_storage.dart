@@ -31,6 +31,16 @@ class AppGroupStorage {
     return _directory = result;
   }
 
+  static String? _deviceId;
+
+  /// iOS: this phone's ID, which owns the server pings it schedules; null
+  /// elsewhere or while iOS can't provide it. It changes when a backup is
+  /// restored onto another phone, unlike the alarms file.
+  static Future<String?> deviceId() async {
+    if (!Platform.isIOS) return null;
+    return _deviceId ??= await _channel.invokeMethod<String>('deviceId');
+  }
+
   /// Mirrors the selected app language into the iOS App Group for extensions.
   static Future<void> setAppLanguageCode(String languageCode) async {
     if (!Platform.isIOS) return;

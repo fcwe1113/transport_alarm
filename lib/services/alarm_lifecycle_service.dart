@@ -6,6 +6,7 @@ import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
+import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/services/orphaned_ping_store.dart';
 import 'package:transport_alarm/services/ping_watchdog_service.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
@@ -50,18 +51,25 @@ class AlarmLifecycleService {
   }
 
   /// Moves each enabled alarm's ping to [deviceToken], scheduling a new ping
-  /// for any alarm without one or whose ping the server no longer has (its
-  /// chain of pings stopped). The alarm's progress is kept, so the
+  /// for any alarm without one, whose ping the server no longer has (its
+  /// chain of pings stopped), or whose ping belongs to another phone (this
+  /// one was restored from its backup). The alarm's progress is kept, so the
   /// notification extension carries on from where it stopped.
   Future<void> resyncPings(String deviceToken) async {
     await _cancelOrphanedPings();
     final alarms = await _storage.loadAlarms();
+    final deviceId = await AppGroupStorage.deviceId();
     for (final alarm in alarms.where((a) => a.enabled)) {
       try {
         final pingId = alarm.pingId;
         final secret = alarm.pingSecret;
-        if (pingId != null && secret != null &&
+        if (pingId != null && secret != null && !await _pingBelongsToAnotherPhone(alarm) &&
             await _server.updateToken(pingId: pingId, secret: secret, deviceToken: deviceToken)) {
+          // Pings from before owners were recorded belong to the phone that
+          // first moves them.
+          if (deviceId != null && alarm.pingDeviceId == null) {
+            await _storage.setPingDevice(alarm.id, pingId, deviceId);
+          }
           continue;
         }
         final scheduled = await _schedulePing(alarm);
@@ -205,6 +213,8 @@ class AlarmLifecycleService {
     final pingId = alarm?.pingId;
     final secret = alarm?.pingSecret;
     if (pingId == null || secret == null) return;
+    // Another phone's ping keeps its alarms going there.
+    if (await _pingBelongsToAnotherPhone(alarm!)) return;
     try {
       await _server.cancelPing(pingId: pingId, secret: secret);
     } catch (e) {
@@ -225,6 +235,15 @@ class AlarmLifecycleService {
     }
   }
 
+  /// Whether [alarm]'s ping was scheduled by another phone, whose backup
+  /// this one was restored from.
+  Future<bool> _pingBelongsToAnotherPhone(TransportAlarm alarm) async {
+    final owner = alarm.pingDeviceId;
+    if (owner == null) return false;
+    final deviceId = await AppGroupStorage.deviceId();
+    return deviceId != null && deviceId != owner;
+  }
+
   Future<TransportAlarm?> _find(String alarmId) async =>
       (await _storage.loadAlarms()).where((a) => a.id == alarmId).firstOrNull;
 
@@ -241,7 +260,11 @@ class AlarmLifecycleService {
     final ping = await _server.schedule(deviceToken: deviceToken, scheduledTime: scheduledTime, requireAck: false);
     if (ping == null) return alarm;
     await PingWatchdogService.arm(alarm.id, scheduledTime);
-    return alarm.copyWith(pingId: ping.id, pingSecret: ping.secret);
+    return alarm.copyWith(
+      pingId: ping.id,
+      pingSecret: ping.secret,
+      pingDeviceId: await AppGroupStorage.deviceId(),
+    );
   }
 
   /// When the first ping should arrive: shortly if the window is open now,
