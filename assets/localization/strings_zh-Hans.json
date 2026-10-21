@@ -100,6 +100,8 @@
   "alarm.save_failed": "闹钟储存失败: {error}",
   "alarm.permission.notifications": "储存闹钟前请允许APP传播通知",
   "alarm.permission.exact": "储存闹钟前请允许APP设立提示并传播通知",
+  "alarm.exact_access.title": "Allow alarms",
+  "alarm.exact_access.body": "Transport Alarm needs “Alarms & reminders” access to ring on time. Without it, your alarms won't ring.",
   "alarm.battery.title": "确保闹钟准时",
   "alarm.battery.body": "Android 可能会在后台暂停交通闹钟以节省电量，这可能导致闹钟延迟或无法触发。是否允许其在后台不受限制地运行?",
   "alarm.battery.not_now": "现在不要",

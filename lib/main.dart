@@ -79,6 +79,36 @@ Future<void> _initAndroid() async {
   await AndroidAlarmManager.initialize();
   await NotificationService.init();
   unawaited(AndroidAlarmCoordinator(AlarmStorageService()).resumeAll());
+  unawaited(_askForExactAlarmsIfNeeded());
+}
+
+/// Asks for "Alarms & reminders" access when enabled alarms can't ring
+/// without it: after the user turned it off, or after updating from a build
+/// that didn't need it on Android 14+. Re-arms the alarms once it's allowed.
+Future<void> _askForExactAlarmsIfNeeded() async {
+  final hasEnabledAlarms = (await AlarmStorageService().loadAlarms()).any((a) => a.enabled);
+  if (!hasEnabledAlarms || await NotificationService.canScheduleExactAlarms()) return;
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    final context = appNavigatorKey.currentState?.overlay?.context;
+    if (context == null) return;
+    final allow = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('alarm.exact_access.title')),
+        content: Text(AppStrings.text('alarm.exact_access.body')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('alarm.battery.not_now'))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('alarm.battery.allow'))),
+        ],
+      ),
+    );
+    if (allow == true && await NotificationService.requestExactAlarms()) {
+      await AndroidAlarmCoordinator(AlarmStorageService()).resumeAll();
+    }
+  });
+  // The first frame may already be up, and a post-frame callback alone
+  // doesn't ask for another.
+  WidgetsBinding.instance.scheduleFrame();
 }
 
 class MyApp extends StatelessWidget {

@@ -231,10 +231,8 @@ class NotificationService {
     );
   }
 
-  /// Whether AlarmManager can schedule exact alarms. Asked of AlarmManager
-  /// itself: on Android 13+ the app holds USE_EXACT_ALARM from install and
-  /// doesn't declare SCHEDULE_EXACT_ALARM, which permission_handler wrongly
-  /// reports as denied.
+  /// Whether AlarmManager can schedule exact alarms ("Alarms & reminders"),
+  /// asked of AlarmManager itself.
   static Future<bool> canScheduleExactAlarms() async =>
       await _android?.canScheduleExactNotifications() ?? true;
 

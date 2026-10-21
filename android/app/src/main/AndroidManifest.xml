@@ -6,10 +6,9 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS"/>
-    <!-- Android 13+ grants USE_EXACT_ALARM at install to alarm apps; older
-         versions use SCHEDULE_EXACT_ALARM, granted by default there. -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32"/>
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    <!-- "Alarms & reminders" access, which the app asks for before saving an
+         alarm. Granted by default before Android 14, off by default from it. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
