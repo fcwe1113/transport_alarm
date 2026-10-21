@@ -23,6 +23,8 @@ This app does not help you find the best way to get from A to B, what it however
 ### What this app isn't:
 - A pathfinder
 - A place to see real time disruption information, consult other apps or your transport department in this case
+## Notes while using the app
+- I do not have special access to transit data, and the app is as good as what the publicly available APIs provide. While I hope to iron out all the irregularities possible, expect the app to perform terrible if you know your local transit API to be terrible.
 
 ## Supported locales
 
@@ -46,11 +48,14 @@ Feel free to provide translations if you know how to by providing a translated c
 - Add new locale support (Taiwan, Germany, Netherlands, Japan, Singapore, France, Spain, etc)
 - Replace the currently ai-generated app icon (sorry i suck at art :( )
 
-As this is an early release, expect bugs and errors. I had tried to weed out all potential crashes but if there's any please report them on the repository
+## Special Thanks
+
+- My sister for giving me this idea
+- [Sebastian](https://github.com/Pomalec) for doing the Spanish translation
 
 ## Donations
 
-This app does have running costs, if you liked the app, please buy me a cup of tea on [kofi](https://ko-fi.com/fcwe1113)
+This app does have running costs, if you liked the app and/or would like to keep the app free for everyone, please buy me a cup of tea on [kofi](https://ko-fi.com/fcwe1113). I promise I will set aside a pot of donations for running the app long term before using it myself (on like a Macbook to run Xcode on for example)
 
 ## License
 This entire project, both client and server side code, is licensed under the GNU Affero General Public License v3.0 — see [LICENSE](LICENSE) for details.
