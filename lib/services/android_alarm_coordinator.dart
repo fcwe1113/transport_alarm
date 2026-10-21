@@ -314,7 +314,7 @@ class AndroidAlarmCoordinator {
       } else {
         await NotificationService.cancel(_countdownNotificationId(alarm.id));
       }
-      await _scheduleNextCheck(alarm);
+      await _scheduleNextCheck(alarm, firesAt: thresholdAt);
       return;
     }
 
@@ -361,7 +361,7 @@ class AndroidAlarmCoordinator {
     } else {
       await NotificationService.cancel(_countdownNotificationId(alarm.id));
     }
-    await _scheduleNextCheck(alarm);
+    await _scheduleNextCheck(alarm, firesAt: arrivalAlertAt);
   }
 
   /// With no arrival to aim for, drops any armed ring and countdown and
@@ -631,16 +631,27 @@ class AndroidAlarmCoordinator {
   /// the fetch that just finished whether it succeeded or failed, or the
   /// window end if that comes first. The threshold "fire" callback is
   /// separate, so a ring due sooner still happens on time.
-  Future<void> _scheduleNextCheck(TransportAlarm alarm) async {
+  ///
+  /// Within [_mandatoryChecksBefore] of [firesAt], the next ring or arrival
+  /// alert, the check is the guaranteed live check instead, which Doze can't
+  /// delay or cut off from the network, so the last estimates before it
+  /// fires are fresh.
+  Future<void> _scheduleNextCheck(TransportAlarm alarm, {DateTime? firesAt}) async {
     final now = DateTime.now();
     final retryAt = now.add(const Duration(minutes: 1));
     final end = _windowEnd(alarm) ?? retryAt;
-    if (retryAt.isBefore(end)) {
+    final firesSoon = firesAt != null && firesAt.difference(now) <= _mandatoryChecksBefore;
+    if (retryAt.isBefore(end) && firesSoon) {
+      await _cancel(_checkAlarmId(alarm.id));
+      await _schedule(alarm, retryAt, 'liveCheck');
+    } else if (retryAt.isBefore(end)) {
       await _schedule(alarm, retryAt, 'check');
     } else {
       await _schedule(alarm, end, 'windowEnd');
     }
   }
+
+  static const _mandatoryChecksBefore = Duration(minutes: 5);
 
   /// Keeps a guaranteed check pending: 10 minutes out after a check that
   /// got live data, 5 after one that didn't. Each check replaces it, so it
