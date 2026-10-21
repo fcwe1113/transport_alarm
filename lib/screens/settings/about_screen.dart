@@ -10,6 +10,8 @@ class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 
   /// Each data source's credit, with a link to the terms it's used under.
+  static final _sourceCode = Uri.parse('https://github.com/fcwe1113/transport_alarm');
+
   static final _sources = <({String title, String body, Uri terms})>[
     (
       title: 'about.source.hk.title',
@@ -69,6 +71,15 @@ class AboutScreen extends StatelessWidget {
               onTap: () => openExternalLink(context, source.terms),
             ),
           const Divider(),
+          // AGPL-3.0's notices: copyright, no warranty, the licence, and
+          // where the source is.
+          ListTile(
+            leading: const Icon(Icons.code),
+            title: Text(AppStrings.text('about.source_code')),
+            subtitle: Text(AppStrings.text('about.app_licence')),
+            trailing: const Icon(Icons.open_in_new),
+            onTap: () => openExternalLink(context, _sourceCode),
+          ),
           ListTile(
             leading: const Icon(Icons.description_outlined),
             title: Text(AppStrings.text('about.licences')),

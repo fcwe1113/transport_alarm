@@ -27,6 +27,13 @@ import 'package:flutter/services.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The app's own licence, listed first on the licences page.
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(
+      const ['Transport Alarm'],
+      await rootBundle.loadString('LICENSE'),
+    );
+  });
   await GbBodsProvider.loadApiKey();
   // Clear scratch files from a sync that was killed last run. No sync can be
   // running yet, and it isn't awaited so startup isn't held up.

@@ -32,6 +32,8 @@
   "about.source.bods.body": "Bus timetables and live locations from the Bus Open Data Service, Department for Transport. Contains public sector information licensed under the Open Government Licence v3.0.",
   "about.source.tfl.title": "London",
   "about.source.tfl.body": "Powered by TfL Open Data. Contains OS data © Crown copyright and database rights 2016 and Geomni UK Map data © and database rights [2019].",
+  "about.source_code": "Source code",
+  "about.app_licence": "Copyright © 2026 Transport Alarm. Free software under the GNU Affero General Public License v3.0, with no warranty. The full licence is under Open-source licences.",
   "about.licences": "Open-source licences",
   "setup.title": "First time setup",
   "setup.choose_region": "Choose your country/region",

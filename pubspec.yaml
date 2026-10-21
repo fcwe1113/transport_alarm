@@ -81,6 +81,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - LICENSE
     - assets/icons/
     - assets/localization/
     - lib/transit/locale/gb/atco.json
