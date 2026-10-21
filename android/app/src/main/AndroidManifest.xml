@@ -38,8 +38,6 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"
             android:screenOrientation="portrait"
             android:launchMode="singleTop"
             android:taskAffinity=""
