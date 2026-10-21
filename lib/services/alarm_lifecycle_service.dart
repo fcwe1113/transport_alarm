@@ -7,6 +7,7 @@ import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/apns_token_service.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
+import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/services/orphaned_ping_store.dart';
 import 'package:transport_alarm/services/ping_watchdog_service.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
@@ -167,6 +168,8 @@ class AlarmLifecycleService {
     await _cancelPingIfAny(alarm);
     await _storage.updateAlarm(reenabled);
     try {
+      // Asked here, where the app is on screen; the coordinator only checks.
+      await NotificationService.requestExactAlarms();
       await AndroidAlarmCoordinator(_storage).startOrSchedule(reenabled);
     } catch (e) {
       await _storage.updateAlarm(

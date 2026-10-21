@@ -381,14 +381,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       return false;
     }
 
-    var exactAlarms = await Permission.scheduleExactAlarm.status;
-    if (!exactAlarms.isGranted) {
-      await Permission.scheduleExactAlarm.request();
-      // Android may return from the settings screen before the permission
-      // state is reflected in the request result, so check the current state.
-      exactAlarms = await Permission.scheduleExactAlarm.status;
-    }
-    if (!exactAlarms.isGranted) {
+    if (!await NotificationService.requestExactAlarms()) {
       _showSnackBar(AppStrings.text('alarm.permission.exact'));
       return false;
     }

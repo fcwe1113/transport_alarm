@@ -837,10 +837,9 @@ class AndroidAlarmCoordinator {
         'Allow notifications for Transport Alarm so threshold and arrival alerts can appear.',
       );
     }
-    final status = await Permission.scheduleExactAlarm.status;
-    if (status.isGranted) return;
-    final requested = await Permission.scheduleExactAlarm.request();
-    if (!requested.isGranted) {
+    // Only checked: this also runs in the background, where nothing can be
+    // asked. The app asks before saving or turning on an alarm.
+    if (!await NotificationService.canScheduleExactAlarms()) {
       throw StateError(
         'Allow Transport Alarm under Android “Alarms & reminders” to schedule alarms.',
       );
