@@ -28,19 +28,18 @@ There are other minor behavioral differences but the main ones are listed below:
 
 Additionally, on Android 17 users can disable the app's access local network devices, it is safe to do so as the app does not call any local network devices. 
 ## Required settings to ensure app functionality
-Please consult [dontkillmyapp.com](dontkillmyapp.com) for any manufacturer specific settings, below will show any android wide settings to ensure app functionality (taken on an emulated Pixel 9 running Android 17):
-### Required settings
-Notification permissions:
+Please consult [dontkillmyapp.com](dontkillmyapp.com) for any manufacturer specific settings, below will show any android wide settings to ensure app functionality (taken on an emulated Pixel 9 running Android 17), ensure all settings circled in orange is identical on your device settings:
+### Notification permissions
 
 ![android notifs guide.png](android%20notifs%20guide.png)
 
 Note that Alarm Problems/Updates can be disabled without impacting alarm functionality, but may make troubleshooting harder
 
-Mobile data/Battery Optimizations:
+### Mobile data/Battery Optimizations:
 
 ![android data_battery guide.png](android%20data_battery%20guide.png)
 
-Full screen alert permissions:
+### Full screen alert permissions:
 
 ![android full_screen guide.png](android%20full_screen%20guide.png)
 
