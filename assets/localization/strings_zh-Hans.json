@@ -203,6 +203,7 @@
   "native.ring.title": "{transportModeTitle}即将抵达",
   "native.ring.body": "你的{transportMode}将于{minutes}分钟后抵达，按下本通知以关闭闹钟",
   "native.acknowledge": "关闭闹钟",
+  "ring.threshold": "{minutes} minutes before arrival",
   "notification.acknowledge_action": "知道了",
   "native.update_unavailable.title": "无法更新闹钟",
   "native.update_unavailable.ping": "该通知未包含闹钟识别码。",

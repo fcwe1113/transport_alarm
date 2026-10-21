@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:live_update_countdown/live_update_countdown.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
+import 'package:transport_alarm/screens/ring_screen.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 
@@ -250,8 +251,13 @@ class NotificationService {
   ) async {
     // Payloads are "ring:<alarmId>" or "status:<alarmId>".
     final payload = response.payload;
-    if (payload == null || response.actionId != 'acknowledge') return;
+    if (payload == null) return;
     final alarmId = payload.substring(payload.indexOf(':') + 1);
-    await AndroidAlarmCoordinator(AlarmStorageService()).acknowledge(alarmId);
+    if (response.actionId == 'acknowledge') {
+      await AndroidAlarmCoordinator(AlarmStorageService()).acknowledge(alarmId);
+    } else if (response.actionId == null && payload.startsWith('ring:')) {
+      // The full-screen alert, or a tap on the ring notification.
+      RingScreen.show(alarmId);
+    }
   }
 }

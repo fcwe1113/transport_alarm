@@ -203,6 +203,7 @@
   "native.ring.title": "El {transportMode} llegará pronto",
   "native.ring.body": "Su alarma de {transportMode} alcanzó el aviso de {minutes} minutos. Confirme para continuar.",
   "native.acknowledge": "Confirmar",
+  "ring.threshold": "{minutes} minutes before arrival",
   "notification.acknowledge_action": "Ya voy / Entendido",
   "native.update_unavailable.title": "Actualización de la alarma no disponible",
   "native.update_unavailable.ping": "La notificación no incluía un identificador de ping de la alarma.",

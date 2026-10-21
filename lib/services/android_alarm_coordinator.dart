@@ -821,6 +821,10 @@ class AndroidAlarmCoordinator {
     }
   }
 
+  /// The ring notification's text for [alarm], for the ring screen.
+  Future<String> ringBody(TransportAlarm alarm) async =>
+      _ringBody(alarm, await _stopName(alarm));
+
   String _ringBody(TransportAlarm alarm, String? stopName) {
     if (alarm.message.isNotEmpty) return alarm.message;
     final routes = alarm.routeNumbers.keys.join(', ');
