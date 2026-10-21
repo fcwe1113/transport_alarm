@@ -1,9 +1,9 @@
 # iOS specific information
 This page is dedicated to documenting the various things iOS users should know when using the app, if you need the android version instead click [here](https://github.com/fcwe1113/transport_alarm/blob/master/android/README.md)
 ## Requirements to ensure the app functions
-Due to system differences, iOS has a different set of requirements than android for the alarm to function, you may also notice the "alarm" you see on iOS is just a slightly more annoying notification. This will be explained in a bit, this list of requirements can be seen below:
+Due to system differences, iOS has a different set of requirements than Android for the alarm to function, you may also notice the "alarm" you see on iOS is just a slightly more annoying notification, this will be explained in a bit. This list of requirements can be seen below:
 - Stable internet connection is needed for the alarm to ring at all, as a remote server is used to poke the phone into doing things in regular intervals
-- Permissions to send notifications given you
+- Permissions to send notifications given by you
 - Specific exemptions provided the alarm is supposed to ring while the phone is in a focus mode (e.g. sleep, DND)
 - Permission for the app to send time-sensitive notifications, this is what make the notifications "slightly more annoying"
 - Your device has to stay on while the alarm is supposed to ring (duh)
