@@ -7,7 +7,7 @@ Due to system differences, Android has a different set of requirements than iOS 
 - Your device has to stay on while the alarm is supposed to ring (duh)
 ## Caveats with app functionality
 In addition to the requirements above, there are a few caveats one should know when using the app:
-- App behaves differently when ran on an Android version below 16, consult the table below for details
+- App behaves differently when ran on Android version below 17, consult the table below for details
 - Depending on your phone's manufacturer, extra steps may be needed on the user to ensure the app wasn't killed by the phone's battery optimization settings, see [dontkillmyapp.com](dontkillmyapp.com) for specific settings for your particular phone
 - Force Stop (that is sliding the app up in the multitasker to kill it) cancels all pending alarms until you open the app again
 - Alarms will not ring if you restart the phone until you unlock it for the first time post restart
@@ -15,7 +15,7 @@ In addition to the requirements above, there are a few caveats one should know w
 - The full screen alarm popup only shows when locked or if the phone's screen is off, otherwise only a normal notification will show
 - Turning off "Alarms & Reminders" would immediately disable all pending alarms, users would be asked again for permission when opening the app again
 - If user restricts background data for the app, alarms would defer back to locally available schedules as live APIs would not be reachable, and live only alarms would fail
-- Alarms would stop ringing when the alarm's active window ends
+- Alarms would stop ringing when the alarm's active window ends, please set a big enough window for the alarm to actually ring
 ## Functionality differences over different Android versions
 There are other minor behavioral differences but the main ones are listed below:
 
@@ -43,6 +43,8 @@ Note that Alarm Problems/Updates can be disabled without impacting alarm functio
 
 ![android full_screen guide.png](android%20full_screen%20guide.png)
 
-Live updates can also be disabled if you want to disable the progress bar tracker
+Live updates can also be disabled if you want to disable the progress bar tracker, doing so will not impact alarm functionality
+## Known Issues
+- Some android phones reported seeing random unicode characters or invalid character boxes in place of icons, along with the stop icons completely missing from the map screen. A fix was pushed, but if the bug still persists for you please submit a bug report as I try to isolate the issue.
 ## FAQ
 WIP

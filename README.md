@@ -79,6 +79,13 @@ This app does not help you find the best way to get from A to B, what it however
 
 Feel free to provide translations if you know how to by providing a translated copy of the [english localization strings list](https://github.com/fcwe1113/transport_alarm/blob/master/assets/localization/strings_en.json)
 
+## Known issues
+Consult the Android/iOS info page for version specific problems, below are the version-wide issues: 
+- none so far :)
+
+In addition to the listed issues below, please consult the individual locale's known issues here:
+- [Hong Kong](https://github.com/fcwe1113/transport_alarm/blob/master/lib/transit/locale/hk/known%20issues.md)
+- [UK](https://github.com/fcwe1113/transport_alarm/blob/master/lib/transit/locale/gb/known%20issues.md)
 ## Current roadmap
 
 - Publish the app onto App store and Play store

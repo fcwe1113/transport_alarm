@@ -25,11 +25,20 @@ Check the settings shown below if your alarm is to ring while a focus mode is on
 ![ios focus guide.png](ios%20focus%20guide.png)
 
 Note that you will need to enable the app in each focus mode individually
-
+## Known Issues
+- None so far :)
 ## FAQ
 ### Why can't iOS do it like android showing a live progress bar outside the app showing you how far away is the bus/train/tram currently?
 While iOS Live Activity can do something similar, due to iOS restrictions triggering the update process has to live off device and triggered by a remote server. With the current model which is less demanding on the server, I will have to start paying my server provider (cloudflare) by the time there are ~2500 iOS users by my current estimates, and I do not plan to charge people for using the app or to show ads. If you want to either keep the app free or me going bankrupt, feel free to donate to me on [kofi](https://ko-fi.com/fcwe1113) :3
 ### Sometimes my alarm rings some time before or after the threshold its supposed to ring?
 Due to iOS restrictions and restrictions from my wallet, the server can only process notifications once per minute, within the app I had made optimizations to hopefully turn the potential delays into potential early triggers (if you are into video game speedrunning: Imagine a bus), however as the app is polling the live arrival APIs in real time when the notification arrives at your phone, sometimes delays happen if the fetch and/or parse process takes too long.
+### Sometimes my alarm does not ring at all, where the alarm was periodically showing how it has updated its estimated and then suddenly went silent?
+The server would do its best to contact your phone via push notifications, that is how the app gets to run code to update the arrival estimate. But sometimes that can fail, sometimes through no fault of your own, such as:
+- Bad internet connection
+- Server issues (i.e. problems with the server provider Cloudflare)
+- Apple decides to refresh the token the server needs to use to push notifications to your phone at that moment, this can happen at anytime and it does not notify the server
+- The estimate code errored out, showing something to the lines of "you should not be able to see this"
+
+Any of the above reasons can cause the update chain to break, while I do have safeguards against them, the app and the server can only do so much without manual intervention. This is shown by the app showing "Alarm checks stopped", refer to the caveat listed above.
 ### Why no AlarmKit?
 coming soon :)))))))))))))))))))
