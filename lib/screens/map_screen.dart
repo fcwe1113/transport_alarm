@@ -200,7 +200,12 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<BitmapDescriptor> _loadStopIcon() async {
     if (_stopIcon != null) return _stopIcon!;
-    _stopIcon = await BitmapDescriptor.asset(const ImageConfiguration(size: Size(32, 32)), _stopIconAsset);
+    // With the screen's pixel ratio, so the 2.0x or 3.0x image is picked
+    // rather than the 32 px one.
+    _stopIcon = await BitmapDescriptor.asset(
+      createLocalImageConfiguration(context, size: const Size(32, 32)),
+      _stopIconAsset,
+    );
     return _stopIcon!;
   }
 
@@ -263,6 +268,8 @@ class _MapScreenState extends State<MapScreen> {
         .where((stop) => bounds.contains(LatLng(stop.lat, stop.lng)))
         .take(_maxVisibleMarkers)
         .toList();
+    // The marker icon is read with this screen's context.
+    if (!mounted) return;
     final markers = await _buildMarkers(visibleStops);
     if (!mounted) return;
     setState(() => _visibleMarkers = markers);
