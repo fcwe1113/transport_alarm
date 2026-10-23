@@ -81,7 +81,7 @@ Feel free to provide translations if you know how to by providing a translated c
 
 ## Known issues
 Consult the Android/iOS info page for version specific problems, below are the version-wide issues: 
-- none so far :)
+- In some cases the routes list on the stop picker map screen and the dropdown in the add alarm screen disagree, the one in the add alarm screen is the correct one
 
 In addition to the listed issues below, please consult the individual locale's known issues here:
 - [Hong Kong](https://github.com/fcwe1113/transport_alarm/blob/master/lib/transit/locale/hk/known%20issues.md)
