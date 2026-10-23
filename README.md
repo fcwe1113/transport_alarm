@@ -14,6 +14,43 @@ This app utilizes the publicly available APIs to tell you exactly when is your r
 
 This app is available on both iOS and Android (pending store review, [testflight link](https://testflight.apple.com/join/waM96fPP) and release APK are available for now), consult the version specific READMEs for more information([iOS](https://github.com/fcwe1113/transport_alarm/blob/master/ios/README.md), [Android](https://github.com/fcwe1113/transport_alarm/blob/master/android/README.md))
 
+## How to use
+
+![Screenshot_20261023_154509.png](assets/readme/Screenshot_20261023_154509.png)
+
+Select the display language
+
+![Screenshot_20261023_154524.png](assets/readme/Screenshot_20261023_154524.png)
+
+Select the region you want to use the app in, note that while you can select the entirety of the UK, usually selecting your local region is enough, please only do so if you know what you are doing
+
+Allow the app to import the necessary data and you should see this screen
+
+![Screenshot_20261023_154853.png](assets/readme/Screenshot_20261023_154853.png)
+
+Click "Add alarm"
+
+![Screenshot_20261023_155424.png](assets/readme/Screenshot_20261023_155424.png)
+
+Within this screen is the inputs you need to give for the alarm to function:
+- Alarm Time Window: within the selected time, the app will monitor for any arrivals for the selected route at the selected stop. Setting a window of over 1 hour is possible usually that's not necessary
+- Stop search bar and map selector: selects the stop to monitor arrivals on, the right button pulls up a map for you to select your stop in, alternatively if you know the name of your stop you could use the search bar to find it.
+- Minutes away to ring: tells the app how early to ring your phone, for example inputting "8" would mean the app would ring you when your ride is 8 minutes away, inputting more ring thresholds is possible by separating them with a comma (e.g. "5,9")
+- Time to ring(iOS only): tells the app how many time it should try to ring you before it gives up, unless the next alarm ring is happening first
+- Repeat Pattern: Select when to repeat the alarm, daily, weekly by which weekday, monthly by which day of month, or none for not at all
+- Ignore scheduled times: tells the app to only use live arrival times
+- Custom Message: The message the alarm would display when it rings
+
+![Screenshot_20261023_154934.png](assets/readme/Screenshot_20261023_154934.png)
+
+After selecting the stop, select a route from the dropdown to select the route to monitor arrivals of
+
+When all the empty boxes are filled, click the tick on the top right and the alarm should be saved
+
+![Screenshot_20261023_155006.png](assets/readme/Screenshot_20261023_155006.png)
+
+Should look something like this when you did everything successfully. The alarm would then ring you according to your selected settings. Use the toggle to enable/disable the alarm.
+
 ## Obvious question: Whats this app different from Citymapper/Google Maps(or the transit app of your choice)
 
 This app does not help you find the best way to get from A to B, what it however does is to remind you when is your ride coming, which none of the current transit apps does.
