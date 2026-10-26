@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:transport_alarm/l10n/app_language_state.dart';
+import 'package:transport_alarm/app_navigator.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';

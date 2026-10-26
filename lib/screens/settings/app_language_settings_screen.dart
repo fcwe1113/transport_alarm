@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../l10n/app_language_state.dart';
+import '../../app_navigator.dart';
 import '../../l10n/app_strings.dart';
 import '../../l10n/app_languages.dart';
 import '../../transit/services/locale_selection_service.dart';

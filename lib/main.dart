@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:transport_alarm/app_navigator.dart';
 import 'package:transport_alarm/screens/add_alarm_screen.dart';
 import 'package:transport_alarm/screens/alarm_list_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
