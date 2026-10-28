@@ -96,6 +96,17 @@ In addition to the listed issues below, please consult the individual locale's k
 - Replace the currently ai-generated app icon (sorry i suck at art :( )
 - Allow ios to acknowledge alarm without opening the app
 - build an alarm by clicking on an arriving bus in the map screen
+- Add cosmetic changes to settings
+- Add custom ringtones for individual alarms
+- 
+
+## Contributing code
+
+I will accept code contributions in the form of a pull request given they are either:
+1. Fixing a bug
+2. Fixing/adding localization strings
+
+Currently, I have no plans to share the donation money to contributors as that would be a huge can of worms, that could come later once the project got off the ground. If you want to contribute (or just understand how thing work) please consult the [wiki](https://github.com/fcwe1113/transport_alarm/wiki) for more details.
 
 ## Special Thanks
 

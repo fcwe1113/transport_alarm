@@ -26,7 +26,10 @@ if (keystorePropertiesFile.exists()) {
 android {
     sourceSets.getByName("main").assets.srcDir("../../assets/localization")
     namespace = "com.fcwe1113.bus_arrival_notification_app"
-    compileSdk = 37 // flutter.compileSdkVersion
+    // The API 37 platform installs as "android-37.0"; plain `compileSdk = 37` looks for "android-37".
+    compileSdk {
+        version = release(37) { minorApiLevel = 0 }
+    }
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
