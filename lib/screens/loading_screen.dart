@@ -1,5 +1,5 @@
 import 'package:transport_alarm/transit/cancellation.dart';
-import 'package:transport_alarm/transit/progress_callback.dart';
+import 'package:transport_alarm/transit/transit_operation.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:transport_alarm/transit/services/stale_data_reminder.dart';

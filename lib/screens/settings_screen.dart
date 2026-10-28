@@ -6,7 +6,7 @@ import 'package:transport_alarm/screens/settings/about_screen.dart';
 import 'package:transport_alarm/screens/settings/app_language_settings_screen.dart';
 import 'package:transport_alarm/screens/settings/enabled_locale_settings_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
-import 'package:transport_alarm/transit/progress_callback.dart';
+import 'package:transport_alarm/transit/transit_operation.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:transport_alarm/widgets/data_usage_warning.dart';

@@ -5,6 +5,7 @@ import 'package:transport_alarm/transit/locale/transit_locale.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:transport_alarm/transit/services/temp_file_cleaner.dart';
+import 'package:transport_alarm/transit/transit_operation.dart';
 
 /// Downloads every enabled region's timetable and operator data, as on first
 /// setup or a full reload, or only the enabled regions in [onlyLocales]. A
