@@ -19,6 +19,11 @@ abstract class TransitLocale implements Comparable<TransitLocale> {
   /// The region's row in the region pickers, which selects it.
   Widget get menuEntry;
 
+  /// A note for the download warning when [selection], the region's value in
+  /// the locale selection, makes for an unusually large download; otherwise
+  /// null.
+  String? largeDownloadWarning(String selection) => null;
+
   /// Whether operator stops must be matched to GTFS stops after a refresh,
   /// for regions whose live APIs use their own stop IDs.
   bool get matchingRequired;

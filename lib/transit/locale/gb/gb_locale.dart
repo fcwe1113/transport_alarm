@@ -36,9 +36,24 @@ class GbLocale extends TransitLocale {
 
   @override
   bool get gtfsOnly => true;
+
+  /// More areas than this gets a note in the download warning, as testers
+  /// often ticked far more of the UK than they travel in.
+  static const _largeSelectionAreaCount = 20;
+
+  @override
+  String? largeDownloadWarning(String selection) {
+    final count = _areaCodes(selection).length;
+    if (count <= _largeSelectionAreaCount) return null;
+    return AppStrings.text('setup.large_download.gb', {'count': count});
+  }
 }
 
 typedef _AtcoArea = ({String code, String name});
+
+/// The area codes in the UK's selection value, which is comma-separated.
+Set<String> _areaCodes(String selection) =>
+    selection.split(",").where((code) => code.isNotEmpty).toSet();
 
 /// The UK entry in the region pickers: a tree of BODS regions and their
 /// ATCO areas, each with a checkbox. The picked area codes are saved,
@@ -88,10 +103,7 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
     if (!mounted) return;
     setState(() {
       _atcoByRegion = byRegion;
-      _selected = (draft[widget.config.code] ?? '')
-          .split(",")
-          .where((code) => code.isNotEmpty)
-          .toSet();
+      _selected = _areaCodes(draft[widget.config.code] ?? '');
       _loaded = true;
     });
   }
@@ -110,16 +122,22 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
     final allAtcoCodes = _atcoByRegion.values
         .expand((areas) => areas.map((area) => area.code))
         .toSet();
+    final selectedCount = allAtcoCodes.intersection(_selected).length;
     return ExpansionTile(
       key: const PageStorageKey<String>('enabled-uk-atco-areas'),
-      leading: Checkbox(
-        tristate: true,
-        value: _checkboxState(allAtcoCodes),
-        onChanged: (_) => _toggleAtcoCodes(allAtcoCodes),
-      ),
+      // No select-all checkbox here, unlike the region rows: one looked like
+      // Hong Kong's on/off checkbox, so testers ticked every UK area instead
+      // of opening the row. Tapping anywhere on it opens it.
+      leading: const Icon(Icons.checklist),
       title: Text(
         AppStrings.text('settings.locale.united_kingdom'),
       ),
+      subtitle: Text(selectedCount == 0
+          ? AppStrings.text('settings.locale.gb.choose_areas')
+          : AppStrings.text(
+              selectedCount == 1 ? 'settings.locale.gb.areas_selected.one' : 'settings.locale.gb.areas_selected.other',
+              {'count': selectedCount},
+            )),
       children: [
         for (final region in _atcoByRegion.keys.toList()..sort())
           _buildAtcoRegion(region, _atcoByRegion[region]!),
@@ -129,6 +147,7 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
 
   Widget _buildAtcoRegion(String region, List<_AtcoArea> areas) {
     final codes = areas.map((area) => area.code).toSet();
+    final selectedCount = codes.intersection(_selected).length;
     return ExpansionTile(
       key: PageStorageKey<String>('enabled-uk-atco-region-$region'),
       leading: Checkbox(
@@ -137,6 +156,16 @@ class _AtcoListMenuEntryState extends State<_AtcoListMenuEntry> {
         onChanged: (_) => _toggleAtcoCodes(codes),
       ),
       title: Text(region),
+      // The area count shows the row opens to a list.
+      subtitle: Text(selectedCount == 0
+          ? AppStrings.text(
+              codes.length == 1 ? 'settings.locale.gb.region_areas.one' : 'settings.locale.gb.region_areas.other',
+              {'count': codes.length},
+            )
+          : AppStrings.text('settings.locale.gb.region_selected', {
+              'selected': selectedCount,
+              'total': codes.length,
+            })),
       children: [
         for (final area in areas)
           CheckboxListTile(

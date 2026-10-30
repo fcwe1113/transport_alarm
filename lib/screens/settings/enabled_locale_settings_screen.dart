@@ -74,7 +74,9 @@ class _EnabledLocalesSettingsScreenState extends State<EnabledLocalesSettingsScr
     // A download uses data, so warn first.
     if (toDownload.isNotEmpty) {
       if (!mounted) return;
-      if (!await showDataUsageWarning(context)) {
+      if (!await showDataUsageWarning(context, selection: {
+        for (final code in toDownload) code: draft[code]!,
+      })) {
         if (mounted) setState(() => _saving = false);
         return;
       }

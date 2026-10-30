@@ -19,7 +19,7 @@ import '../models/transport_route.dart';
 
 class GtfsDatabase {
   static final Map<String, GtfsDatabase> _instances = {};
-  static final Map<String, Database?> _databases = {};
+  static final Map<String, Database> _databases = {};
   static final Map<String, Future<void>> _replacementBarriers = {};
   static final Map<String, Future<void>> _refreshTails = {};
   static final Map<String, String> _deferredStagingPaths = {};

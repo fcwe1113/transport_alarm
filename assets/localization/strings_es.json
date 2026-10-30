@@ -40,6 +40,7 @@
   "setup.choose_language": "Choose your language",
   "setup.heads_up": "¡Aviso!",
   "setup.download_warning": "La descarga de los datos requeridos puede tardar un poco y consumir muchos datos. Es recomendable conectarse a una red Wi-Fi antes de continuar.",
+  "setup.large_download.gb": "Has elegido {count} zonas del Reino Unido. Es una descarga grande y la importación puede tardar mucho. Vuelve atrás si solo necesitas las zonas por las que viajas.",
   "setup.build_failed.title": "Setup couldn't finish",
   "setup.build_failed.body": "The transit data couldn't be downloaded, so setup will start again.\n\n{details}",
   "stale_data.title": "Timetable data out of date",
@@ -249,5 +250,11 @@
   "settings.enabled_locales": "Regiones de transporte habilitadas",
   "settings.enabled_locales.subtitle": "Elija qué regiones de transporte desea usar",
   "settings.locale.hong_kong": "Hong Kong",
-  "settings.locale.united_kingdom": "Reino Unido"
+  "settings.locale.united_kingdom": "Reino Unido",
+  "settings.locale.gb.choose_areas": "Toca para elegir tus zonas",
+  "settings.locale.gb.areas_selected.one": "{count} zona seleccionada",
+  "settings.locale.gb.areas_selected.other": "{count} zonas seleccionadas",
+  "settings.locale.gb.region_areas.one": "{count} zona",
+  "settings.locale.gb.region_areas.other": "{count} zonas",
+  "settings.locale.gb.region_selected": "{selected} de {total} seleccionadas"
 }

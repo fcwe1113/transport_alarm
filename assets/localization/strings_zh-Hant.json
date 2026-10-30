@@ -40,6 +40,7 @@
   "setup.choose_language": "選擇你的語言",
   "setup.heads_up": "請留意!",
   "setup.download_warning": "建立資料庫需要使用相當多的數據，建議先連接Wi-Fi再繼續。",
+  "setup.large_download.gb": "你已選取{count}個英國地區，下載量很大，匯入可能需要很長時間。如果只需要你常去的地區，請返回修改。",
   "setup.build_failed.title": "無法套用設定",
   "setup.build_failed.body": "無法下載數據，因此將重新開始設定。\n\n{details}",
   "stale_data.title": "時刻表數據已過時",
@@ -249,5 +250,11 @@
   "settings.enabled_locales": "已啟用的地區",
   "settings.enabled_locales.subtitle": "選擇應用程式要使用的交通地區",
   "settings.locale.hong_kong": "香港",
-  "settings.locale.united_kingdom": "英國"
+  "settings.locale.united_kingdom": "英國",
+  "settings.locale.gb.choose_areas": "輕觸以選擇地區",
+  "settings.locale.gb.areas_selected.one": "已選取{count}個地區",
+  "settings.locale.gb.areas_selected.other": "已選取{count}個地區",
+  "settings.locale.gb.region_areas.one": "{count}個地區",
+  "settings.locale.gb.region_areas.other": "{count}個地區",
+  "settings.locale.gb.region_selected": "已選取{selected}/{total}"
 }

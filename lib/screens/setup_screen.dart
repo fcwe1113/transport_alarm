@@ -74,7 +74,9 @@ class _SetupScreenState extends State<SetupScreen> {
   /// Saves the picked regions and starts the first build. Setup stays
   /// incomplete until that build succeeds.
   Future<void> _confirmSelection() async {
-    if (!await showDataUsageWarning(context)) return;
+    final draft = await _selectionService.getLocaleSelectionDraft();
+    if (!mounted) return;
+    if (!await showDataUsageWarning(context, selection: draft)) return;
 
     await _selectionService.setSetupCompleted(false);
     await _selectionService.commitLocaleSelectionDraft();

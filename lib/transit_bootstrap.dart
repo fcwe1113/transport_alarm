@@ -63,7 +63,6 @@ Future<List<String>> _refreshEnabledLocales({
       .toList();
   try {
     for (final locale in LocaleRegistry.getLocales(locales)) {
-      // todo uk locale did not show up here
       var changed = !onlyStale;
       for (final gtfsProvider in locale.gtfsProviders) {
         cancelToken?.throwIfCancelled();
