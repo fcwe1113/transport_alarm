@@ -154,7 +154,22 @@ class AndroidAlarmCoordinator {
     bool guaranteedCheck = false,
   }) async {
     var alarm = await _findAlarm(alarmId);
-    if (alarm == null || !alarm.enabled || alarm.spent) return;
+    if (alarm == null) {
+      // Deleted, perhaps while a check of it was running: clear anything
+      // that check left behind.
+      await disable(alarmId);
+      return;
+    }
+    if (!alarm.enabled || alarm.spent) return;
+
+    // Its region's data is gone: the region was turned off, which deletes
+    // its alarms too. Stop here, clearing anything this alarm left behind.
+    try {
+      await GtfsDatabase.forLocale(alarm.localeCode).database;
+    } on LocaleDataMissingException {
+      await disable(alarmId);
+      return;
+    }
 
     final startsAt = _fromEpochSeconds(alarm.androidOccurrenceStartEpochSeconds);
     final endsAt = _windowEnd(alarm);
@@ -419,6 +434,8 @@ class AndroidAlarmCoordinator {
                 (arrival) => now.add(Duration(minutes: arrival.minutesFromNow)),
               ),
         );
+      } on LocaleDataMissingException {
+        rethrow;
       } catch (_) {
         liveRequestFailed = true;
       }
@@ -503,6 +520,8 @@ class AndroidAlarmCoordinator {
         liveRequestFailed: liveRequestFailed,
         usedSchedule: true,
       );
+    } on LocaleDataMissingException {
+      rethrow;
     } catch (_) {
       return ArrivalLookup(
         arrivalAt: null,
@@ -851,6 +870,8 @@ class AndroidAlarmCoordinator {
       return (await GtfsDatabase.forLocale(alarm.localeCode)
               .getGtfsStopById(alarm.gtfsStopId))
           ?.name;
+    } on LocaleDataMissingException {
+      rethrow;
     } catch (_) {
       return null;
     }
@@ -973,6 +994,14 @@ Future<void> androidAlarmManagerCallback(
       alarmId: alarmId,
       event: params['event'] as String? ?? 'check',
     );
+  } on LocaleDataMissingException {
+    // The region's data was deleted partway through the check, as the
+    // region was turned off: stop rather than schedule a recovery check.
+    try {
+      await coordinator.disable(alarmId);
+    } catch (error) {
+      debugPrint('Android alarm cleanup failed: $error');
+    }
   } catch (error, stackTrace) {
     debugPrint('Android alarm callback failed: $error\n$stackTrace');
     try {

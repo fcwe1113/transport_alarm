@@ -5,8 +5,9 @@ import 'package:path/path.dart' as p;
 import 'package:transport_alarm/services/app_group_storage.dart';
 
 /// Removes the scratch files a GTFS sync creates, including ones left behind
-/// when the app was killed mid-sync. Never touches a live `<locale>.db` or its
-/// `.backup`, which GtfsDatabase uses to recover an interrupted install.
+/// when the app was killed mid-sync. Never touches a live `<locale>.db`, or a
+/// `.backup` left by an older version, which GtfsDatabase uses to recover an
+/// interrupted install.
 ///
 /// Only call this when no sync is running: after a sync finishes, or at app
 /// startup before any sync can begin.

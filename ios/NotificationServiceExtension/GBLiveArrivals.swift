@@ -392,6 +392,10 @@ struct GBLiveArrivals {
             return nil
         }
         sqlite3_exec(database, "PRAGMA cache_size=-512; PRAGMA mmap_size=0;", nil, nil, nil)
+        // The app may be writing operator data to this file; wait for its
+        // lock briefly instead of failing the read as busy, which would look
+        // like no departures.
+        sqlite3_busy_timeout(database, 2000)
         return database
     }
 

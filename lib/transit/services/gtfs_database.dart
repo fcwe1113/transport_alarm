@@ -17,12 +17,28 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/transport_route.dart';
 
+/// Thrown when a region's live database is opened but its file doesn't
+/// exist, as when the region was turned off and its data deleted. Lookups
+/// never recreate the file; only an import does.
+class LocaleDataMissingException implements Exception {
+  const LocaleDataMissingException(this.locale);
+
+  final String locale;
+
+  @override
+  String toString() => 'No transit data for $locale';
+}
+
 class GtfsDatabase {
   static final Map<String, GtfsDatabase> _instances = {};
   static final Map<String, Database> _databases = {};
   static final Map<String, Future<void>> _replacementBarriers = {};
   static final Map<String, Future<void>> _refreshTails = {};
   static final Map<String, String> _deferredStagingPaths = {};
+  // A connection being opened, keyed like [_databases], so callers that ask
+  // for it at the same time share one connection instead of each opening
+  // their own.
+  static final Map<String, Future<Database>> _opening = {};
   // Each install writes a new value to gtfs/<locale>.generation. An isolate
   // that didn't do the install, such as Android's background alarm isolate,
   // sees the value change and reopens, instead of reading the replaced file
@@ -59,10 +75,16 @@ class GtfsDatabase {
         return cached;
       }
       _databases.remove(_cacheKey);
-      _routesForStopCache.clear();
+      _contentsChanged();
       // Queries already running on the old connection get time to finish.
       unawaited(Future<void>.delayed(const Duration(seconds: 30), cached.close));
     }
+    final key = _cacheKey;
+    return _opening[key] ??= _open().whenComplete(() => _opening.remove(key));
+  }
+
+  /// Opens this instance's file and caches the connection, for [database].
+  Future<Database> _open() async {
     late final File databaseFile;
     if (_explicitDatabasePath != null) {
       databaseFile = File(_explicitDatabasePath);
@@ -72,7 +94,8 @@ class GtfsDatabase {
       await dir.create(recursive: true);
       databaseFile = File('${dir.path}/$locale.db');
       final backupFile = File('${dir.path}/$locale.db.backup');
-      // Recover if the process stopped between the two atomic rename steps.
+      // Older versions swapped files in two renames, through this backup;
+      // recover one left by a process that stopped between them.
       if (!await databaseFile.exists() && await backupFile.exists()) {
         await backupFile.rename(databaseFile.path);
       }
@@ -80,6 +103,9 @@ class GtfsDatabase {
       if (!await databaseFile.exists() && await legacyFile.exists()) {
         await legacyFile.copy(databaseFile.path);
       }
+      // Opening would create an empty file, for a region that's most likely
+      // just been turned off.
+      if (!await databaseFile.exists()) throw LocaleDataMissingException(locale);
     }
     if (_explicitDatabasePath == null) {
       _openedGenerations[locale] = await _readGeneration();
@@ -133,12 +159,17 @@ class GtfsDatabase {
     var populateSucceeded = false;
     var swapping = false;
     try {
-      final currentDb = await database;
+      // A first import has no live file to carry operator data over from.
+      Database? currentDb;
+      try {
+        currentDb = await database;
+      } on LocaleDataMissingException {
+        currentDb = null;
+      }
       final appDir = await AppGroupStorage.directory;
       final dbDir = Directory('${appDir.path}/gtfs');
       await dbDir.create(recursive: true);
       final activeFile = File('${dbDir.path}/$locale.db');
-      final backupFile = File('${dbDir.path}/$locale.db.backup');
       final deferredPath = _deferredStagingPaths[locale];
       stagingFile = deferredPath != null && await File(deferredPath).exists()
           ? File(deferredPath)
@@ -176,52 +207,44 @@ class GtfsDatabase {
       cancelToken?.beginUncancellable();
       swapping = true;
 
-      // Pause new database lookups while the auxiliary data is copied and the
-      // active file is swapped. The existing timetable remains readable while
-      // the new snapshot is being downloaded and built.
+      // Pause new database lookups while the operator data is copied and the
+      // active file is swapped, so nothing writes to the active file after
+      // its operator data was copied. The existing timetable remains
+      // readable while the new snapshot is being downloaded and built.
+      //
+      // Nothing from here until the barrier is released may call the live
+      // [database] getter (directly or through another method of this
+      // instance): it waits on this barrier, so it would wait forever. Use
+      // currentDb, the staging connection, or the installed one instead.
       barrier = Completer<void>();
       _replacementBarriers[locale] = barrier.future;
-      await _copyOperatorData(currentDb, await stagingDb.database);
+      if (currentDb != null) {
+        await _copyOperatorData(currentDb, await stagingDb.database);
+      }
       await _validateSnapshot(await stagingDb.database);
       await stagingDb.close();
 
-      final cachedDb = _databases.remove(locale);
-      if (cachedDb != null && cachedDb.isOpen) await cachedDb.close();
+      // One rename replaces the active file in a single step, so there's
+      // never a moment without it, for this or any other process. Open
+      // connections keep reading the replaced file until they close.
+      await stagingFile.rename(activeFile.path);
+      _deferredStagingPaths.remove(locale);
 
-      if (await backupFile.exists()) await backupFile.delete();
-      if (await activeFile.exists()) await activeFile.rename(backupFile.path);
-      try {
-        await stagingFile.rename(activeFile.path);
-        _deferredStagingPaths.remove(locale);
-        final installed = await _initDB(activeFile.path);
-        _databases[locale] = installed;
-        _routesForStopCache.clear();
-        await _validateSnapshot(installed);
-        // Tell other isolates to reopen; this one already has the new file.
-        // Failing to isn't a failed install, so it mustn't roll it back.
-        final generation = DateTime.now().microsecondsSinceEpoch.toString();
-        try {
-          await _generationFile(dbDir.path).writeAsString(generation, flush: true);
-          _openedGenerations[locale] = generation;
-        } catch (e) {
-          debugPrint("Could not record the $locale database generation: $e");
-        }
-        if (await backupFile.exists()) {
-          try {
-            await backupFile.delete();
-          } catch (_) {
-            // The installed database is already valid; a stale backup is safe.
-          }
-        }
-      } catch (_) {
-        final failedInstall = _databases.remove(locale);
-        if (failedInstall != null && failedInstall.isOpen) {
-          await failedInstall.close();
-        }
-        if (await activeFile.exists()) await activeFile.delete();
-        if (await backupFile.exists()) await backupFile.rename(activeFile.path);
-        rethrow;
+      // Queries already running on the old connection get time to finish,
+      // on the replaced file.
+      final previousDb = _databases.remove(locale);
+      if (previousDb != null && previousDb.isOpen) {
+        unawaited(Future<void>.delayed(const Duration(seconds: 30), previousDb.close));
       }
+      _databases[locale] = await _initDB(activeFile.path);
+      _contentsChanged();
+
+      // Tell other isolates to reopen; this one already has the new file.
+      // The new file stays installed if this fails, but the refresh reports
+      // it as failed, since other isolates keep reading the replaced file.
+      final generation = DateTime.now().microsecondsSinceEpoch.toString();
+      await _generationFile(dbDir.path).writeAsString(generation, flush: true);
+      _openedGenerations[locale] = generation;
     } finally {
       if (swapping) cancelToken?.endUncancellable();
       try {
@@ -261,7 +284,7 @@ class GtfsDatabase {
     try {
       final cachedDb = _databases.remove(locale);
       if (cachedDb != null && cachedDb.isOpen) await cachedDb.close();
-      _routesForStopCache.clear();
+      _contentsChanged();
       _deferredStagingPaths.remove(locale);
       _openedGenerations.remove(locale);
       _generationCheckedAt.remove(locale);
@@ -347,7 +370,12 @@ class GtfsDatabase {
   Future<Database> _initDB(String filePath) async {
     return await openDatabase(
       filePath,
-      version: 2,
+      version: 3,
+      // Not sqflite's default single instance per path: while a replaced
+      // file's old connection is still open, that would hand back the old
+      // connection, still on the replaced file. [_opening] keeps callers
+      // from opening the same file twice instead.
+      singleInstance: false,
       onCreate: _createDB,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -356,6 +384,18 @@ class GtfsDatabase {
           await db.execute(
             "ALTER TABLE gtfs_routes ADD COLUMN agency_id TEXT NOT NULL DEFAULT ''",
           );
+        }
+        if (oldVersion < 3) {
+          // match_confidence became match_distance_meters, as it holds a
+          // distance. The table is rebuilt because RENAME COLUMN needs
+          // SQLite 3.25, newer than Android's before API 30.
+          await db.execute('ALTER TABLE stop_mapping RENAME TO stop_mapping_old');
+          await _createStopMappingTable(db);
+          await db.execute('''INSERT INTO stop_mapping
+            (operator_stop_id, gtfs_stop_id, match_distance_meters)
+            SELECT operator_stop_id, gtfs_stop_id, match_confidence
+            FROM stop_mapping_old''');
+          await db.execute('DROP TABLE stop_mapping_old');
         }
       },
     );
@@ -430,11 +470,7 @@ class GtfsDatabase {
     PRIMARY KEY (operator_route_id, operator_stop_id, stop_sequence)
     )''');
 
-    await db.execute('''CREATE TABLE stop_mapping (
-    operator_stop_id TEXT PRIMARY KEY REFERENCES operator_stops(operator_stop_id),
-    gtfs_stop_id TEXT NOT NULL REFERENCES gtfs_stops(stop_id),
-    match_confidence REAL
-    )''');
+    await _createStopMappingTable(db);
 
     await db.execute(
       '''CREATE INDEX idx_routes_name ON gtfs_routes(route_short_name)''',
@@ -459,6 +495,15 @@ class GtfsDatabase {
       date TEXT NOT NULL,
       exception_type INTEGER NOT NULL,
       PRIMARY KEY (service_id, date)
+    )''');
+  }
+
+  /// Links operator stops to GTFS stops, with how far apart the two are.
+  Future<void> _createStopMappingTable(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE stop_mapping (
+    operator_stop_id TEXT PRIMARY KEY REFERENCES operator_stops(operator_stop_id),
+    gtfs_stop_id TEXT NOT NULL REFERENCES gtfs_stops(stop_id),
+    match_distance_meters REAL
     )''');
   }
 
@@ -495,236 +540,130 @@ class GtfsDatabase {
       );
     }
     await batch.commit(noResult: true);
+    _contentsChanged();
   }
 
-  Future<void> batchInsertRoutes(
+  /// Drops lookups cached from this database, after its contents change.
+  /// Only this isolate's: other isolates notice a swap through the
+  /// generation file, but not changes written in place.
+  void _contentsChanged() => _routesForStopCache.clear();
+
+  /// Imports [rows] of the GTFS file [fileName] into [table], whose columns
+  /// are named as in the file. A missing required column is a
+  /// FormatException; a missing optional one, or a short row, reads as an
+  /// empty value. [keep] can leave out a row after its values are parsed.
+  Future<void> _insertGtfsRows(
+    String fileName,
+    String table,
     List<dynamic> header,
     List<List<dynamic>> rows,
-  ) async {
-    int columnIndex(String name, {bool required = true}) {
-      final index = header.indexOf(name);
-      if (index < 0 && required) {
-        throw FormatException('GTFS routes.txt is missing the $name column.');
+    List<_GtfsColumn> columns, {
+    bool replace = true,
+    bool Function(List<Object?> values)? keep,
+  }) async {
+    final indexes = <int>[];
+    for (final column in columns) {
+      final index = header.indexOf(column.name);
+      if (index < 0 && column.required) {
+        throw FormatException('GTFS $fileName is missing the ${column.name} column.');
       }
-      return index;
+      indexes.add(index);
     }
 
-    final routeIdIndex = columnIndex('route_id');
-    final routeNameIndex = columnIndex('route_short_name');
-    final agencyIdIndex = columnIndex("agency_id");
-
-    String value(List<dynamic> row, int index) =>
-        index >= 0 && row.length > index ? row[index].toString() : '';
-
-    final db = await database;
-    await db.transaction((txn) => _insertRows(txn, 'gtfs_routes', const ['route_id', 'route_short_name', 'agency_id'], [
-      for (final row in rows) [
-          value(row, routeIdIndex),
-          value(row, routeNameIndex),
-          value(row, agencyIdIndex),
-        ],
-    ], replace: true));
-  }
-
-  Future<void> batchInsertAgencies(
-    List<dynamic> header,
-    List<List<dynamic>> rows,
-  ) async {
-    int columnIndex(String name, {bool required = true}) {
-      final index = header.indexOf(name);
-      if (index < 0 && required) {
-        throw FormatException('GTFS agency.txt is missing the $name column.');
-      }
-      return index;
+    final values = <List<Object?>>[];
+    for (final row in rows) {
+      final parsed = [
+        for (var i = 0; i < columns.length; i++)
+          columns[i].parse(
+            indexes[i] >= 0 && row.length > indexes[i] ? row[indexes[i]].toString() : '',
+          ),
+      ];
+      if (keep == null || keep(parsed)) values.add(parsed);
     }
 
-    final agencyIdIndex = columnIndex('agency_id');
-    final agencyNameIndex = columnIndex('agency_name');
-    final agencyNoc = columnIndex("agency_noc", required: false);
-
-    String value(List<dynamic> row, int index) =>
-        index >= 0 && row.length > index ? row[index].toString() : '';
-
     final db = await database;
-    await db.transaction((txn) => _insertRows(txn, 'gtfs_agencies', const ['agency_id', 'agency_name', 'agency_noc'], [
-      for (final row in rows) [
-          value(row, agencyIdIndex),
-          value(row, agencyNameIndex),
-          value(row, agencyNoc),
-        ],
-    ], replace: true));
+    await db.transaction((txn) => _insertRows(
+      txn, table, [for (final column in columns) column.name], values, replace: replace,
+    ));
   }
 
-  Future<void> batchInsertTrips(
-    List<dynamic> header,
-    List<List<dynamic>> rows,
-  ) async {
-    int columnIndex(String name, {bool required = true}) {
-      final index = header.indexOf(name);
-      if (index < 0 && required) {
-        throw FormatException('GTFS trips.txt is missing the $name column.');
-      }
-      return index;
-    }
+  Future<void> batchInsertRoutes(List<dynamic> header, List<List<dynamic>> rows) =>
+      _insertGtfsRows('routes.txt', 'gtfs_routes', header, rows, [
+        _text('route_id'),
+        _text('route_short_name'),
+        // Optional in GTFS when the feed has one agency; matches that
+        // agency's empty ID then.
+        _text('agency_id', required: false),
+      ]);
 
-    final routeIdIndex = columnIndex('route_id');
-    final serviceIdIndex = columnIndex('service_id');
-    final tripIdIndex = columnIndex('trip_id');
-    final directionIdIndex = columnIndex('direction_id', required: false);
+  Future<void> batchInsertAgencies(List<dynamic> header, List<List<dynamic>> rows) =>
+      _insertGtfsRows('agency.txt', 'gtfs_agencies', header, rows, [
+        // Optional in GTFS when the feed has one agency, stored empty.
+        _text('agency_id', required: false),
+        _text('agency_name'),
+        _text('agency_noc', required: false),
+      ]);
 
-    String value(List<dynamic> row, int index) =>
-        index >= 0 && row.length > index ? row[index].toString() : '';
+  Future<void> batchInsertTrips(List<dynamic> header, List<List<dynamic>> rows) =>
+      _insertGtfsRows('trips.txt', 'gtfs_trips', header, rows, [
+        _text('route_id'),
+        _text('service_id'),
+        _text('trip_id'),
+        _int('direction_id'),
+      ]);
 
-    final db = await database;
-    await db.transaction((txn) => _insertRows(txn, 'gtfs_trips', const ['route_id', 'service_id', 'trip_id', 'direction_id'], [
-      for (final row in rows) [
-          value(row, routeIdIndex),
-          value(row, serviceIdIndex),
-          value(row, tripIdIndex),
-          int.tryParse(value(row, directionIdIndex)) ?? 0,
+  Future<void> batchInsertCalendar(List<dynamic> header, List<List<dynamic>> rows) =>
+      _insertGtfsRows('calendar.txt', 'gtfs_calendar', header, rows, [
+        _text('service_id'),
+        for (final day in const ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+          _int(day),
+        _text('start_date'),
+        _text('end_date'),
+      ]);
+
+  Future<void> batchInsertCalendarDates(List<dynamic> header, List<List<dynamic>> rows) =>
+      _insertGtfsRows('calendar_dates.txt', 'gtfs_calendar_dates', header, rows, [
+        _text('service_id'),
+        _text('date'),
+        _int('exception_type'),
+      ]);
+
+  Future<void> batchInsertStops(List<dynamic> header, List<List<dynamic>> rows) =>
+      _insertGtfsRows(
+        'stops.txt',
+        'gtfs_stops',
+        header,
+        rows,
+        [
+          _text('stop_id'),
+          _text('stop_name'),
+          _double('stop_lat'),
+          _double('stop_lon'),
         ],
-    ], replace: true));
-  }
+        // A stop without a position (missing, or 0,0) can't be shown on the
+        // map or matched, so it's left out.
+        keep: (values) => switch ((values[2], values[3])) {
+          (final double lat, final double lon) => lat != 0 || lon != 0,
+          _ => false,
+        },
+      );
 
-  Future<void> batchInsertCalendar(
-    List<dynamic> header,
-    List<List<dynamic>> rows,
-  ) async {
-    int columnIndex(String name, {bool required = true}) {
-      final index = header.indexOf(name);
-      if (index < 0 && required) {
-        throw FormatException('GTFS calendar.txt is missing the $name column.');
-      }
-      return index;
-    }
-
-    final serviceIdIndex = columnIndex('service_id');
-    final monIndex = columnIndex('monday', required: false);
-    final tueIndex = columnIndex('tuesday', required: false);
-    final wedIndex = columnIndex('wednesday', required: false);
-    final thuIndex = columnIndex('thursday', required: false);
-    final friIndex = columnIndex('friday', required: false);
-    final satIndex = columnIndex('saturday', required: false);
-    final sunIndex = columnIndex('sunday', required: false);
-    final startDateIndex = columnIndex('start_date');
-    final endDateIndex = columnIndex('end_date');
-
-    String value(List<dynamic> row, int index) =>
-        index >= 0 && row.length > index ? row[index].toString() : '';
-
-    final db = await database;
-    await db.transaction((txn) => _insertRows(txn, 'gtfs_calendar', const ['service_id', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'start_date', 'end_date'], [
-      for (final row in rows) [
-          value(row, serviceIdIndex),
-          int.tryParse(value(row, monIndex)) ?? 0,
-          int.tryParse(value(row, tueIndex)) ?? 0,
-          int.tryParse(value(row, wedIndex)) ?? 0,
-          int.tryParse(value(row, thuIndex)) ?? 0,
-          int.tryParse(value(row, friIndex)) ?? 0,
-          int.tryParse(value(row, satIndex)) ?? 0,
-          int.tryParse(value(row, sunIndex)) ?? 0,
-          value(row, startDateIndex),
-          value(row, endDateIndex),
+  Future<void> batchInsertStopTimes(List<dynamic> header, List<List<dynamic>> rows) =>
+      _insertGtfsRows(
+        'stop_times.txt',
+        'gtfs_stop_times',
+        header,
+        rows,
+        [
+          _text('trip_id'),
+          (name: 'arrival_time', required: true, parse: _normalizedTime),
+          (name: 'departure_time', required: true, parse: _normalizedTime),
+          _text('stop_id'),
+          _int('stop_sequence'),
         ],
-    ], replace: true));
-  }
-
-  Future<void> batchInsertCalendarDates(
-    List<dynamic> header,
-    List<List<dynamic>> rows,
-  ) async {
-    int columnIndex(String name, {bool required = true}) {
-      final index = header.indexOf(name);
-      if (index < 0 && required) {
-        throw FormatException(
-          'GTFS calendar_dates.txt is missing the $name column.',
-        );
-      }
-      return index;
-    }
-
-    final serviceIdIndex = columnIndex('service_id');
-    final dateIndex = columnIndex('date');
-    final exceptionTypeIndex = columnIndex('exception_type', required: false);
-
-    String value(List<dynamic> row, int index) =>
-        index >= 0 && row.length > index ? row[index].toString() : '';
-
-    final db = await database;
-    await db.transaction((txn) => _insertRows(txn, 'gtfs_calendar_dates', const ['service_id', 'date', 'exception_type'], [
-      for (final row in rows) [
-          value(row, serviceIdIndex),
-          value(row, dateIndex),
-          int.tryParse(value(row, exceptionTypeIndex)) ?? 0,
-        ],
-    ], replace: true));
-  }
-
-  Future<void> batchInsertStops(
-    List<dynamic> header,
-    List<List<dynamic>> rows,
-  ) async {
-    int columnIndex(String name, {bool required = true}) {
-      final index = header.indexOf(name);
-      if (index < 0 && required) {
-        throw FormatException('GTFS stops.txt is missing the $name column.');
-      }
-      return index;
-    }
-
-    final stopIdIndex = columnIndex('stop_id');
-    final stopNameIndex = columnIndex('stop_name');
-    final stopLatIndex = columnIndex('stop_lat', required: false);
-    final stopLonIndex = columnIndex('stop_lon', required: false);
-
-    String value(List<dynamic> row, int index) =>
-        index >= 0 && row.length > index ? row[index].toString() : '';
-
-    final db = await database;
-    await db.transaction((txn) => _insertRows(txn, 'gtfs_stops', const ['stop_id', 'stop_name', 'stop_lat', 'stop_lon'], [
-      for (final row in rows) [
-          value(row, stopIdIndex),
-          value(row, stopNameIndex),
-          double.tryParse(value(row, stopLatIndex)) ?? 0,
-          double.tryParse(value(row, stopLonIndex)) ?? 0,
-        ],
-    ], replace: true));
-  }
-
-  Future<void> batchInsertStopTimes(
-    List<dynamic> header,
-    List<List<dynamic>> rows,
-  ) async {
-    int columnIndex(String name, {bool required = true}) {
-      final index = header.indexOf(name);
-      if (index < 0 && required) {
-        throw FormatException(
-          'GTFS stop_times.txt is missing the $name column.',
-        );
-      }
-      return index;
-    }
-
-    final tripIdIndex = columnIndex('trip_id');
-    final arrivalTimeIndex = columnIndex('arrival_time');
-    final departureTimeIndex = columnIndex('departure_time');
-    final stopIdIndex = columnIndex('stop_id');
-    final stopSeqIndex = columnIndex('stop_sequence', required: false);
-
-    String value(List<dynamic> row, int index) =>
-        index >= 0 && row.length > index ? row[index].toString() : '';
-
-    final db = await database;
-    await db.transaction((txn) => _insertRows(txn, 'gtfs_stop_times', const ['trip_id', 'arrival_time', 'departure_time', 'stop_id', 'stop_sequence'], [
-      for (final row in rows) [
-          value(row, tripIdIndex),
-          _normalizedTime(value(row, arrivalTimeIndex)),
-          _normalizedTime(value(row, departureTimeIndex)),
-          value(row, stopIdIndex),
-          int.tryParse(value(row, stopSeqIndex)) ?? 0,
-        ],
-    ]));
-  }
+        // No unique key to replace on, so rows are only ever added.
+        replace: false,
+      );
 
   Future<void> upsertOperatorStops(List<TransportStop> stops) async {
     final batch = (await database).batch();
@@ -738,6 +677,7 @@ class GtfsDatabase {
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
+    _contentsChanged();
   }
 
   Future<void> upsertOperatorRoutes(List<TransportRoute> routes) async {
@@ -754,6 +694,7 @@ class GtfsDatabase {
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
+    _contentsChanged();
   }
 
   /// Removes operator routes and their stop lists, such as a direction a
@@ -765,6 +706,7 @@ class GtfsDatabase {
       batch.delete("operator_routes", where: "operator_route_id = ?", whereArgs: [id]);
     }
     await batch.commit(noResult: true);
+    _contentsChanged();
   }
 
   Future<void> upsertRouteStops(
@@ -785,7 +727,8 @@ class GtfsDatabase {
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
 
-    await batch.commit();
+    await batch.commit(noResult: true);
+    _contentsChanged();
   }
 
   Future<void> interpolateMissingArrivalTimes({
@@ -857,6 +800,7 @@ class GtfsDatabase {
       }
     }
     await batch.commit(noResult: true);
+    _contentsChanged();
   }
 
   Future<void> matchOperatorStopsToGtfs({
@@ -946,11 +890,12 @@ class GtfsDatabase {
       batch.insert("stop_mapping", {
         "operator_stop_id": opStopId,
         "gtfs_stop_id": bestGtfsId,
-        "match_confidence": bestDistance,
+        "match_distance_meters": bestDistance,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
 
     await batch.commit(noResult: true);
+    _contentsChanged();
 
     if (ambiguousMatches.isNotEmpty) {
       debugPrint(
@@ -977,7 +922,7 @@ class GtfsDatabase {
             id: row["operator_route_id"] as String,
             names: Map<String, String>.from(jsonDecode(row["names"] as String)),
             routeNumber: row["route_number"] as String,
-            bound: row["bound"] as String,
+            bound: row["bound"] as String? ?? '',
             originText: Map<String, String>.from(
               jsonDecode(row["origin_text"] as String),
             ),
@@ -1040,7 +985,13 @@ class GtfsDatabase {
   }
 
   Future<bool> hasUsableGtfsData() async {
-    final rows = await (await database).rawQuery('''
+    final Database db;
+    try {
+      db = await database;
+    } on LocaleDataMissingException {
+      return false;
+    }
+    final rows = await db.rawQuery('''
       SELECT
         EXISTS(SELECT 1 FROM gtfs_routes) AS routes,
         EXISTS(SELECT 1 FROM gtfs_trips) AS trips,
@@ -1189,6 +1140,13 @@ class GtfsDatabase {
   }
 
   Future<List<GtfsStop>> getAllGtfsStops({String? languageCode}) async {
+    // A region with no data yet, such as one being downloaded after a region
+    // change, has no stops rather than failing the whole map.
+    try {
+      await database;
+    } on LocaleDataMissingException {
+      return [];
+    }
     if (LocaleRegistry.getLocale(locale).gtfsOnly) {
       // todo may need to adapt for multilang names
       final rows = await (await database).rawQuery(
@@ -1271,9 +1229,15 @@ class GtfsDatabase {
       final rows = await (await database).rawQuery(
         '''
       WITH matching_trips AS (
-        SELECT DISTINCT trip_id
-        FROM gtfs_stop_times
-        WHERE stop_id = ?
+        SELECT DISTINCT st.trip_id
+        FROM gtfs_stop_times st
+        WHERE st.stop_id = ?
+          -- Not trips that end here, as they never depart from this stop.
+          -- Checked per trip: some of a route's trips may end early.
+          AND st.stop_sequence < (
+            SELECT MAX(x.stop_sequence) FROM gtfs_stop_times x
+            WHERE x.trip_id = st.trip_id
+          )
       ), trip_ends AS (
         SELECT mt.trip_id,
           (SELECT x.stop_id FROM gtfs_stop_times x
@@ -1284,11 +1248,15 @@ class GtfsDatabase {
             ORDER BY x.stop_sequence DESC LIMIT 1) AS last_stop_id
         FROM matching_trips mt
       )
-      SELECT DISTINCT gr.route_id, gr.route_short_name, ga.agency_name, ga.agency_noc, gt.direction_id, first_stop.stop_name AS first_stop_name, last_stop.stop_name AS last_stop_name
+      SELECT DISTINCT gr.route_id, gr.route_short_name,
+        -- A route whose agency isn't in agency.txt, or has no name, is
+        -- kept under a made-up name rather than dropped.
+        COALESCE(NULLIF(ga.agency_name, ''), 'Unknown operator') AS agency_name,
+        ga.agency_noc, gt.direction_id, first_stop.stop_name AS first_stop_name, last_stop.stop_name AS last_stop_name
       FROM trip_ends te
       INNER JOIN gtfs_trips gt ON gt.trip_id = te.trip_id
       INNER JOIN gtfs_routes gr ON gr.route_id = gt.route_id
-      INNER JOIN gtfs_agencies ga ON ga.agency_id = gr.agency_id
+      LEFT JOIN gtfs_agencies ga ON ga.agency_id = gr.agency_id
       LEFT JOIN gtfs_stops first_stop ON first_stop.stop_id = te.first_stop_id
       LEFT JOIN gtfs_stops last_stop ON last_stop.stop_id = te.last_stop_id;
       ''',
@@ -1343,7 +1311,7 @@ class GtfsDatabase {
                 jsonDecode(row["names"] as String),
               ),
               routeNumber: row["route_number"] as String,
-              bound: row["bound"] as String,
+              bound: row["bound"] as String? ?? '',
               originText: Map<String, String>.from(
                 jsonDecode(row["origin_text"] as String),
               ),
@@ -1495,3 +1463,17 @@ class GtfsDatabase {
     return "${(totalSeconds ~/ 3600).toString().padLeft(2, "0")}:${((totalSeconds % 3600) ~/ 60).toString().padLeft(2, "0")}:${(totalSeconds % 60).toString().padLeft(2, "0")}";
   }
 }
+
+/// A column of a GTFS file and its table, and how to read its value.
+typedef _GtfsColumn = ({String name, bool required, Object? Function(String value) parse});
+
+_GtfsColumn _text(String name, {bool required = true}) =>
+    (name: name, required: required, parse: (value) => value);
+
+/// Optional; a missing or unreadable value is 0.
+_GtfsColumn _int(String name) =>
+    (name: name, required: false, parse: (value) => int.tryParse(value) ?? 0);
+
+/// Optional; a missing or unreadable value is null.
+_GtfsColumn _double(String name) =>
+    (name: name, required: false, parse: double.tryParse);
