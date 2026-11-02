@@ -6,7 +6,9 @@ import UserNotifications
 /// Registers the ring notification's Acknowledge action, the push token,
 /// and the method channels the Dart side uses for App Group storage, the
 /// push token, the ping watchdog, Google Maps and AlarmKit. Ring
-/// acknowledgements are handled here natively, not in Dart.
+/// acknowledgements are handled here natively, not in Dart. Also keeps the
+/// app running briefly after it goes to the background; see
+/// [backgroundGracePeriod].
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
     private static let ringCategory = "transport_alarm_ring"
@@ -14,6 +16,18 @@ import UserNotifications
 
     private var apnsTokenChannel: FlutterMethodChannel?
     private var apnsDeviceToken: String?
+
+    /// How long the app keeps running after it goes to the background, so
+    /// database work in progress can finish first. iOS kills a suspended app
+    /// that holds a lock on a file in the App Group container (0xdead10cc),
+    /// and the GTFS databases live there for the extensions to read. Short
+    /// of the roughly 30 seconds iOS allows; a data import takes longer and
+    /// can still be cut off.
+    private static let backgroundGracePeriod: TimeInterval = 20
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    /// Bumped on every background entry, so a timer from an earlier one
+    /// doesn't end a later one's task.
+    private var backgroundEntry = 0
 
     override func application(
         _ application: UIApplication,
@@ -33,7 +47,40 @@ import UserNotifications
             // Registering for a push token doesn't depend on alert permission.
             DispatchQueue.main.async { application.registerForRemoteNotifications() }
         }
+        observeBackgrounding()
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    // MARK: Background grace period
+
+    /// Notifications rather than the app delegate's background callbacks,
+    /// which aren't called when the app uses scenes.
+    private func observeBackgrounding() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.beginBackgroundGracePeriod() }
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.endBackgroundGracePeriod() }
+    }
+
+    private func beginBackgroundGracePeriod() {
+        endBackgroundGracePeriod()
+        backgroundEntry += 1
+        let entry = backgroundEntry
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish database work") { [weak self] in
+            self?.endBackgroundGracePeriod()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.backgroundGracePeriod) { [weak self] in
+            guard let self, self.backgroundEntry == entry else { return }
+            self.endBackgroundGracePeriod()
+        }
+    }
+
+    private func endBackgroundGracePeriod() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
     }
 
     func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

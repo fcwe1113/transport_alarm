@@ -52,6 +52,7 @@
   "loading.failures.body": "{count} elemento(s) fallido(s):\n{failures}\n\n",
   "loading.completed": "Operación completada",
   "loading.cancelling": "Cancelling...",
+  "loading.stopped_in_background": "La descarga se detuvo porque la app pasó a segundo plano. Mantén la app abierta hasta que termine y vuelve a intentarlo.",
   "locale_change.remove_alarms.title": "Delete alarms?",
   "locale_change.remove_alarms.body": "{count} alarms use stops in regions you turned off. They'll be deleted, along with those regions' data.",
   "locale_change.alarms_deleted": "{count} alarms were deleted: their stops aren't in the selected areas any more.",

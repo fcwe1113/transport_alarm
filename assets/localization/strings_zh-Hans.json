@@ -52,6 +52,7 @@
   "loading.failures.body": "{count}次下载错误:\n{failures}\n\n",
   "loading.completed": "作业完成",
   "loading.cancelling": "取消中...",
+  "loading.stopped_in_background": "由于应用被切换到后台，下载已停止。请保持应用打开直至完成，然后再试一次。",
   "locale_change.remove_alarms.title": "删除闹钟吗?",
   "locale_change.remove_alarms.body": "{count}个闹钟正使用将被剔除的路线，将会与地区资料被同时删除。",
   "locale_change.alarms_deleted": "已删除{count}个闹钟，车站并不在已选取地区内。",

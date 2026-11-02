@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/locale_registry.dart';
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/refresh_result.dart';
@@ -647,6 +648,7 @@ class GbBodsProvider extends TransitProvider {
   Future<RefreshResult> refresh({
     bool forceRefresh = false,
     ProgressCallback? onProgress,
+    CancellationToken? cancelToken,
   }) async {
     // See isStale: the GTFS import covers GB.
     return const RefreshResult();

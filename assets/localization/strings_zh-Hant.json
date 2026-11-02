@@ -52,6 +52,7 @@
   "loading.failures.body": "{count}次下載錯誤:\n{failures}\n\n",
   "loading.completed": "作業完成",
   "loading.cancelling": "取消中...",
+  "loading.stopped_in_background": "由於應用程式被切換到背景，下載已停止。請保持應用程式開啟直至完成，然後再試一次。",
   "locale_change.remove_alarms.title": "刪除鬧鐘嗎?",
   "locale_change.remove_alarms.body": "{count}個鬧鐘正使用將被剔除的路線，將會與地區資料被同時刪除。",
   "locale_change.alarms_deleted": "已刪除{count}個鬧鐘，車站並不在已選取地區內。",

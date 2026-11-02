@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
 import 'package:transport_alarm/transit/models/route_colour_scheme.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
@@ -21,7 +22,13 @@ abstract class TransitProvider {
   Color get defaultTextColor;
 
   /// Downloads the provider's routes and stops into the locale database.
-  Future<RefreshResult> refresh({bool forceRefresh = false, ProgressCallback? onProgress});
+  /// Throws [OperationCancelledException] soon after [cancelToken] is
+  /// cancelled, between requests and database writes.
+  Future<RefreshResult> refresh({
+    bool forceRefresh = false,
+    ProgressCallback? onProgress,
+    CancellationToken? cancelToken,
+  });
 
   /// Whether [refresh] is due.
   Future<bool> isStale();

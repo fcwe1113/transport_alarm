@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/live_eta.dart';
 import 'package:transport_alarm/transit/models/route_colour_scheme.dart';
@@ -76,8 +77,10 @@ class KmbProvider extends TransitProvider {
   Future<RefreshResult> refresh({
     bool forceRefresh = false,
     ProgressCallback? onProgress,
+    CancellationToken? cancelToken,
   }) async {
     final db = _db;
+    cancelToken?.throwIfCancelled();
     final hasStops = await db.hasOperatorStops(providerCode);
     final cachedRoutes = await db.getOperatorRoutes(providerCode);
     onProgress?.call(
@@ -97,6 +100,7 @@ class KmbProvider extends TransitProvider {
       await db.upsertOperatorStops(freshStops);
     }
 
+    cancelToken?.throwIfCancelled();
     onProgress?.call(
       AppStrings.text('transit.provider_fetch_routes', {
         'providerName': providerName,
@@ -114,6 +118,7 @@ class KmbProvider extends TransitProvider {
       await db.upsertOperatorRoutes(freshRoutes);
     }
 
+    cancelToken?.throwIfCancelled();
     final routesToLink = freshRoutes ?? cachedRoutes;
     final items = <BatchCallItem<TransportRoute, List<String>>>[];
     for (final route in routesToLink) {
@@ -136,6 +141,7 @@ class KmbProvider extends TransitProvider {
           items: items,
           forceRefresh: forceRefresh,
           maxAge: const Duration(days: 7),
+          cancelToken: cancelToken,
           onProgress: (done, total) => onProgress?.call(
             AppStrings.text('transit.provider_fetch_route_stops', {
               'providerName': providerName,
@@ -147,6 +153,7 @@ class KmbProvider extends TransitProvider {
         );
 
     for (final entry in batchResult.results.entries) {
+      cancelToken?.throwIfCancelled();
       final route = entry.key;
       final rawStopIds = entry.value;
       final operatorStopIds = rawStopIds

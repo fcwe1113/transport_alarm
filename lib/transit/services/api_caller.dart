@@ -1,5 +1,6 @@
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:transport_alarm/transit/cancellation.dart';
 
 /// One request in [ApiCaller.callBatch], identified by [key] in the result.
 class BatchCallItem<K, T> {
@@ -113,7 +114,11 @@ class ApiCaller {
   }
 
   /// Runs [items] through [call], [batchSize] at a time, retrying failures
-  /// up to [maxAttempts] times after [retryDelay].
+  /// up to [maxAttempts] times after [retryDelay]. Throws
+  /// [OperationCancelledException] before the next group of requests once
+  /// [cancelToken] is cancelled, discarding what was fetched; endpoints
+  /// already fetched count as fresh, so callers force those whose data is
+  /// missing (as the providers do by checking the database).
   // todo possible bug here in api reattempt code (from ios test run)
   Future<BatchCallResult<K, T>> callBatch<K, T>({
     required String providerCode,
@@ -124,6 +129,7 @@ class ApiCaller {
     bool forceRefresh = false,
     Duration maxAge = _defaultMaxAge,
     void Function(int done, int total)? onProgress,
+    CancellationToken? cancelToken,
   }) async {
     final results = <K, T>{};
     var pending = List<BatchCallItem<K, T>>.from(items);
@@ -142,6 +148,7 @@ class ApiCaller {
       final failed = <BatchCallItem<K, T>>[];
 
       for (var i = 0; i < pending.length; i += batchSize) {
+        cancelToken?.throwIfCancelled();
         final batch = pending.skip(i).take(batchSize).toList();
 
         final batchResults = await Future.wait(

@@ -95,6 +95,7 @@ Future<List<String>> _refreshEnabledLocales({
           final result = await transitProvider.refresh(
             forceRefresh: forceRefresh,
             onProgress: onProgress,
+            cancelToken: cancelToken,
           );
           failures.addAll(
             result.failedItems.map(

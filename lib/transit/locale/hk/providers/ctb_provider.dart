@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
 import 'package:transport_alarm/transit/services/api_caller.dart';
@@ -87,8 +88,10 @@ class CtbProvider extends TransitProvider {
   Future<RefreshResult> refresh({
     bool forceRefresh = false,
     ProgressCallback? onProgress,
+    CancellationToken? cancelToken,
   }) async {
     final db = _db;
+    cancelToken?.throwIfCancelled();
     onProgress?.call(
       AppStrings.text('transit.provider_fetch_routes', {
         'providerName': providerName,
@@ -97,6 +100,7 @@ class CtbProvider extends TransitProvider {
     );
     final previousRouteIds = (await db.getOperatorRoutes(providerCode)).map((r) => r.id).toSet();
     final routes = await _fetchRoutes(forceRefresh: forceRefresh);
+    cancelToken?.throwIfCancelled();
     await db.upsertOperatorRoutes(routes);
     // Routes Citybus no longer lists, or saved under an older ID format.
     await db.deleteOperatorRoutes(previousRouteIds.difference(routes.map((r) => r.id).toSet()));
@@ -121,6 +125,7 @@ class CtbProvider extends TransitProvider {
           providerCode: providerCode,
           items: routeStopItems,
           forceRefresh: forceRefresh,
+          cancelToken: cancelToken,
           onProgress: (done, total) => onProgress?.call(
             AppStrings.text('transit.provider_fetch_route_stops', {
               'providerName': providerName,
@@ -136,6 +141,7 @@ class CtbProvider extends TransitProvider {
     // doesn't run, and is dropped so it isn't refetched as missing data.
     final unusedDirections = <String>[];
     for (final entry in routeStopResult.results.entries) {
+      cancelToken?.throwIfCancelled();
       final route = entry.key;
       final rawStopIds = entry.value;
       if (rawStopIds.isEmpty) {
@@ -181,6 +187,7 @@ class CtbProvider extends TransitProvider {
       providerCode: providerCode,
       items: stopDetailItems,
       forceRefresh: forceRefresh,
+      cancelToken: cancelToken,
       onProgress: (done, total) => onProgress?.call(
         AppStrings.text('transit.provider_fetch_stop_details', {
           'providerName': providerName,
@@ -191,6 +198,7 @@ class CtbProvider extends TransitProvider {
       ),
     );
 
+    cancelToken?.throwIfCancelled();
     await db.upsertOperatorStops(stopDetailResult.results.values.toList());
 
     onProgress?.call(

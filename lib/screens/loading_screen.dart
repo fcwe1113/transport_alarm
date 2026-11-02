@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/transit_operation.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
@@ -43,17 +45,36 @@ class LoadingScreen extends StatefulWidget {
   State<LoadingScreen> createState() => _LoadingScreenState();
 }
 
-class _LoadingScreenState extends State<LoadingScreen> {
+class _LoadingScreenState extends State<LoadingScreen> with WidgetsBindingObserver {
   String _message = AppStrings.text('loading.starting');
   double? _progress;
   String? _error;
   bool _finished = false;
   CancellationToken? _cancelToken;
+  /// Whether the running operation was cancelled because the app went to
+  /// the background, rather than by the user.
+  bool _cancelledInBackground = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _runOperation();
+  }
+
+  /// On iOS, stops the operation when the app goes to the background. iOS
+  /// suspends the app within about 30 seconds, far sooner than an import
+  /// finishes, and kills it if it's suspended while writing to the App Group
+  /// databases. Stopping first releases them cleanly.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!Platform.isIOS || state != AppLifecycleState.paused) return;
+    final token = _cancelToken;
+    // Not while a snapshot is being swapped in: that's short, and must
+    // finish once started.
+    if (_finished || _error != null || token == null || token.isCancelled || !token.canCancel.value) return;
+    _cancelledInBackground = true;
+    _cancel();
   }
 
   Future<void> _runOperation() async {
@@ -62,6 +83,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
       _error = null;
       _finished = false;
       _cancelToken = cancelToken;
+      _cancelledInBackground = false;
     });
     try {
       // Keep the screen on while data downloads and imports, so the device
@@ -113,8 +135,12 @@ class _LoadingScreenState extends State<LoadingScreen> {
         });
       }
     } on OperationCancelledException {
-      await widget.onAbandon?.call();
       // The operation has already removed its staging and temp files.
+      if (_cancelledInBackground) {
+        await _handleBackgroundCancel();
+        return;
+      }
+      await widget.onAbandon?.call();
       if (mounted) _onOkPressed();
     } catch (e) {
       if (_failureUndoesOperation) {
@@ -127,6 +153,19 @@ class _LoadingScreenState extends State<LoadingScreen> {
         });
       }
     }
+  }
+
+  /// After the app went to the background mid-operation: a region change is
+  /// undone and left, as for any failure; anything else waits here with a
+  /// retry button for when the user is back. That includes first-time setup,
+  /// which would otherwise restart from the language page.
+  Future<void> _handleBackgroundCancel() async {
+    final details = AppStrings.text('loading.stopped_in_background');
+    if (widget.onAbandon != null) {
+      await _abandon(details);
+      return;
+    }
+    if (mounted) setState(() => _error = details);
   }
 
   /// Whether a failure undoes what started the operation, rather than
@@ -186,6 +225,7 @@ class _LoadingScreenState extends State<LoadingScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // Release it if the screen closes while the operation is still running.
     WakelockPlus.disable();
     super.dispose();
