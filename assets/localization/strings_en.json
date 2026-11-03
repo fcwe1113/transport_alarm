@@ -224,6 +224,7 @@
   "transit.refresh_complete": "Refresh check complete",
   "transit.gtfs_updating": "Updating GTFS data...",
   "transit.gtfs_extracting": "Extracting {file}... {done}/{total}",
+  "transit.gtfs_indexing": "Indexing timetable...",
   "transit.gtfs_parsing": "Parsing {file}... {done}/{total}",
   "transit.downloading": "Downloading {file}... {done}/{total} MB",
   "transit.downloading_unknown_size": "Downloading {file}... {done} MB",

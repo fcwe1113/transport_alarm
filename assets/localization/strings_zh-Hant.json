@@ -224,6 +224,7 @@
   "transit.refresh_complete": "資料更新完成",
   "transit.gtfs_updating": "GTFS資料更新中",
   "transit.gtfs_extracting": "解壓縮{file}中... {done}/{total}",
+  "transit.gtfs_indexing": "正在為時間表建立索引...",
   "transit.gtfs_parsing": "解讀{file}中... {done}/{total}",
   "transit.downloading": "下載{file}中... {done}/{total} MB",
   "transit.downloading_unknown_size": "下載{file}中... {done} MB",

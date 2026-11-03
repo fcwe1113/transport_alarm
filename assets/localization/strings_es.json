@@ -224,6 +224,7 @@
   "transit.refresh_complete": "Comprobación de actualizaciones completada",
   "transit.gtfs_updating": "Actualizando datos GTFS",
   "transit.gtfs_extracting": "Extrayendo {file}... {done}/{total}",
+  "transit.gtfs_indexing": "Indexando el horario...",
   "transit.gtfs_parsing": "Procesando {file}... {done}/{total}",
   "transit.downloading": "Downloading {file}... {done}/{total} MB",
   "transit.downloading_unknown_size": "Downloading {file}... {done} MB",

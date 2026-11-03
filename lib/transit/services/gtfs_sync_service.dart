@@ -121,6 +121,10 @@ class GtfsSyncService {
       );
 
       if (interpolateMissingArrivalTimes) {
+        // Interpolation reads each trip's stop times, so it needs the trip
+        // index, which otherwise is only built before the file is installed.
+        onProgress?.call(AppStrings.text('transit.gtfs_indexing'), null);
+        await _db.createStopTimesIndexes();
         onProgress?.call(AppStrings.text('transit.gtfs_interpolating'), null);
         await _db.interpolateMissingArrivalTimes(cancelToken: cancelToken);
       }

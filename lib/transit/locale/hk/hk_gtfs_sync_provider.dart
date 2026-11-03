@@ -139,7 +139,7 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
           cancelToken: cancelToken,
         );
         await syncService.parseAndStoreGtfsArchive(zipFile, onProgress);
-      }, cancelToken: cancelToken);
+      }, cancelToken: cancelToken, onProgress: onProgress);
     } finally {
       if (await zipFile.exists()) await zipFile.delete();
     }

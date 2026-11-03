@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:transport_alarm/locale_registry.dart';
 import 'package:transport_alarm/transit/cancellation.dart';
+import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/models/scheduled_departure.dart';
 import 'package:transport_alarm/services/geo_utils.dart';
 import 'package:transport_alarm/transit/models/transport_stop.dart';
@@ -150,6 +151,7 @@ class GtfsDatabase {
     Future<void> Function(GtfsDatabase stagingDatabase) populate, {
     bool deferCommit = false,
     CancellationToken? cancelToken,
+    ProgressCallback? onProgress,
   }) async {
     final previousRefresh = _refreshTails[locale] ?? Future<void>.value();
     final refreshFinished = Completer<void>();
@@ -205,6 +207,11 @@ class GtfsDatabase {
         preserveStagingFile = true;
         return;
       }
+
+      // Once, after every archive's stop times are in.
+      cancelToken?.throwIfCancelled();
+      onProgress?.call(AppStrings.text('transit.gtfs_indexing'), null);
+      await stagingDb.createStopTimesIndexes();
 
       // From here the new snapshot is copied in and swapped for the active
       // file, which must finish once started.
@@ -483,13 +490,23 @@ class GtfsDatabase {
       '''CREATE INDEX idx_trips_route_service ON gtfs_trips(route_id, service_id)''',
     );
     await db.execute(
-      '''CREATE INDEX idx_stop_times_lookup ON gtfs_stop_times(stop_id, arrival_time)''',
-    );
-    await db.execute(
       '''CREATE INDEX idx_operator_stops_provider ON operator_stops(provider_code)''',
     );
+    // The stop_times indexes come later, from [createStopTimesIndexes].
+  }
+
+  /// Indexes gtfs_stop_times by stop and by trip, once its rows are in.
+  /// Built after an import rather than with the table: updated on every
+  /// insert, they slow a large import more and more as they outgrow the
+  /// cache, while building them at the end is a single sort. Does nothing
+  /// if they exist.
+  Future<void> createStopTimesIndexes() async {
+    final db = await database;
     await db.execute(
-      '''CREATE INDEX idx_stop_times_trip_ends ON gtfs_stop_times(trip_id, stop_sequence, stop_id)''',
+      '''CREATE INDEX IF NOT EXISTS idx_stop_times_lookup ON gtfs_stop_times(stop_id, arrival_time)''',
+    );
+    await db.execute(
+      '''CREATE INDEX IF NOT EXISTS idx_stop_times_trip_ends ON gtfs_stop_times(trip_id, stop_sequence, stop_id)''',
     );
   }
 
