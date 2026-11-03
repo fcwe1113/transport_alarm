@@ -80,7 +80,11 @@ class GtfsDatabase {
       unawaited(Future<void>.delayed(const Duration(seconds: 30), cached.close));
     }
     final key = _cacheKey;
-    return _opening[key] ??= _open().whenComplete(() => _opening.remove(key));
+    // A block body, not an arrow: an arrow would return the removed future,
+    // and whenComplete would then wait on itself forever.
+    return _opening[key] ??= _open().whenComplete(() {
+      _opening.remove(key);
+    });
   }
 
   /// Opens this instance's file and caches the connection, for [database].
