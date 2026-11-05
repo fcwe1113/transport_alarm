@@ -7,6 +7,7 @@ import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/csv_stream_parser.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
+import 'package:transport_alarm/settings/advanced_settings.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
@@ -273,7 +274,7 @@ class GtfsSyncService {
       afterBatch: includedTripIds.insertRows,
       reportLines: true,
       // Far fewer, larger transactions for the biggest file.
-      batchSize: 25000,
+      batchSize: AdvancedSettings.value(AdvancedSettings.timetableRowsPerCommit),
     );
 
     // Retain only trips found in the selected stops' stop times, collecting
@@ -304,7 +305,7 @@ class GtfsSyncService {
         }
       },
       // Can run to hundreds of thousands of rows, like stop_times.
-      batchSize: 25000,
+      batchSize: AdvancedSettings.value(AdvancedSettings.timetableRowsPerCommit),
     );
 
     await parseWithHeader('agency.txt', _db.batchInsertAgencies);

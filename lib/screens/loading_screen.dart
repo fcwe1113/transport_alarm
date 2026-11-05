@@ -270,7 +270,7 @@ class _LoadingScreenState extends State<LoadingScreen> with WidgetsBindingObserv
   }
 
   List<Widget> _buildError() => [
-    const Icon(Icons.error_outline, color: Colors.red, size: 48,),
+    Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error, size: 48,),
     const SizedBox(height: 16),
     Text(_error!, textAlign: TextAlign.center),
     const SizedBox(height: 16),

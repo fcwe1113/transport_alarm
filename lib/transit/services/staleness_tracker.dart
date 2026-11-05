@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:transport_alarm/settings/advanced_settings.dart';
 
 /// Records when each provider's data in each locale was last refreshed, and
 /// decides whether it's due for another refresh. Providers call
@@ -8,8 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Whether the stored data is actually present and usable is still each
 /// provider's own check; this only tracks time and what was refreshed.
 class StalenessTracker {
-  static const defaultMaxAge = Duration(days: 7);
-
   /// Provider code for a locale's GTFS timetable feed.
   static const gtfsProviderCode = 'gtfs';
 
@@ -39,7 +38,7 @@ class StalenessTracker {
   Future<bool> isStale(
     String locale,
     String providerCode, {
-    Duration maxAge = defaultMaxAge,
+    Duration? maxAge,
     String? signature,
   }) async {
     final prefs = await SharedPreferences.getInstance();
@@ -49,7 +48,7 @@ class StalenessTracker {
     final refreshedAt = await lastRefreshed(locale, providerCode);
     if (refreshedAt == null) return true;
     final age = DateTime.now().difference(refreshedAt);
-    return age.isNegative || age > maxAge;
+    return age.isNegative || age > (maxAge ?? AdvancedSettings.refreshInterval);
   }
 
   Future<DateTime?> lastRefreshed(String locale, String providerCode) async {

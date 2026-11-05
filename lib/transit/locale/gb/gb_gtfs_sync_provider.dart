@@ -30,8 +30,6 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
   static const String _regionDownloadBaseUrl =
       'https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file';
 
-  static const Duration _ttl = Duration(days: 7);
-
   /// Checks local data age and avoids querying BODS more often than needed.
   @override
   Future<bool> checkIsStale() async {
@@ -41,7 +39,6 @@ class GbGtfsSyncProvider implements GtfsSyncProvider {
     return StalenessTracker().isStale(
       locale,
       StalenessTracker.gtfsProviderCode,
-      maxAge: _ttl,
       signature: signature,
     );
   }

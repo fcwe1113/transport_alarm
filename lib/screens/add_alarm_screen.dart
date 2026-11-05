@@ -6,6 +6,7 @@ import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/ios_settings_service.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
@@ -340,8 +341,67 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
       return;
     }
     if (Platform.isAndroid) await _askForBatteryExemption();
+    if (Platform.isIOS) await _showIosSettingsReminder();
     if (mounted) Navigator.pop(context);
   }
+
+  static const _iosSettingsReminderShownKey = 'ios_settings_reminder_shown';
+
+  /// Once, after the first alarm is saved: which of the notification
+  /// settings alarms rely on are on, a note about Focus modes, and a button
+  /// to the app's notification settings.
+  Future<void> _showIosSettingsReminder() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_iosSettingsReminderShownKey) ?? false) return;
+    final IosNotificationStatus status;
+    try {
+      status = await IosSettingsService.notificationStatus();
+    } catch (e) {
+      debugPrint('Could not read the notification settings: $e');
+      return;
+    }
+    await prefs.setBool(_iosSettingsReminderShownKey, true);
+    if (!mounted) return;
+
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('alarm.ios_settings.title')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(AppStrings.text('alarm.ios_settings.body')),
+              const SizedBox(height: 8),
+              _settingCheck(context, 'alarm.ios_settings.notifications', status.authorized),
+              if (status.timeSensitive != null)
+                _settingCheck(context, 'alarm.ios_settings.time_sensitive', status.timeSensitive),
+              const SizedBox(height: 8),
+              Text(AppStrings.text('alarm.ios_settings.focus')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('alarm.ios_settings.not_now'))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('alarm.ios_settings.open'))),
+        ],
+      ),
+    );
+    if (open == true) await IosSettingsService.openNotificationSettings();
+  }
+
+  /// One setting in the iOS reminder: ticked when on, crossed when off.
+  static Widget _settingCheck(BuildContext context, String key, bool? on) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    dense: true,
+    leading: Icon(
+      on == false ? Icons.cancel : Icons.check_circle,
+      color: on == false ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary,
+    ),
+    title: Text(AppStrings.text(key)),
+    subtitle: on == false ? Text(AppStrings.text('alarm.ios_settings.off')) : null,
+  );
 
   static const _batteryPromptDeclinedKey = 'battery_exemption_prompt_declined';
 
@@ -596,7 +656,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
                   : 'alarm.routes_selected.other',
               {'count': _selectedRoutes.length},
             ),
-      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),),
+      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),),
       children: _availableRoutes.map((r) {
         return CheckboxListTile(
           title: Row(

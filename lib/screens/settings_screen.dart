@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/screens/settings/about_screen.dart';
+import 'package:transport_alarm/screens/settings/advanced_settings_screen.dart';
+import 'package:transport_alarm/screens/settings/appearance_settings_screen.dart';
 import 'package:transport_alarm/screens/settings/app_language_settings_screen.dart';
 import 'package:transport_alarm/screens/settings/enabled_locale_settings_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
@@ -18,6 +20,27 @@ final _helpUrl = Uri.parse(
   'https://github.com/fcwe1113/transport_alarm/blob/master/${Platform.isIOS ? 'ios' : 'android'}/README.md',
 );
 
+/// The developer's Ko-fi page, as linked from the README.
+final _kofiUrl = Uri.parse('https://ko-fi.com/fcwe1113');
+
+/// Explains that a donation is optional and unlocks nothing, then opens
+/// Ko-fi. On iOS this keeps it an optional gift under App Review guideline
+/// 3.2.1(vii), which needs no in-app purchase.
+Future<void> _confirmDonation(BuildContext context) async {
+  final proceed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(AppStrings.text('donate.title')),
+      content: Text(AppStrings.text('donate.body')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('common.go_back'))),
+        TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('donate.continue'))),
+      ],
+    ),
+  );
+  if (proceed == true && context.mounted) await openExternalLink(context, _kofiUrl);
+}
+
 /// The settings landing page. Each entry opens its own page, a link or a
 /// data operation.
 class SettingsScreen extends StatelessWidget {
@@ -31,12 +54,18 @@ class SettingsScreen extends StatelessWidget {
     final options = <({IconData icon, String title, String? subtitle, VoidCallback? onTap})>[
       (icon: Icons.language, title: 'settings.app_language', subtitle: 'settings.app_language.subtitle',
         onTap: () => push(const AppLanguageSettingsScreen())),
+      (icon: Icons.palette_outlined, title: 'settings.appearance', subtitle: 'settings.appearance.subtitle',
+        onTap: () => push(const AppearanceSettingsScreen())),
       (icon: Icons.public, title: 'settings.enabled_locales', subtitle: 'settings.enabled_locales.subtitle',
         onTap: () => push(const EnabledLocalesSettingsScreen())),
       (icon: Icons.notifications_outlined, title: 'settings.alarm_settings', subtitle: 'common.coming_soon', onTap: null),
+      (icon: Icons.tune, title: 'settings.advanced', subtitle: 'settings.advanced.subtitle',
+        onTap: () => push(const AdvancedSettingsScreen())),
       (icon: Icons.help_outline, title: 'settings.help', subtitle: 'settings.help.subtitle',
         onTap: () => openExternalLink(context, _helpUrl)),
       (icon: Icons.info_outline, title: 'settings.about', subtitle: null, onTap: () => push(const AboutScreen())),
+      (icon: Icons.favorite_outline, title: 'settings.donate', subtitle: 'settings.donate.subtitle',
+        onTap: () => _confirmDonation(context)),
       (icon: Icons.download, title: 'drawer.reload_data', subtitle: null,
         onTap: () => _openDataOperation(context, operation: initializeTransitData, forceRefresh: true)),
       (icon: Icons.refresh, title: 'drawer.refresh_data', subtitle: null,

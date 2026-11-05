@@ -162,7 +162,7 @@ class _AlarmCardState extends State<AlarmCard> {
                     color: Theme.of(context).colorScheme.errorContainer,
                     onTap: widget.onDelete,
                     horizontalPadding: 16,
-                    icon: const Icon(Icons.remove_circle, color: Colors.red, size: 24),
+                    icon: Icon(Icons.remove_circle, color: Theme.of(context).colorScheme.error, size: 24),
                   ),
                 Expanded(child: _buildHeader()),
                 if (widget.isEditing)
@@ -231,7 +231,7 @@ class _AlarmCardState extends State<AlarmCard> {
                 fontWeight: FontWeight.bold,
                 color: widget.alarm.enabled
                     ? Theme.of(context).colorScheme.onSurface
-                    : Colors.grey,
+                    : Theme.of(context).colorScheme.outline,
               ),
             ),
             const SizedBox(height: 2),
@@ -243,7 +243,7 @@ class _AlarmCardState extends State<AlarmCard> {
                 return Text(
                   name,
                   style: TextStyle(
-                    color: Colors.grey.shade600,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                   ),
@@ -321,7 +321,7 @@ class _AlarmCardState extends State<AlarmCard> {
         Text(
           text,
           style: TextStyle(
-            color: Colors.grey.shade600,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
             fontSize: 13,
             fontWeight: FontWeight.bold,
           ),

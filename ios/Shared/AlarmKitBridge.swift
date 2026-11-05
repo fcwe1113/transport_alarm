@@ -4,11 +4,11 @@ import Foundation
 
 /// The alarmkit method channel, for AlarmKitService in Dart. Nothing calls it
 /// yet; it's kept for a possible AlarmKit backup to the server pings. Before
-/// iOS 26, which AlarmKit needs, every call fails with UNSUPPORTED.
+/// iOS 26.1, which this AlarmKit code needs, every call fails with UNSUPPORTED.
 enum AlarmKitBridge {
     static func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard #available(iOS 26.0, *) else {
-            result(FlutterError(code: "UNSUPPORTED", message: "AlarmKit needs iOS 26 or later", details: nil))
+        guard #available(iOS 26.1, *) else {
+            result(FlutterError(code: "UNSUPPORTED", message: "AlarmKit needs iOS 26.1 or later", details: nil))
             return
         }
         switch call.method {
@@ -23,7 +23,7 @@ enum AlarmKitBridge {
         }
     }
 
-    @available(iOS 26.0, *)
+    @available(iOS 26.1, *)
     private static func requestAuthorization(result: @escaping FlutterResult) {
         Task {
             do {
@@ -34,7 +34,7 @@ enum AlarmKitBridge {
         }
     }
 
-    @available(iOS 26.0, *)
+    @available(iOS 26.1, *)
     private static func armAlarm(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
               let alarmID = args["alarmId"] as? String, !alarmID.isEmpty,
@@ -57,7 +57,7 @@ enum AlarmKitBridge {
         }
     }
 
-    @available(iOS 26.0, *)
+    @available(iOS 26.1, *)
     private static func cancelAlarm(call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any],
               let alarmID = args["alarmId"] as? String, !alarmID.isEmpty else {
@@ -70,7 +70,7 @@ enum AlarmKitBridge {
 
     /// AlarmKit needs a UUID; app alarm IDs are timestamps, so they map to a
     /// stable one. Arming and cancelling must agree, so both use this.
-    @available(iOS 26.0, *)
+    @available(iOS 26.1, *)
     private static func alarmKitID(for alarmID: String) -> UUID {
         UUID(uuidString: alarmID) ?? AlarmKitScheduler.stableID(for: alarmID)
     }

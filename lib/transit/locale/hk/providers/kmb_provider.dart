@@ -140,7 +140,6 @@ class KmbProvider extends TransitProvider {
           providerCode: providerCode,
           items: items,
           forceRefresh: forceRefresh,
-          maxAge: const Duration(days: 7),
           cancelToken: cancelToken,
           onProgress: (done, total) => onProgress?.call(
             AppStrings.text('transit.provider_fetch_route_stops', {

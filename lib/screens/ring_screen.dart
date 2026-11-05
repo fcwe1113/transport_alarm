@@ -7,6 +7,7 @@ import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
+import 'package:transport_alarm/settings/appearance_settings.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 
 /// Android: the full-screen alarm shown while a threshold rings, over the
@@ -113,7 +114,8 @@ class _RingScreenState extends State<RingScreen> {
     final alarm = _alarm;
     final threshold = _ringingThreshold(alarm);
     final theme = Theme.of(context);
-    final scheme = ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark);
+    // Always dark, so it stands out from the rest of the app, in the user's colour.
+    final scheme = appearanceNotifier.value.scheme(Brightness.dark);
     return Theme(
       data: theme.copyWith(colorScheme: scheme),
       child: Scaffold(
