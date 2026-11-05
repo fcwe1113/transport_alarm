@@ -11,6 +11,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../widgets/app_shell.dart';
+import '../widgets/map_styles.dart';
 import '../widgets/stop_routes_sheet.dart';
 
 /// The map of the enabled locales' stops. Tapping a stop opens its routes;
@@ -292,7 +293,7 @@ class _MapScreenState extends State<MapScreen> {
         body: Center(child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 48),
+            Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error, size: 48),
             const SizedBox(height: 16),
             Text(_loadError!, textAlign: TextAlign.center),
             const SizedBox(height: 16),
@@ -330,7 +331,8 @@ class _MapScreenState extends State<MapScreen> {
             _saveCamera();
           },
           myLocationEnabled: true,
-          markers: _visibleMarkers
+          markers: _visibleMarkers,
+          style: Theme.of(context).brightness == Brightness.dark ? darkMapStyle : null,
         );
       }),),)
     );

@@ -1,6 +1,7 @@
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:transport_alarm/transit/cancellation.dart';
+import 'package:transport_alarm/settings/advanced_settings.dart';
 
 /// One request in [ApiCaller.callBatch], identified by [key] in the result.
 class BatchCallItem<K, T> {
@@ -31,7 +32,6 @@ class BatchCallResult<K, T> {
 /// HTTP calls for provider data, with a per-endpoint fetch time kept in
 /// preferences, so endpoints fetched recently are skipped on refresh.
 class ApiCaller {
-  static const _defaultMaxAge = Duration(days: 7);
   static const requestTimeout = Duration(seconds: 20);
 
   static String _fetchedKey(String providerCode, String endpointName) =>
@@ -97,10 +97,11 @@ class ApiCaller {
     required String url,
     required T Function(String rawJson) parseRaw,
     bool forceRefresh = false,
-    Duration maxAge = _defaultMaxAge,
+    Duration? maxAge,
   }) async {
-    final stale =
-        forceRefresh || await _isStale(providerCode, endpointName, maxAge);
+    // An endpoint is fetched again once it's older than the refresh interval.
+    final stale = forceRefresh ||
+        await _isStale(providerCode, endpointName, maxAge ?? AdvancedSettings.refreshInterval);
     if (!stale) return null;
 
     final response = await get(Uri.parse(url));
@@ -123,14 +124,15 @@ class ApiCaller {
   Future<BatchCallResult<K, T>> callBatch<K, T>({
     required String providerCode,
     required List<BatchCallItem<K, T>> items,
-    int batchSize = 20,
+    int? batchSize,
     int maxAttempts = 3,
     Duration retryDelay = const Duration(seconds: 5),
     bool forceRefresh = false,
-    Duration maxAge = _defaultMaxAge,
+    Duration? maxAge,
     void Function(int done, int total)? onProgress,
     CancellationToken? cancelToken,
   }) async {
+    final groupSize = batchSize ?? AdvancedSettings.value(AdvancedSettings.parallelRequests);
     final results = <K, T>{};
     var pending = List<BatchCallItem<K, T>>.from(items);
     var doneCount = 0;
@@ -147,9 +149,9 @@ class ApiCaller {
 
       final failed = <BatchCallItem<K, T>>[];
 
-      for (var i = 0; i < pending.length; i += batchSize) {
+      for (var i = 0; i < pending.length; i += groupSize) {
         cancelToken?.throwIfCancelled();
-        final batch = pending.skip(i).take(batchSize).toList();
+        final batch = pending.skip(i).take(groupSize).toList();
 
         final batchResults = await Future.wait(
           batch.map((item) async {

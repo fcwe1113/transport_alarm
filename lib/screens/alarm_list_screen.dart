@@ -155,7 +155,7 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
 
   Widget _buildEmptyState() {
     return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Text(AppStrings.text('alarm_list.empty'), style: TextStyle(color: Colors.grey.shade600, fontSize: 32),),
+      Text(AppStrings.text('alarm_list.empty'), style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 32),),
       const SizedBox(height: 12,),
       ElevatedButton.icon(onPressed: _navigateToAddAlarm, icon: const Icon(Icons.add), label: Text(AppStrings.text('alarm_list.add')))
     ],),);

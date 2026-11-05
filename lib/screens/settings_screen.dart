@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/screens/settings/about_screen.dart';
+import 'package:transport_alarm/screens/settings/advanced_settings_screen.dart';
+import 'package:transport_alarm/screens/settings/appearance_settings_screen.dart';
 import 'package:transport_alarm/screens/settings/app_language_settings_screen.dart';
 import 'package:transport_alarm/screens/settings/enabled_locale_settings_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
@@ -31,9 +33,13 @@ class SettingsScreen extends StatelessWidget {
     final options = <({IconData icon, String title, String? subtitle, VoidCallback? onTap})>[
       (icon: Icons.language, title: 'settings.app_language', subtitle: 'settings.app_language.subtitle',
         onTap: () => push(const AppLanguageSettingsScreen())),
+      (icon: Icons.palette_outlined, title: 'settings.appearance', subtitle: 'settings.appearance.subtitle',
+        onTap: () => push(const AppearanceSettingsScreen())),
       (icon: Icons.public, title: 'settings.enabled_locales', subtitle: 'settings.enabled_locales.subtitle',
         onTap: () => push(const EnabledLocalesSettingsScreen())),
       (icon: Icons.notifications_outlined, title: 'settings.alarm_settings', subtitle: 'common.coming_soon', onTap: null),
+      (icon: Icons.tune, title: 'settings.advanced', subtitle: 'settings.advanced.subtitle',
+        onTap: () => push(const AdvancedSettingsScreen())),
       (icon: Icons.help_outline, title: 'settings.help', subtitle: 'settings.help.subtitle',
         onTap: () => openExternalLink(context, _helpUrl)),
       (icon: Icons.info_outline, title: 'settings.about', subtitle: null, onTap: () => push(const AboutScreen())),

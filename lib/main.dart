@@ -18,6 +18,8 @@ import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 import 'package:transport_alarm/services/notification_service.dart';
+import 'package:transport_alarm/settings/advanced_settings.dart';
+import 'package:transport_alarm/settings/appearance_settings.dart';
 import 'package:transport_alarm/transit/locale/gb/providers/gb_bods_provider.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 import 'package:transport_alarm/transit/services/temp_file_cleaner.dart';
@@ -46,6 +48,8 @@ Future<void> main() async {
   final appLanguageCode = await selectionService.getAppLanguageCode();
   await AppStrings.load(appLanguageCode);
   appLanguageCodeNotifier.value = appLanguageCode;
+  await loadAppearance();
+  await AdvancedSettings.load();
   if (defaultTargetPlatform == TargetPlatform.iOS) {
     await _initIos(appLanguageCode);
   } else if (defaultTargetPlatform == TargetPlatform.android) {
@@ -118,13 +122,13 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Rebuilt with the new locale whenever the app language changes.
-    return ValueListenableBuilder<String>(
-      valueListenable: appLanguageCodeNotifier,
-      builder: (context, languageCode, _) => MaterialApp(
+    // Rebuilt whenever the app language or appearance changes.
+    return ListenableBuilder(
+      listenable: Listenable.merge([appLanguageCodeNotifier, appearanceNotifier]),
+      builder: (context, _) => MaterialApp(
         navigatorKey: appNavigatorKey,
         title: AppStrings.text('app.title'),
-        locale: localeForAppLanguage(languageCode),
+        locale: localeForAppLanguage(appLanguageCodeNotifier.value),
         supportedLocales: [
           for (final language in appLanguages) localeForAppLanguage(language.code),
         ],
@@ -133,7 +137,9 @@ class MyApp extends StatelessWidget {
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        theme: ThemeData(colorScheme: .fromSeed(seedColor: Colors.deepPurple)),
+        theme: ThemeData(colorScheme: appearanceNotifier.value.scheme(Brightness.light)),
+        darkTheme: ThemeData(colorScheme: appearanceNotifier.value.scheme(Brightness.dark)),
+        themeMode: appearanceNotifier.value.themeMode,
         initialRoute: initialRoute,
         onGenerateRoute: _generateRoute,
       ),

@@ -20,8 +20,6 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
   @override
   final String feedUrl = "https://static.data.gov.hk/td/pt-headway-en/gtfs.zip";
 
-  static const Duration _ttl = Duration(days: 7);
-
   // The installed feed's HTTP validators, compared on the weekly check.
   String get _etagKey => "gtfs_etag_$locale";
   String get _lastModifiedKey => "gtfs_last_modified_$locale";
@@ -36,7 +34,6 @@ class HkGtfsSyncProvider implements GtfsSyncProvider {
     if (!await tracker.isStale(
       locale,
       StalenessTracker.gtfsProviderCode,
-      maxAge: _ttl,
     )) {
       return false;
     }

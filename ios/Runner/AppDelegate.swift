@@ -90,6 +90,7 @@ import UserNotifications
         setUpTokenChannel(messenger)
         setUpWatchdogChannel(messenger)
         setUpMapsChannel(messenger)
+        setUpSettingsChannel(messenger)
         FlutterMethodChannel(name: "com.fcwe1113.transport_alarm/alarmkit", binaryMessenger: messenger)
             .setMethodCallHandler { call, result in AlarmKitBridge.handle(call: call, result: result) }
     }
@@ -173,6 +174,46 @@ import UserNotifications
                 }
                 GMSServices.provideAPIKey(apiKey)
                 result(true)
+            }
+    }
+
+    /// Reads the notification settings alarms need, and opens the app's
+    /// notification settings, for the reminder after the first alarm.
+    private func setUpSettingsChannel(_ messenger: FlutterBinaryMessenger) {
+        FlutterMethodChannel(name: "com.fcwe1113.transport_alarm/ios_settings", binaryMessenger: messenger)
+            .setMethodCallHandler { call, result in
+                switch call.method {
+                case "notificationSettings":
+                    UNUserNotificationCenter.current().getNotificationSettings { settings in
+                        let timeSensitive: String
+                        switch settings.timeSensitiveSetting {
+                        case .enabled: timeSensitive = "enabled"
+                        case .disabled: timeSensitive = "disabled"
+                        default: timeSensitive = "unsupported"
+                        }
+                        let authorized = settings.authorizationStatus == .authorized
+                            || settings.authorizationStatus == .provisional
+                        DispatchQueue.main.async {
+                            result(["authorized": authorized, "timeSensitive": timeSensitive])
+                        }
+                    }
+                case "openNotificationSettings":
+                    let urlString: String
+                    if #available(iOS 16.0, *) {
+                        urlString = UIApplication.openNotificationSettingsURLString
+                    } else if #available(iOS 15.4, *) {
+                        urlString = UIApplicationOpenNotificationSettingsURLString
+                    } else {
+                        urlString = UIApplication.openSettingsURLString
+                    }
+                    guard let url = URL(string: urlString) else {
+                        result(false)
+                        return
+                    }
+                    UIApplication.shared.open(url) { opened in result(opened) }
+                default:
+                    result(FlutterMethodNotImplemented)
+                }
             }
     }
 
