@@ -30,6 +30,10 @@ class AppDataExport {
   /// them, so a shared export mustn't carry either.
   static const _privateAlarmFields = ['pingSecret', 'pingDeviceId'];
 
+  /// Route fields left out of each alarm's routeApiConfigs: the live
+  /// arrivals URL, which for some providers (BODS) carries the app's API key.
+  static const _privateRouteFields = ['apiUrl'];
+
   /// Writes alarms.json and each enabled region's database to [folderName]
   /// in the platform's export location, and returns that folder.
   static Future<Directory> export() async {
@@ -44,6 +48,14 @@ class AppDataExport {
         for (final alarm in data.whereType<Map<String, dynamic>>()) {
           for (final field in _privateAlarmFields) {
             alarm.remove(field);
+          }
+          final routes = alarm['routeApiConfigs'];
+          if (routes is List) {
+            for (final route in routes.whereType<Map<String, dynamic>>()) {
+              for (final field in _privateRouteFields) {
+                route.remove(field);
+              }
+            }
           }
         }
       }
