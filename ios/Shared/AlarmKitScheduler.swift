@@ -4,7 +4,9 @@ import SwiftUI
 
 /// Schedules and cancels AlarmKit countdown alarms. Only the app can use
 /// AlarmKit; the notification extension can't, as AlarmKit's authorization
-/// doesn't carry over to it.
+/// doesn't carry over to it. AlarmKit needs iOS 26; the app supports older
+/// versions, where AlarmKitBridge reports it as unavailable.
+@available(iOS 26.0, *)
 enum AlarmKitScheduler {
     /// A UUID derived from [alarmID] (its SHA-256, shaped as a version 5
     /// UUID), the same on every launch, so an alarm can be cancelled later.
