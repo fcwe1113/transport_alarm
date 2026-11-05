@@ -373,6 +373,17 @@ class GtfsDatabase {
     }
   }
 
+  /// Writes a consistent copy of the live database to [path], replacing any
+  /// file there, for the app data export. Throws
+  /// [LocaleDataMissingException] if the region has no data.
+  Future<void> exportTo(String path) async {
+    final file = File(path);
+    if (await file.exists()) await file.delete();
+    // VACUUM INTO copies from one snapshot, unlike copying a file that may
+    // be written to meanwhile, and leaves out free pages.
+    await (await database).execute('VACUUM INTO ?', [path]);
+  }
+
   Future<void> close() async {
     final db = _databases.remove(_cacheKey);
     if (db != null && db.isOpen) await db.close();

@@ -71,6 +71,10 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>We use your location to show your position on the map while you're using it, no data is retained.</string>
     <key>NSAlarmKitUsageDescription</key>
