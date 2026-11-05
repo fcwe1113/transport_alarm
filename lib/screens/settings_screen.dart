@@ -20,6 +20,27 @@ final _helpUrl = Uri.parse(
   'https://github.com/fcwe1113/transport_alarm/blob/master/${Platform.isIOS ? 'ios' : 'android'}/README.md',
 );
 
+/// The developer's Ko-fi page, as linked from the README.
+final _kofiUrl = Uri.parse('https://ko-fi.com/fcwe1113');
+
+/// Explains that a donation is optional and unlocks nothing, then opens
+/// Ko-fi. On iOS this keeps it an optional gift under App Review guideline
+/// 3.2.1(vii), which needs no in-app purchase.
+Future<void> _confirmDonation(BuildContext context) async {
+  final proceed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(AppStrings.text('donate.title')),
+      content: Text(AppStrings.text('donate.body')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text(AppStrings.text('common.go_back'))),
+        TextButton(onPressed: () => Navigator.pop(context, true), child: Text(AppStrings.text('donate.continue'))),
+      ],
+    ),
+  );
+  if (proceed == true && context.mounted) await openExternalLink(context, _kofiUrl);
+}
+
 /// The settings landing page. Each entry opens its own page, a link or a
 /// data operation.
 class SettingsScreen extends StatelessWidget {
@@ -43,6 +64,8 @@ class SettingsScreen extends StatelessWidget {
       (icon: Icons.help_outline, title: 'settings.help', subtitle: 'settings.help.subtitle',
         onTap: () => openExternalLink(context, _helpUrl)),
       (icon: Icons.info_outline, title: 'settings.about', subtitle: null, onTap: () => push(const AboutScreen())),
+      (icon: Icons.favorite_outline, title: 'settings.donate', subtitle: 'settings.donate.subtitle',
+        onTap: () => _confirmDonation(context)),
       (icon: Icons.download, title: 'drawer.reload_data', subtitle: null,
         onTap: () => _openDataOperation(context, operation: initializeTransitData, forceRefresh: true)),
       (icon: Icons.refresh, title: 'drawer.refresh_data', subtitle: null,
