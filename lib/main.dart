@@ -83,7 +83,12 @@ Future<void> _initIos(String appLanguageCode) async {
 Future<void> _initAndroid() async {
   await AndroidAlarmManager.initialize();
   await NotificationService.init();
-  unawaited(AndroidAlarmCoordinator(AlarmStorageService()).resumeAll());
+  // A "Next bus" tap that opened the app is handled once the alarms are
+  // re-armed, so the two don't race over the same alarm.
+  unawaited(() async {
+    await AndroidAlarmCoordinator(AlarmStorageService()).resumeAll();
+    await NotificationService.handleCountdownActions();
+  }());
   unawaited(_askForExactAlarmsIfNeeded());
 }
 

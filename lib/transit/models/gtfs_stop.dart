@@ -63,7 +63,7 @@ class GtfsStop {
     return rawName
         .split("|")
         .expand((segment) => segment.split(RegExp(r"<BR>|/", caseSensitive: false)))
-        .map((f) => f.replaceAll(RegExp(r"^\[.*?\]\s*"), "").trim())
+        .map((f) => f.trim().replaceAll(RegExp(r"^\[.*?\]\s*"), ""))
         .where((f) => f.isNotEmpty)
         .toSet()
         .toList();

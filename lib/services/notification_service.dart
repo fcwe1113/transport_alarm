@@ -145,7 +145,8 @@ class NotificationService {
   /// Shows a silent live update with a timeline ending at
   /// [estimatedArrivalTime], through the live_update_countdown plugin. With
   /// [staleSince], the arrival is from an earlier check, and the subtext
-  /// says how long ago.
+  /// says how long ago. With [canSkipBus], it has a "Next bus" button; see
+  /// [handleCountdownActions].
   static Future<void> showCountdown({
     required int notificationId,
     required String alarmId,
@@ -157,6 +158,7 @@ class NotificationService {
     required DateTime estimatedArrivalTime,
     required List<DateTime> thresholdTimes,
     DateTime? staleSince,
+    bool canSkipBus = false,
   }) async {
     await LiveUpdateCountdown.show(
       id: notificationId,
@@ -174,7 +176,25 @@ class NotificationService {
       countdownTargetTime: countdownTargetTime,
       estimatedArrivalTime: estimatedArrivalTime,
       thresholdTimes: thresholdTimes,
+      actionId: canSkipBus ? _skipBusAction : null,
+      actionLabel: canSkipBus ? AppStrings.text('alarm.next_bus') : null,
+      actionArgument: canSkipBus ? alarmId : null,
     );
+  }
+
+  static const _skipBusAction = 'skip_bus';
+
+  /// Handles the countdown's "Next bus" button, which opens the app: a tap
+  /// that launched it, and taps while it runs. Call once the app is set up.
+  static Future<void> handleCountdownActions() async {
+    void handle(LiveUpdateAction action) {
+      final alarmId = action.argument;
+      if (action.actionId != _skipBusAction || alarmId == null) return;
+      unawaited(AndroidAlarmCoordinator(AlarmStorageService()).skipToNextBus(alarmId));
+    }
+    LiveUpdateCountdown.setActionHandler(handle);
+    final pending = await LiveUpdateCountdown.takePendingAction();
+    if (pending != null) handle(pending);
   }
 
   static Future<void> showSilentStatus({

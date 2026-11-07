@@ -1,21 +1,20 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:math' show max;
 
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
+import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
+import 'package:transport_alarm/services/alarm_server_service.dart';
+import 'package:transport_alarm/services/bus_following.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
-import 'package:transport_alarm/transit/models/route_arrival.dart';
-import 'package:transport_alarm/transit/models/threshold_state.dart';
-import 'package:transport_alarm/transit/services/arrival_resolver.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 
-/// One alarm on the alarm list: its window, stop, routes and repeat, plus
-/// the next arrival while the window is open. In edit mode it shows delete
-/// and edit buttons in place of the on/off switch.
+/// One alarm on the alarm list: its boarding window, stop, routes and
+/// repeat, plus, while an occurrence is active, the bus it's following and a
+/// "Next bus" button. In edit mode it shows delete and edit buttons in place
+/// of the on/off switch.
 class AlarmCard extends StatefulWidget {
   final TransportAlarm alarm;
   final ValueChanged<bool> onToggle;
@@ -36,28 +35,21 @@ class AlarmCard extends StatefulWidget {
   State<AlarmCard> createState() => _AlarmCardState();
 }
 
-class _AlarmCardState extends State<AlarmCard> {
+class _AlarmCardState extends State<AlarmCard> with WidgetsBindingObserver {
   Timer? _refreshTimer;
-  // Bumped every minute, so the arrivals reload and the window is rechecked.
-  int _refreshTick = 0;
-  // Shown while the next load runs, so the estimate doesn't blank out.
-  List<RouteArrival>? _lastArrivals;
-  // Kept between builds, so a rebuild (such as the list entering edit mode)
-  // doesn't query the database and the live APIs again. The arrivals start
-  // on the first build inside the window, and again after each tick.
   late Future<GtfsStop?> _stopFuture;
-  Future<List<RouteArrival>>? _arrivalsFuture;
+  // The alarm as last saved: the alarm checks, or on iOS the notification
+  // extension, update the bus it's following without the list knowing.
+  TransportAlarm? _saved;
+  bool _skipping = false;
 
   @override
   void initState() {
     super.initState();
     _stopFuture = _loadStop();
-    _refreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      setState(() {
-        _refreshTick++;
-        _arrivalsFuture = null;
-      });
-    });
+    _reloadSaved();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _reloadSaved());
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
@@ -71,69 +63,49 @@ class _AlarmCardState extends State<AlarmCard> {
     if (old.gtfsStopId != alarm.gtfsStopId || old.localeCode != alarm.localeCode) {
       _stopFuture = _loadStop();
     }
-    if (old.id != alarm.id || old.gtfsStopId != alarm.gtfsStopId || (!old.enabled && alarm.enabled)) {
-      _arrivalsFuture = null;
-      _lastArrivals = null;
+    if (old.id != alarm.id) _saved = null;
+    _reloadSaved();
+  }
+
+  Future<void> _reloadSaved() async {
+    final saved = (await AlarmStorageService().loadAlarms())
+        .where((alarm) => alarm.id == widget.alarm.id)
+        .firstOrNull;
+    if (mounted) setState(() => _saved = saved);
+  }
+
+  /// "Next bus": stops following the current bus and looks for the next.
+  Future<void> _skipToNextBus() async {
+    setState(() => _skipping = true);
+    try {
+      await AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService())
+          .skipToNextBus(widget.alarm.id);
+    } finally {
+      if (mounted) setState(() => _skipping = false);
+      await _reloadSaved();
     }
+  }
+
+  /// Hides the "check this alarm" marker of a converted alarm.
+  Future<void> _dismissReview() async {
+    final saved = _saved ?? widget.alarm;
+    await AlarmStorageService().updateAlarm(saved.copyWith(needsReview: false));
+    await _reloadSaved();
   }
 
   Future<GtfsStop?> _loadStop() =>
       GtfsDatabase.forLocale(widget.alarm.localeCode).getGtfsStopById(widget.alarm.gtfsStopId);
 
-  /// Loads the alarm's upcoming arrivals. On iOS, also saves the soonest
-  /// usable one as the alarm's last estimate, for the notification extension.
-  Future<List<RouteArrival>> _loadArrivalsAndPersistEstimate() async {
-    final savedAlarm = (await AlarmStorageService().loadAlarms())
-        .where((alarm) => alarm.id == widget.alarm.id)
-        .firstOrNull;
-    final alarm = savedAlarm ?? widget.alarm;
-    final waitingForFirstEligibleBus =
-        alarm.thresholdStates.isNotEmpty &&
-        alarm.thresholdStates.every(
-          (state) => state.outcome == ThresholdOutcome.pending,
-        ) &&
-        alarm.lastEstimatedMinutesUntilThreshold == null &&
-        alarm.androidFallbackArrivalEpochSeconds == null;
-    // Skips the same buses as the alarm checks: those too close to make the
-    // first threshold when the occurrence started.
-    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final ignoreArrivalsBefore = alarm.ignoreArrivalsBeforeEpochSeconds ??
-        (waitingForFirstEligibleBus
-            ? nowSeconds +
-                alarm.thresholdStates
-                        .map((state) => state.minutesBeforeArrival)
-                        .reduce((a, b) => a > b ? a : b) *
-                    60
-            : null);
-    final arrivals = await resolveArrivals(
-      gtfsStopId: alarm.gtfsStopId,
-      routeNumberFilter: alarm.routeNumbers,
-      minimumMinutesFromNow: ignoreArrivalsBefore == null
-          ? null
-          : max(0, (ignoreArrivalsBefore - nowSeconds + 59) ~/ 60),
-      locale: alarm.localeCode,
-    );
-    _lastArrivals = arrivals;
-    if (Platform.isIOS) {
-      final eligible = alarm.liveOnly
-          ? arrivals.where((arrival) => arrival.isLive)
-          : arrivals;
-      if (eligible.isNotEmpty) {
-        final estimate = eligible
-            .reduce((a, b) => a.minutesFromNow <= b.minutesFromNow ? a : b)
-            .minutesFromNow;
-        await AlarmStorageService().updateLastEstimate(
-          alarm.id,
-          estimate,
-          ignoreArrivalsBefore: ignoreArrivalsBefore,
-        );
-      }
-    }
-    return arrivals;
+  // Back in the app, such as after "Next bus" on the countdown notification
+  // opened it: show what changed meanwhile straight away.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _reloadSaved();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     super.dispose();
   }
@@ -202,9 +174,14 @@ class _AlarmCardState extends State<AlarmCard> {
                 ),
                 const SizedBox(height: 6),
                 Text(widget.alarm.repeat.toInfoString() ?? ""),
-                if (widget.alarm.enabled && widget.alarm.isWithinWindow(TimeOfDay.now())) ...[
+                if ((_saved ?? widget.alarm).needsReview) ...[
+                  const SizedBox(height: 6),
+                  _buildReviewMarker(),
+                ],
+                if (widget.alarm.enabled &&
+                    widget.alarm.activeOccurrenceAt(DateTime.now()) != null) ...[
                   const SizedBox(height: 4),
-                  _buildNextArrival(),
+                  _buildBusStatus(_saved ?? widget.alarm),
                 ],
               ],
             ),
@@ -277,64 +254,81 @@ class _AlarmCardState extends State<AlarmCard> {
     );
   }
 
-  /// The next arrival, reloaded every minute. While a reload runs it keeps
-  /// showing the previous estimate, marked as updating.
-  Widget _buildNextArrival() {
-    return FutureBuilder<List<RouteArrival>>(
-      key: ValueKey(_refreshTick),
-      future: _arrivalsFuture ??= _loadArrivalsAndPersistEstimate(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          final previousArrivals = _lastArrivals;
-          return _buildArrivalStatus(
-            previousArrivals == null || previousArrivals.isEmpty
-                ? AppStrings.text('alarm_card.loading_arrivals')
-                : AppStrings.text('alarm_card.estimate_updating', {
-                    'estimate': _formatNextArrival(previousArrivals),
-                  }),
-          );
-        }
-
-        final arrivals = snapshot.data;
-        if (snapshot.hasError) {
-          // todo implement seamless background load
-          return _buildArrivalStatus(AppStrings.text('alarm_card.arrivals_failed'));
-        }
-        if (arrivals == null || arrivals.isEmpty) {
-          return _buildArrivalStatus(AppStrings.text('alarm_card.no_arrivals'));
-        }
-        return _buildArrivalStatus(_formatNextArrival(arrivals));
-      },
+  /// Asks the user to check a converted alarm's boarding times.
+  Widget _buildReviewMarker() {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.tertiaryContainer,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 12),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, size: 18, color: scheme.onTertiaryContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                AppStrings.text('alarm_card.check_times'),
+                style: TextStyle(color: scheme.onTertiaryContainer, fontSize: 13),
+              ),
+            ),
+            IconButton(
+              tooltip: AppStrings.text('alarm_card.check_times.dismiss'),
+              icon: Icon(Icons.close, size: 18, color: scheme.onTertiaryContainer),
+              onPressed: _dismissReview,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildArrivalStatus(String text) {
+  /// The bus the active occurrence is following, live or from the
+  /// timetable, with "Next bus" where the alarm's routes can follow one bus;
+  /// or that it's still looking for one within the window.
+  Widget _buildBusStatus(TransportAlarm alarm) {
+    final locked = alarm.lockedArrival;
+    final mode = AppStrings.transportModeValues(alarm.transportMode);
+    final text = locked == null
+        ? AppStrings.text('alarm_card.looking', {
+            ...mode,
+            'from': _formatTime(alarm.windowStart),
+            'to': _formatTime(alarm.windowEnd),
+          })
+        : AppStrings.text(locked.isLive ? 'alarm_card.following.live' : 'alarm_card.following.timetable', {
+            ...mode,
+            'route': locked.routeNumber,
+            'time': _formatTime(TimeOfDay.fromDateTime(locked.arrival)),
+          });
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
-          // todo attach progress bar to arrival
           child: const LinearProgressIndicator(minHeight: 6),
         ),
         const SizedBox(height: 4),
-        Text(
-          text,
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if (locked != null && canFollowOneBus(alarm))
+              TextButton.icon(
+                onPressed: _skipping ? null : _skipToNextBus,
+                icon: const Icon(Icons.skip_next, size: 18),
+                label: Text(AppStrings.text('alarm.next_bus')),
+              ),
+          ],
         ),
       ],
-    );
-  }
-
-  String _formatNextArrival(List<RouteArrival> arrivals) {
-    final minutes = arrivals.first.minutesFromNow;
-    return AppStrings.text(
-      minutes == 1 ? 'alarm_card.next_arrival.one' : 'alarm_card.next_arrival.other',
-      {'minutes': minutes},
     );
   }
 }

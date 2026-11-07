@@ -23,18 +23,34 @@ import java.util.Set;
 import java.text.DateFormat;
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
+import io.flutter.embedding.engine.plugins.activity.ActivityAware;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
+import io.flutter.plugin.common.PluginRegistry;
 
-/** Posts Android countdown notifications and requests Live Update promotion. */
+/**
+ * Posts Android countdown notifications and requests Live Update promotion.
+ * A countdown can carry one action button, which opens the app and passes
+ * the action to Dart: through "takePendingAction" when it launched the app,
+ * or an "onAction" call when the app was already running.
+ */
 public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
-        MethodChannel.MethodCallHandler {
+        MethodChannel.MethodCallHandler, ActivityAware,
+        PluginRegistry.NewIntentListener {
     private static final String CHANNEL_NAME = "dev.fcwe1113.live_update_countdown";
     private static final String NOTIFICATION_CHANNEL_ID =
             "transport_alarm_status_channel";
+    private static final String EXTRA_ACTION =
+            "dev.fcwe1113.live_update_countdown.ACTION";
+    private static final String EXTRA_ACTION_ARGUMENT =
+            "dev.fcwe1113.live_update_countdown.ACTION_ARGUMENT";
 
     private Context context;
     private MethodChannel channel;
+    private ActivityPluginBinding activityBinding;
+    /** An action that launched the app, until Dart takes it. */
+    private Map<String, Object> pendingAction;
 
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
@@ -46,6 +62,11 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
     @Override
     public void onMethodCall(@NonNull MethodCall call,
                              @NonNull MethodChannel.Result result) {
+        if ("takePendingAction".equals(call.method)) {
+            result.success(pendingAction);
+            pendingAction = null;
+            return;
+        }
         if (!"show".equals(call.method)) {
             result.notImplemented();
             return;
@@ -65,8 +86,13 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
             long estimatedArrivalMillis =
                     ((Number) arguments.get("estimatedArrivalMillis")).longValue();
             List<?> thresholdTimes = (List<?>) arguments.get("thresholdTimesMillis");
+            // Optional: one button that opens the app with this action.
+            String actionId = (String) arguments.get("actionId");
+            String actionLabel = (String) arguments.get("actionLabel");
+            String actionArgument = (String) arguments.get("actionArgument");
             postCountdown(id, title, body, subText, progressStartMillis,
-                    countdownTargetMillis, estimatedArrivalMillis, thresholdTimes);
+                    countdownTargetMillis, estimatedArrivalMillis, thresholdTimes,
+                    actionId, actionLabel, actionArgument);
             result.success(true);
         } catch (Exception exception) {
             result.error("LIVE_UPDATE_FAILED", exception.getMessage(), null);
@@ -77,7 +103,10 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
                                long progressStartMillis,
                                long countdownTargetMillis,
                                long estimatedArrivalMillis,
-                               List<?> thresholdTimes) {
+                               List<?> thresholdTimes,
+                               String actionId,
+                               String actionLabel,
+                               String actionArgument) {
         ensureNotificationChannel();
 
         int icon = context.getApplicationInfo().icon;
@@ -161,6 +190,20 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
                     launchIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             notification.setContentIntent(contentIntent);
+
+            if (actionId != null && actionLabel != null) {
+                Intent actionIntent = new Intent(launchIntent)
+                        .putExtra(EXTRA_ACTION, actionId)
+                        .putExtra(EXTRA_ACTION_ARGUMENT, actionArgument);
+                // A different request code from the content intent: intents
+                // that differ only in extras would otherwise share one.
+                PendingIntent actionPendingIntent = PendingIntent.getActivity(
+                        context,
+                        ~id,
+                        actionIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                notification.addAction(0, actionLabel, actionPendingIntent);
+            }
         }
 
         NotificationManagerCompat.from(context).notify(id, notification.build());
@@ -182,6 +225,55 @@ public final class LiveUpdateCountdownPlugin implements FlutterPlugin,
         channel.setSound(null, null);
         channel.enableVibration(false);
         manager.createNotificationChannel(channel);
+    }
+
+    /** Reads a countdown action from [intent], once. */
+    private Map<String, Object> takeAction(Intent intent) {
+        if (intent == null || !intent.hasExtra(EXTRA_ACTION)) return null;
+        Map<String, Object> action = new HashMap<>();
+        action.put("actionId", intent.getStringExtra(EXTRA_ACTION));
+        action.put("argument", intent.getStringExtra(EXTRA_ACTION_ARGUMENT));
+        // So the activity being recreated, such as on rotation, doesn't
+        // repeat it.
+        intent.removeExtra(EXTRA_ACTION);
+        intent.removeExtra(EXTRA_ACTION_ARGUMENT);
+        return action;
+    }
+
+    @Override
+    public boolean onNewIntent(@NonNull Intent intent) {
+        Map<String, Object> action = takeAction(intent);
+        if (action == null) return false;
+        if (channel != null) {
+            channel.invokeMethod("onAction", action);
+        } else {
+            pendingAction = action;
+        }
+        return true;
+    }
+
+    @Override
+    public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
+        activityBinding = binding;
+        binding.addOnNewIntentListener(this);
+        Map<String, Object> action = takeAction(binding.getActivity().getIntent());
+        if (action != null) pendingAction = action;
+    }
+
+    @Override
+    public void onDetachedFromActivityForConfigChanges() {
+        onDetachedFromActivity();
+    }
+
+    @Override
+    public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) {
+        onAttachedToActivity(binding);
+    }
+
+    @Override
+    public void onDetachedFromActivity() {
+        if (activityBinding != null) activityBinding.removeOnNewIntentListener(this);
+        activityBinding = null;
     }
 
     @Override

@@ -2,11 +2,14 @@ import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:flutter/material.dart';
 
 import 'alarm_route_config.dart';
+import '../services/arrival_lock.dart';
+import '../services/boarding_window.dart';
 import '../transit/transport_mode.dart';
 import '../transit/models/repeat_pattern.dart';
 
 /// A saved alarm: rings a set number of minutes before a bus on the chosen
-/// routes reaches a stop, within a daily time window. Saved as JSON in
+/// routes reaches a stop, for a bus arriving within a daily window of when
+/// the user wants to board (see BoardingOccurrence). Saved as JSON in
 /// alarms.json, which the iOS notification extension also reads and writes,
 /// so field names are shared with Swift.
 class TransportAlarm {
@@ -21,8 +24,10 @@ class TransportAlarm {
   final List<AlarmRouteConfig> routeApiConfigs;
   /// Locale key used for operator API and GTFS arrival lookups.
   final String localeCode;
+  /// The earliest arrival the user wants to board.
   final TimeOfDay windowStart;
-  /// May be earlier than [windowStart], for a window crossing midnight.
+  /// The latest arrival the user wants to board. May be earlier than
+  /// [windowStart], for a window crossing midnight.
   final TimeOfDay windowEnd;
   /// Ordered from the largest minutes-before-arrival down, the order they ring in.
   final List<ThresholdState> thresholdStates;
@@ -49,20 +54,27 @@ class TransportAlarm {
   /// Minutes until the active threshold at the last estimate, for when a
   /// later fetch fails.
   final int? lastEstimatedMinutesUntilThreshold;
-  /// Arrivals before this time are ignored for the rest of the occurrence:
-  /// buses already too close to make the first threshold when it started.
-  final int? ignoreArrivalsBeforeEpochSeconds;
+  /// The bus this occurrence is aiming at (see decideLock).
+  final LockedArrival? lockedArrival;
+  /// Buses the user skipped with "Next bus" this occurrence, by identity.
+  final List<String> skippedArrivals;
+  /// After "Next bus", only a bus arriving after this is picked; cleared once
+  /// one is.
+  final int? nextBusAfterEpochSeconds;
+  /// 2 once the window means boarding times; alarms saved before that are
+  /// converted when read (see migrateWindowMinutes).
+  final int windowVersion;
+  /// Minutes before the earliest possible ring that the alarm starts
+  /// checking, copied from the Advanced setting.
+  final int checkLeadMinutes;
+  /// Converted from an older window meaning; shown as needing a check until
+  /// the user saves or dismisses it.
+  final bool needsReview;
   /// Android: the current occurrence's window, as device-local times.
   final int? androidOccurrenceStartEpochSeconds;
   final int? androidOccurrenceEndEpochSeconds;
   /// Android: start of the countdown's progress timeline for this occurrence.
   final int? androidProgressStartEpochSeconds;
-  /// Android: the timetable bus being counted down to while there's no live one.
-  final int? androidFallbackArrivalEpochSeconds;
-  /// Android: the last arrival a check found, and when it found it. A check
-  /// that finds none keeps counting down to it while it's still ahead.
-  final int? androidLastArrivalEpochSeconds;
-  final int? androidLastArrivalFoundEpochSeconds;
   /// Android: which live-data notice is showing (an AndroidLiveNotice name), or null.
   final String? androidLiveNotice;
 
@@ -89,15 +101,43 @@ class TransportAlarm {
     this.pingSecret,
     this.pingDeviceId,
     this.lastEstimatedMinutesUntilThreshold,
-    this.ignoreArrivalsBeforeEpochSeconds,
+    this.lockedArrival,
+    this.skippedArrivals = const [],
+    this.nextBusAfterEpochSeconds,
+    this.windowVersion = 2,
+    this.checkLeadMinutes = defaultCheckLeadMinutes,
+    this.needsReview = false,
     this.androidOccurrenceStartEpochSeconds,
     this.androidOccurrenceEndEpochSeconds,
     this.androidProgressStartEpochSeconds,
-    this.androidFallbackArrivalEpochSeconds,
-    this.androidLastArrivalEpochSeconds,
-    this.androidLastArrivalFoundEpochSeconds,
     this.androidLiveNotice,
   });
+
+  /// The largest minutes-before-arrival, which sets how early the alarm
+  /// starts checking.
+  int get largestThresholdMinutes => thresholdStates.isEmpty
+      ? 0
+      : thresholdStates.map((state) => state.minutesBeforeArrival).reduce((a, b) => a > b ? a : b);
+
+  /// The occurrence active at [now], if any (see BoardingOccurrence).
+  BoardingOccurrence? activeOccurrenceAt(DateTime now) => activeOccurrence(
+    now,
+    windowStart: windowStart,
+    windowEnd: windowEnd,
+    repeat: repeat,
+    largestThresholdMinutes: largestThresholdMinutes,
+    leadMinutes: checkLeadMinutes,
+  );
+
+  /// The first occurrence that becomes active after [after].
+  BoardingOccurrence nextOccurrenceAfter(DateTime after) => nextOccurrence(
+    after,
+    windowStart: windowStart,
+    windowEnd: windowEnd,
+    repeat: repeat,
+    largestThresholdMinutes: largestThresholdMinutes,
+    leadMinutes: checkLeadMinutes,
+  );
 
   TransportAlarm copyWith({
     String? gtfsStopId,
@@ -118,21 +158,21 @@ class TransportAlarm {
     String? pingDeviceId,
     bool clearPingId = false,
     int? lastEstimatedMinutesUntilThreshold,
-    int? ignoreArrivalsBeforeEpochSeconds,
+    LockedArrival? lockedArrival,
+    bool clearLockedArrival = false,
+    List<String>? skippedArrivals,
+    int? nextBusAfterEpochSeconds,
+    bool clearNextBusAfter = false,
+    int? checkLeadMinutes,
+    bool? needsReview,
     int? androidOccurrenceStartEpochSeconds,
     int? androidOccurrenceEndEpochSeconds,
     int? androidProgressStartEpochSeconds,
-    int? androidFallbackArrivalEpochSeconds,
-    int? androidLastArrivalEpochSeconds,
-    int? androidLastArrivalFoundEpochSeconds,
     String? androidLiveNotice,
     bool clearAndroidLiveNotice = false,
     bool clearLastEstimatedMinutesUntilThreshold = false,
-    bool clearIgnoreArrivalsBefore = false,
     bool clearAndroidOccurrence = false,
     bool clearAndroidProgressStartEpochSeconds = false,
-    bool clearAndroidFallbackArrival = false,
-    bool clearAndroidLastArrival = false,
   }) {
     return TransportAlarm(
         id: id,
@@ -155,9 +195,14 @@ class TransportAlarm {
         lastEstimatedMinutesUntilThreshold: clearLastEstimatedMinutesUntilThreshold
             ? null
             : lastEstimatedMinutesUntilThreshold ?? this.lastEstimatedMinutesUntilThreshold,
-        ignoreArrivalsBeforeEpochSeconds: clearIgnoreArrivalsBefore
+        lockedArrival: clearLockedArrival ? null : lockedArrival ?? this.lockedArrival,
+        skippedArrivals: skippedArrivals ?? this.skippedArrivals,
+        nextBusAfterEpochSeconds: clearNextBusAfter
             ? null
-            : ignoreArrivalsBeforeEpochSeconds ?? this.ignoreArrivalsBeforeEpochSeconds,
+            : nextBusAfterEpochSeconds ?? this.nextBusAfterEpochSeconds,
+        windowVersion: windowVersion,
+        checkLeadMinutes: checkLeadMinutes ?? this.checkLeadMinutes,
+        needsReview: needsReview ?? this.needsReview,
         androidOccurrenceStartEpochSeconds: clearAndroidOccurrence
             ? null
             : androidOccurrenceStartEpochSeconds ?? this.androidOccurrenceStartEpochSeconds,
@@ -169,15 +214,6 @@ class TransportAlarm {
                 ? null
                 : androidProgressStartEpochSeconds ??
                     this.androidProgressStartEpochSeconds,
-        androidFallbackArrivalEpochSeconds: clearAndroidFallbackArrival
-            ? null
-            : androidFallbackArrivalEpochSeconds ?? this.androidFallbackArrivalEpochSeconds,
-        androidLastArrivalEpochSeconds: clearAndroidLastArrival
-            ? null
-            : androidLastArrivalEpochSeconds ?? this.androidLastArrivalEpochSeconds,
-        androidLastArrivalFoundEpochSeconds: clearAndroidLastArrival
-            ? null
-            : androidLastArrivalFoundEpochSeconds ?? this.androidLastArrivalFoundEpochSeconds,
         androidLiveNotice: clearAndroidLiveNotice
             ? null
             : androidLiveNotice ?? this.androidLiveNotice,
@@ -203,55 +239,76 @@ class TransportAlarm {
     'pingSecret': pingSecret,
     'pingDeviceId': pingDeviceId,
     'lastEstimatedMinutesUntilThreshold': lastEstimatedMinutesUntilThreshold,
-    'ignoreArrivalsBeforeEpochSeconds': ignoreArrivalsBeforeEpochSeconds,
+    'lockedArrival': lockedArrival?.toJson(),
+    'skippedArrivals': skippedArrivals,
+    'nextBusAfterEpochSeconds': nextBusAfterEpochSeconds,
+    'windowVersion': windowVersion,
+    'checkLeadMinutes': checkLeadMinutes,
+    'needsReview': needsReview,
     'androidOccurrenceStartEpochSeconds': androidOccurrenceStartEpochSeconds,
     'androidOccurrenceEndEpochSeconds': androidOccurrenceEndEpochSeconds,
     'androidProgressStartEpochSeconds': androidProgressStartEpochSeconds,
-    'androidFallbackArrivalEpochSeconds': androidFallbackArrivalEpochSeconds,
-    'androidLastArrivalEpochSeconds': androidLastArrivalEpochSeconds,
-    'androidLastArrivalFoundEpochSeconds': androidLastArrivalFoundEpochSeconds,
     'androidLiveNotice': androidLiveNotice,
   };
 
-  static TransportAlarm fromJson(Map<String, dynamic> json) => TransportAlarm(
-    id: json['id'] as String,
-    gtfsStopId: json['gtfsStopId'] as String,
-    routeApiConfigs: (json['routeApiConfigs'] as List<dynamic>?)
-            ?.map((route) => AlarmRouteConfig.fromJson(Map<String, dynamic>.from(route as Map)))
-            .toList() ??
-        const [],
-    localeCode: json['localeCode'] as String? ?? 'hk',
-    routeNumbers: (json['routeNumbers'] as Map<String, dynamic>).map((key, value) => MapEntry(key, Map<String, String>.from(value as Map)),),
-    windowStart: _minutesToTimeOfDay(json['windowStart'] as int),
-    windowEnd: _minutesToTimeOfDay(json['windowEnd'] as int),
-    maxRingsPerThreshold: json['maxRingsPerThreshold'] as int,
-    thresholdStates: (json['thresholdStates'] as List).map((t) => ThresholdState.fromJson(t as Map<String, dynamic>)).toList(),
-    repeat: RepeatPattern.fromJson(json['repeat'] as Map<String, dynamic>),
-    liveOnly: json['liveOnly'] as bool,
-    spent: json['spent'] as bool? ?? false,
-    message: json['message'] as String,
-    enabled: json['enabled'] as bool,
-    pingId: json['pingId'] as String?,
-    pingSecret: json['pingSecret'] as String?,
-    pingDeviceId: json['pingDeviceId'] as String?,
-    lastEstimatedMinutesUntilThreshold:
-        json['lastEstimatedMinutesUntilThreshold'] as int?,
-    ignoreArrivalsBeforeEpochSeconds:
-        (json['ignoreArrivalsBeforeEpochSeconds'] as num?)?.toInt(),
-    androidOccurrenceStartEpochSeconds:
-        json['androidOccurrenceStartEpochSeconds'] as int?,
-    androidOccurrenceEndEpochSeconds:
-        json['androidOccurrenceEndEpochSeconds'] as int?,
-    androidProgressStartEpochSeconds:
-        json['androidProgressStartEpochSeconds'] as int?,
-    androidFallbackArrivalEpochSeconds:
-        json['androidFallbackArrivalEpochSeconds'] as int?,
-    androidLastArrivalEpochSeconds:
-        json['androidLastArrivalEpochSeconds'] as int?,
-    androidLastArrivalFoundEpochSeconds:
-        json['androidLastArrivalFoundEpochSeconds'] as int?,
-    androidLiveNotice: json['androidLiveNotice'] as String?,
-  );
+  static TransportAlarm fromJson(Map<String, dynamic> json) {
+    final thresholdStates = (json['thresholdStates'] as List).map((t) => ThresholdState.fromJson(t as Map<String, dynamic>)).toList();
+    var windowStart = json['windowStart'] as int;
+    var windowEnd = json['windowEnd'] as int;
+    final windowVersion = (json['windowVersion'] as num?)?.toInt() ?? 1;
+    // Saved when the window meant when the alarm watches: convert it to
+    // boarding times now, so every reader agrees, and ask the user to check.
+    final migrating = windowVersion < 2;
+    if (migrating) {
+      final largest = thresholdStates.isEmpty
+          ? 0
+          : thresholdStates.map((state) => state.minutesBeforeArrival).reduce((a, b) => a > b ? a : b);
+      final migrated = migrateWindowMinutes(windowStart, windowEnd, largest);
+      windowStart = migrated.start;
+      windowEnd = migrated.end;
+    }
+    return TransportAlarm(
+      id: json['id'] as String,
+      gtfsStopId: json['gtfsStopId'] as String,
+      routeApiConfigs: (json['routeApiConfigs'] as List<dynamic>?)
+              ?.map((route) => AlarmRouteConfig.fromJson(Map<String, dynamic>.from(route as Map)))
+              .toList() ??
+          const [],
+      localeCode: json['localeCode'] as String? ?? 'hk',
+      routeNumbers: (json['routeNumbers'] as Map<String, dynamic>).map((key, value) => MapEntry(key, Map<String, String>.from(value as Map)),),
+      windowStart: _minutesToTimeOfDay(windowStart),
+      windowEnd: _minutesToTimeOfDay(windowEnd),
+      maxRingsPerThreshold: json['maxRingsPerThreshold'] as int,
+      thresholdStates: thresholdStates,
+      repeat: RepeatPattern.fromJson(json['repeat'] as Map<String, dynamic>),
+      liveOnly: json['liveOnly'] as bool,
+      spent: json['spent'] as bool? ?? false,
+      message: json['message'] as String,
+      enabled: json['enabled'] as bool,
+      pingId: json['pingId'] as String?,
+      pingSecret: json['pingSecret'] as String?,
+      pingDeviceId: json['pingDeviceId'] as String?,
+      lastEstimatedMinutesUntilThreshold:
+          json['lastEstimatedMinutesUntilThreshold'] as int?,
+      // A migrated alarm's progress was planned for the old window.
+      lockedArrival: migrating ? null : LockedArrival.fromJson(json['lockedArrival']),
+      skippedArrivals: migrating
+          ? const []
+          : (json['skippedArrivals'] as List<dynamic>?)?.whereType<String>().toList() ?? const [],
+      nextBusAfterEpochSeconds:
+          migrating ? null : (json['nextBusAfterEpochSeconds'] as num?)?.toInt(),
+      windowVersion: 2,
+      checkLeadMinutes: (json['checkLeadMinutes'] as num?)?.toInt() ?? defaultCheckLeadMinutes,
+      needsReview: migrating || (json['needsReview'] as bool? ?? false),
+      androidOccurrenceStartEpochSeconds:
+          migrating ? null : json['androidOccurrenceStartEpochSeconds'] as int?,
+      androidOccurrenceEndEpochSeconds:
+          migrating ? null : json['androidOccurrenceEndEpochSeconds'] as int?,
+      androidProgressStartEpochSeconds:
+          json['androidProgressStartEpochSeconds'] as int?,
+      androidLiveNotice: json['androidLiveNotice'] as String?,
+    );
+  }
 
   static TimeOfDay _minutesToTimeOfDay(int totalMinutes) =>
     TimeOfDay(hour: totalMinutes ~/ 60, minute: totalMinutes % 60);

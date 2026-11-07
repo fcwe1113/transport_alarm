@@ -5,6 +5,7 @@ import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/widgets/alarm_card.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/transit/services/stale_data_reminder.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
@@ -85,6 +86,31 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
       _alarms = alarmList;
       _isLoading = false;
     });
+    if (alarmList.any((alarm) => alarm.needsReview)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _explainBoardingWindows());
+    }
+  }
+
+  static const _boardingWindowNoticeKey = 'boarding_window_notice_shown';
+
+  /// Once, after updating from a version where an alarm's times meant when
+  /// it watched: explains they now mean when to board, and that existing
+  /// alarms were adjusted and are marked to check.
+  Future<void> _explainBoardingWindows() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_boardingWindowNoticeKey) ?? false) return;
+    await prefs.setBool(_boardingWindowNoticeKey, true);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('boarding_window.notice.title')),
+        content: Text(AppStrings.text('boarding_window.notice.body')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok'))),
+        ],
+      ),
+    );
   }
 
   /// Turns [alarm] on or off, then reloads the list to show its saved state.

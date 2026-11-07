@@ -333,6 +333,7 @@ class GbBodsProvider extends TransitProvider {
         etaTime: timeToStation == null
             ? null
             : now.add(Duration(seconds: timeToStation)),
+        vehicleId: entry['vehicleId']?.toString(),
       );
     }).toList();
   }
@@ -643,6 +644,10 @@ class GbBodsProvider extends TransitProvider {
 
   @override
   String get providerName => "BODS"; // todo maybe branch display on selected route
+
+  // BODS vehicles are matched to GTFS trips, and TfL's carry vehicle IDs.
+  @override
+  bool get hasStableVehicleIds => true;
 
   @override
   Future<RefreshResult> refresh({

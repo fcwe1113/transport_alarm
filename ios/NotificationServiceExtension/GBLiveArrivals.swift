@@ -8,10 +8,11 @@ import SQLite3
 /// the stop. Kept small for the extension's memory limit: a streaming XML
 /// parser, a bounded number of requests, and one read-only SQLite connection.
 struct GBLiveArrivals {
-    /// Live arrival times, and the GTFS trips a feed shows as running or
-    /// already past the stop, which the timetable fallback should skip.
+    /// Live arrivals, each with whatever identifies its bus, and the GTFS
+    /// trips a feed shows as running or already past the stop, which the
+    /// timetable fallback should skip.
     struct Result {
-        var arrivals: [Date] = []
+        var arrivals: [ArrivalCandidate] = []
         var liveTripIDs: Set<String> = []
     }
 
@@ -43,20 +44,26 @@ struct GBLiveArrivals {
         defer { session.finishTasksAndInvalidate() }
         let routeNumbers = Array(routes.keys)
         let now = Date()
-        let arrivals = await Self.boundedMap(routeNumbers) { route -> [Date] in
+        let arrivals = await Self.boundedMap(routeNumbers) { route -> [ArrivalCandidate] in
             guard let encodedRoute = route.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
                   let url = URL(string: "https://api.tfl.gov.uk/Line/\(encodedRoute)/Arrivals/\(stopID)"),
                   let data = await Self.get(url, session: session),
                   let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
                 return []
             }
-            return rows.compactMap { row -> Date? in
+            return rows.compactMap { row -> ArrivalCandidate? in
                 guard (row["lineName"] as? String) == route,
                       matchesDestination(row["destinationName"] as? String, route: route, tolerant: true),
                       let seconds = (row["timeToStation"] as? NSNumber)?.doubleValue else {
                     return nil
                 }
-                return now.addingTimeInterval(seconds)
+                return ArrivalCandidate(
+                    arrival: now.addingTimeInterval(seconds),
+                    isLive: true,
+                    routeNumber: route,
+                    tripID: nil,
+                    vehicleID: row["vehicleId"] as? String
+                )
             }
         }
         return Result(arrivals: arrivals.flatMap { $0 })
@@ -100,7 +107,13 @@ struct GBLiveArrivals {
                 ) else { continue }
                 result.liveTripIDs.insert(match.tripID)
                 if let seconds = match.secondsUntilArrival {
-                    result.arrivals.append(now.addingTimeInterval(TimeInterval(seconds)))
+                    result.arrivals.append(ArrivalCandidate(
+                        arrival: now.addingTimeInterval(TimeInterval(seconds)),
+                        isLive: true,
+                        routeNumber: feed.route,
+                        tripID: match.tripID,
+                        vehicleID: nil
+                    ))
                 }
             }
         }

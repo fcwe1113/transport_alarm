@@ -13,6 +13,8 @@ enum PingAcknowledgementHandler {
         guard let data = try? Data(contentsOf: alarmsURL),
               var alarms = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
               let alarmIndex = alarms.firstIndex(where: { string($0["pingId"]) == pingID }) else { return }
+        // Saved before windows meant boarding times; stored converted on save.
+        alarms = alarms.map(AlarmWindow.migrated)
 
         var alarm = alarms[alarmIndex]
         // The server requires the ping's secret to change it.
@@ -64,7 +66,9 @@ enum PingAcknowledgementHandler {
                 alarm["thresholdStates"] = thresholds
                 alarm["spent"] = true
                 alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
-                alarm["ignoreArrivalsBeforeEpochSeconds"] = NSNull()
+                alarm["lockedArrival"] = NSNull()
+                alarm["skippedArrivals"] = [String]()
+                alarm["nextBusAfterEpochSeconds"] = NSNull()
                 alarms[alarmIndex] = alarm
                 try save(alarms, to: alarmsURL)
             } catch {
@@ -119,11 +123,12 @@ enum PingAcknowledgementHandler {
         }
     }
 
-    /// The start of a repeating alarm's next occurrence, or nil for a one-off
-    /// alarm. Uses the same window and repeat-day rules as the extension.
+    /// When a repeating alarm's next occurrence becomes active, or nil for a
+    /// one-off alarm. Uses the same window and repeat-day rules as the
+    /// extension.
     private static func nextRepeatDate(for alarm: [String: Any]) -> Date? {
         guard let window = AlarmWindow(alarm: alarm), window.frequency != "none" else { return nil }
-        return window.nextOccurrence(after: Date(), calendar: NativeTransitLocales.gregorianCalendar())?.start
+        return window.nextOccurrence(after: Date(), calendar: NativeTransitLocales.gregorianCalendar())?.activeFrom
     }
 
     private static func save(_ alarms: [[String: Any]], to url: URL) throws {

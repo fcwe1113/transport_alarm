@@ -6,26 +6,28 @@ protocol NativeTransitETAProvider {
     /// Database provider code that identifies this operator, such as `kmb`.
     var code: String { get }
 
-    /// Decodes arrival timestamps from the API response for selected routes.
-    func arrivalDates(from data: Data, matching routeNumbers: Set<String>) -> [Date]
+    /// Decodes arrival timestamps, with their route, from the API response
+    /// for selected routes.
+    func arrivals(from data: Data, matching routeNumbers: Set<String>) -> [(route: String, date: Date)]
 }
 
 extension NativeTransitETAProvider {
     /// KMB and Citybus currently share this response shape. An operator with a
     /// different API format can implement its own decoder in its provider.
-    func arrivalDates(from data: Data, matching routeNumbers: Set<String>) -> [Date] {
+    func arrivals(from data: Data, matching routeNumbers: Set<String>) -> [(route: String, date: Date)] {
         guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rows = payload["data"] as? [[String: Any]] else {
             return []
         }
 
-        return rows.compactMap { row in
+        return rows.compactMap { row -> (route: String, date: Date)? in
             guard let route = row["route"] as? String,
                   routeNumbers.contains(route),
-                  let rawETA = row["eta"] as? String else {
+                  let rawETA = row["eta"] as? String,
+                  let date = HKETADateFormats.fractional.date(from: rawETA) ?? HKETADateFormats.whole.date(from: rawETA) else {
                 return nil
             }
-            return HKETADateFormats.fractional.date(from: rawETA) ?? HKETADateFormats.whole.date(from: rawETA)
+            return (route: route, date: date)
         }
     }
 }
@@ -81,12 +83,12 @@ enum NativeTransitETAProviders {
 
     /// Routes response decoding through the operator implementation, returning
     /// no arrivals if the provider code is not registered.
-    static func arrivalDates(
+    static func arrivals(
         from data: Data,
         providerCode: String,
         matching routeNumbers: Set<String>
-    ) -> [Date] {
-        registered[providerCode]?.arrivalDates(from: data, matching: routeNumbers) ?? []
+    ) -> [(route: String, date: Date)] {
+        registered[providerCode]?.arrivals(from: data, matching: routeNumbers) ?? []
     }
 }
 
