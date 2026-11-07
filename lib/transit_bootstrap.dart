@@ -4,6 +4,7 @@ import 'package:transport_alarm/transit/cancellation.dart';
 import 'package:transport_alarm/transit/locale/transit_locale.dart';
 import 'package:transport_alarm/transit/progress_callback.dart';
 import 'package:transport_alarm/transit/services/locale_selection_service.dart';
+import 'package:transport_alarm/transit/services/staleness_tracker.dart';
 import 'package:transport_alarm/transit/services/temp_file_cleaner.dart';
 import 'package:transport_alarm/transit/transit_operation.dart';
 
@@ -58,6 +59,7 @@ Future<List<String>> _refreshEnabledLocales({
   Set<String>? onlyLocales,
 }) async {
   final failures = <String>[];
+  final tracker = StalenessTracker();
   final locales = (await LocaleSelectionService().getEnabledLocales()).keys
       .where((code) => onlyLocales == null || onlyLocales.contains(code))
       .toList();
@@ -68,6 +70,8 @@ Future<List<String>> _refreshEnabledLocales({
         cancelToken?.throwIfCancelled();
         try {
           if (!onlyStale || forceRefresh || await gtfsProvider.checkIsStale()) {
+            // syncFeed clears this once its data is installed.
+            await tracker.markStarted(gtfsProvider.locale, StalenessTracker.gtfsProviderCode);
             await gtfsProvider.syncFeed(
               onProgress: onProgress,
               cancelToken: cancelToken,
@@ -92,6 +96,7 @@ Future<List<String>> _refreshEnabledLocales({
             );
             continue;
           }
+          await tracker.markStarted(locale.config.code, transitProvider.providerCode);
           final result = await transitProvider.refresh(
             forceRefresh: forceRefresh,
             onProgress: onProgress,
@@ -102,6 +107,9 @@ Future<List<String>> _refreshEnabledLocales({
               (item) => '${transitProvider.providerName}: $item',
             ),
           );
+          if (result.failedItems.isEmpty) {
+            await tracker.markFinished(locale.config.code, transitProvider.providerCode);
+          }
           changed = true;
         } catch (error) {
           _rethrowIfCancelled(cancelToken);

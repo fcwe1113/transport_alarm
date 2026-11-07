@@ -31,10 +31,28 @@ class StalenessTracker {
     } else {
       await prefs.setString(signatureKey, signature);
     }
+    await prefs.remove(_unfinishedKey(locale, providerCode));
   }
 
-  /// True if there's no record of a refresh, it's older than [maxAge], or it
-  /// was for a different [signature].
+  /// Records that a refresh of this provider has started. Until
+  /// [markRefreshed] or [markFinished] clears it, the provider counts as
+  /// stale whatever its age, so a refresh that failed, was cancelled or
+  /// ended with the app being killed is retried by the next stale-only
+  /// refresh, without downloading the providers that finished.
+  Future<void> markStarted(String locale, String providerCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_unfinishedKey(locale, providerCode), true);
+  }
+
+  /// Clears [markStarted] for a provider that finished without calling
+  /// [markRefreshed], such as one with nothing of its own to refresh.
+  Future<void> markFinished(String locale, String providerCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_unfinishedKey(locale, providerCode));
+  }
+
+  /// True if there's no record of a refresh, it's older than [maxAge], it
+  /// was for a different [signature], or a later refresh didn't finish.
   Future<bool> isStale(
     String locale,
     String providerCode, {
@@ -42,6 +60,9 @@ class StalenessTracker {
     String? signature,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_unfinishedKey(locale, providerCode)) ?? false) {
+      return true;
+    }
     if (prefs.getString(_signatureKey(locale, providerCode)) != signature) {
       return true;
     }
@@ -70,4 +91,7 @@ class StalenessTracker {
 
   String _signatureKey(String locale, String providerCode) =>
       'staleness_${locale}_${providerCode}_signature';
+
+  String _unfinishedKey(String locale, String providerCode) =>
+      'staleness_${locale}_${providerCode}_unfinished';
 }

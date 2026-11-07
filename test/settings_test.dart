@@ -88,6 +88,26 @@ void main() {
       expect(await tracker.isStale('gb', 'gtfs', signature: 'E06000008,E08000001'), isTrue);
     });
 
+    test('a refresh that started but never finished is stale, however recent', () async {
+      await tracker.markRefreshed('hk', 'kmb');
+      await tracker.markStarted('hk', 'kmb');
+      expect(await tracker.isStale('hk', 'kmb'), isTrue);
+      // Other providers keep their own state.
+      await tracker.markRefreshed('hk', 'ctb');
+      expect(await tracker.isStale('hk', 'ctb'), isFalse);
+    });
+
+    test('finishing or completing a refresh clears the unfinished mark', () async {
+      await tracker.markRefreshed('hk', 'kmb');
+      await tracker.markStarted('hk', 'kmb');
+      await tracker.markFinished('hk', 'kmb');
+      expect(await tracker.isStale('hk', 'kmb'), isFalse);
+
+      await tracker.markStarted('hk', 'kmb');
+      await tracker.markRefreshed('hk', 'kmb');
+      expect(await tracker.isStale('hk', 'kmb'), isFalse);
+    });
+
     test('forgetting a region clears only its records', () async {
       await tracker.markRefreshed('gb', 'gtfs');
       await tracker.markRefreshed('hk', 'kmb');
