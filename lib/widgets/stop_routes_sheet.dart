@@ -109,8 +109,11 @@ class _StopRoutesSheetState extends State<StopRoutesSheet> {
             child: Center(child: CircularProgressIndicator()),
           );
         }
-        final routes = TransportRoute.dedupeByRouteNumber(
+        // One row per route and destination, the same list the add-alarm
+        // screen shows, so each direction is listed.
+        final routes = TransportRoute.dedupeByRouteAndDestination(
           snapshot.data ?? [],
+          languageCode: AppStrings.languageCode,
         );
         if (routes.isEmpty) {
           return Text(AppStrings.text('stop.no_routes'));
