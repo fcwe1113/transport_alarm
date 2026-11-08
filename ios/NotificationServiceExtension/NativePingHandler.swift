@@ -540,9 +540,13 @@ final class NativePingHandler {
         let title = (alarm["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? NativeLocalization.text("native.ring.title", values: modeValues)
         var bodyValues = modeValues
         bodyValues["minutes"] = thresholdMinutes
+        var body = NativeLocalization.text("native.ring.body", values: bodyValues)
+        if !AcknowledgeTips.usedAction {
+            body += "\n" + NativeLocalization.text("native.ring.acknowledge_hint")
+        }
         return PingResult(
             title: title,
-            body: NativeLocalization.text("native.ring.body", values: bodyValues),
+            body: body,
             categoryIdentifier: "transport_alarm_ring",
             style: .ring
         )

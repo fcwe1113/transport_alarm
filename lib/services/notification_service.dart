@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:math' show max;
 import 'dart:typed_data';
+import 'dart:ui' show DartPluginRegistrant;
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:live_update_countdown/live_update_countdown.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
+import 'package:transport_alarm/services/acknowledge_tips.dart';
 import 'package:transport_alarm/screens/ring_screen.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
+import 'package:transport_alarm/transit/services/locale_selection_service.dart';
 
 /// Android's alarm notifications: threshold rings, the live countdown, and
 /// status and problem notices, each on its own channel. iOS notices come
@@ -41,6 +45,7 @@ class NotificationService {
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       ),
       onDidReceiveNotificationResponse: _onNotificationResponse,
+      onDidReceiveBackgroundNotificationResponse: notificationBackgroundResponse,
     );
     await _createAndroidChannels();
     final launchDetails = await plugin.getNotificationAppLaunchDetails();
@@ -109,6 +114,9 @@ class NotificationService {
     required String title,
     required String body,
   }) async {
+    if (!await AcknowledgeTips.usedNotificationButton()) {
+      body = '$body\n${AppStrings.text('notification.acknowledge_hint')}';
+    }
     await plugin.show(
       id: notificationId,
       title: title,
@@ -129,11 +137,15 @@ class NotificationService {
           category: AndroidNotificationCategory.alarm,
           fullScreenIntent: true,
           visibility: NotificationVisibility.public,
+          // Expands to show every line, including the hint.
+          styleInformation: BigTextStyleInformation(body),
           actions: [
             AndroidNotificationAction(
               'acknowledge',
               AppStrings.text('notification.acknowledge_action'),
-              showsUserInterface: true,
+              // Handled by [notificationBackgroundResponse], without
+              // opening the app.
+              showsUserInterface: false,
             ),
           ],
         ),
@@ -290,5 +302,25 @@ class NotificationService {
       // The full-screen alert, or a tap on the ring notification.
       RingScreen.show(alarmId);
     }
+  }
+}
+
+/// Top-level entrypoint for the ring's Acknowledge button, which runs in a
+/// background Dart isolate so the app doesn't open.
+@pragma('vm:entry-point')
+Future<void> notificationBackgroundResponse(NotificationResponse response) async {
+  final payload = response.payload;
+  if (response.actionId != 'acknowledge' || payload == null) return;
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+  try {
+    await AcknowledgeTips.markUsedNotificationButton();
+    // The check after acknowledging can update the countdown and status.
+    await AppStrings.load(await LocaleSelectionService().getAppLanguageCode());
+    await NotificationService.initBackground();
+    await AndroidAlarmCoordinator(AlarmStorageService())
+        .acknowledge(payload.substring(payload.indexOf(':') + 1));
+  } catch (error, stackTrace) {
+    debugPrint('Acknowledging from the notification failed: $error\n$stackTrace');
   }
 }
