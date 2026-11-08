@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:transport_alarm/models/alarm_route_config.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/services/arrival_lock.dart';
+import 'package:transport_alarm/services/next_bus.dart';
 import 'package:transport_alarm/services/boarding_window.dart';
 import 'package:transport_alarm/services/bus_following.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
@@ -230,6 +231,19 @@ class AndroidAlarmCoordinator {
       onlyAfter: _fromEpochSeconds(alarm.nextBusAfterEpochSeconds),
     );
     final locked = decision.locked;
+    // The bus "Next bus" on the countdown would move to, from this check's
+    // arrivals: its time goes on the button, and with none there's no button.
+    final nextBus = locked == null || !_canSkipBus(alarm)
+        ? null
+        : nextBusAfter(
+            candidates: lookup.candidates,
+            windowStart: boarding.from,
+            windowEnd: boarding.until,
+            now: now,
+            current: locked,
+            skipped: alarm.skippedArrivals.toSet(),
+            liveOnly: alarm.liveOnly,
+          );
     debugPrint(
       '[AndroidAlarmCoordinator] ETA refresh for alarm ${alarm.id}: '
       '${locked?.arrival.toIso8601String() ?? 'no bus in the window'}',
@@ -354,7 +368,7 @@ class AndroidAlarmCoordinator {
                 ),
               )
               .toList(),
-          canSkipBus: _canSkipBus(alarm),
+          nextBusAt: nextBus?.arrival,
         );
       } else {
         await NotificationService.cancel(_countdownNotificationId(alarm.id));
@@ -397,7 +411,7 @@ class AndroidAlarmCoordinator {
               ),
             )
             .toList(),
-        canSkipBus: _canSkipBus(alarm),
+        nextBusAt: nextBus?.arrival,
       );
     } else {
       await NotificationService.cancel(_countdownNotificationId(alarm.id));
@@ -425,6 +439,16 @@ class AndroidAlarmCoordinator {
       skippedArrivals: [...alarm.skippedArrivals, ?identity],
       nextBusAfterEpochSeconds: locked.arrivalEpochSeconds,
     ));
+    await _cancel(_fireAlarmId(alarmId));
+    await _checkAlarm(alarmId);
+  }
+
+  /// "Previous bus": aims at [bus], an earlier one within the window, and
+  /// checks straight away.
+  Future<void> followBus(String alarmId, LockedArrival bus) async {
+    final alarm = await _findAlarm(alarmId);
+    if (alarm == null || alarm.lockedArrival == null || !_canSkipBus(alarm)) return;
+    await _storage.updateAlarm(followingBus(alarm, bus));
     await _cancel(_fireAlarmId(alarmId));
     await _checkAlarm(alarmId);
   }

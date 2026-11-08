@@ -185,4 +185,77 @@ void main() {
     final restored = LockedArrival.fromJson(locked.toJson())!;
     expect(restored.toJson(), locked.toJson());
   });
+
+  group('nextBusAfter', () {
+    LockedArrival? next(List<ArrivalCandidate> candidates, LockedArrival current, {Set<String> skipped = const {}}) =>
+        nextBusAfter(
+          candidates: candidates,
+          windowStart: windowStart,
+          windowEnd: windowEnd,
+          now: now,
+          current: current,
+          skipped: skipped,
+        );
+
+    test('is the earliest other bus arriving after the followed one', () {
+      final current = LockedArrival.fromCandidate(bus(8, 5, trip: 'a'), now);
+      final found = next([bus(8, 5, trip: 'a'), bus(8, 25, trip: 'c'), bus(8, 15, trip: 'b')], current);
+      expect(found?.tripId, 'b');
+    });
+
+    test('is none when the followed bus is the last in the window', () {
+      final current = LockedArrival.fromCandidate(bus(8, 25, trip: 'c'), now);
+      expect(next([bus(8, 5, trip: 'a'), bus(8, 25, trip: 'c'), bus(8, 40, trip: 'd')], current), isNull);
+    });
+
+    test('leaves out buses already skipped', () {
+      final current = LockedArrival.fromCandidate(bus(8, 5, trip: 'a'), now);
+      final found = next([bus(8, 15, trip: 'b'), bus(8, 25, trip: 'c')], current, skipped: {'trip:b'});
+      expect(found?.tripId, 'c');
+    });
+
+    test('matches the bus a skip then locks', () {
+      final current = LockedArrival.fromCandidate(bus(8, 5, trip: 'a'), now);
+      final candidates = [bus(8, 5, trip: 'a'), bus(8, 12, live: true, vehicle: 'v'), bus(8, 20, trip: 'c')];
+      final afterSkip = decide(candidates, current: current, skipped: {'trip:a'}, onlyAfter: current.arrival);
+      expect(next(candidates, current)?.toJson(), afterSkip.locked?.toJson());
+    });
+  });
+
+  group('previousBusBefore', () {
+    LockedArrival? previous(List<ArrivalCandidate> candidates, LockedArrival current, {DateTime? at}) =>
+        previousBusBefore(
+          candidates: candidates,
+          windowStart: windowStart,
+          windowEnd: windowEnd,
+          now: at ?? now,
+          current: current,
+        );
+
+    test('is the latest bus in the window arriving before the followed one', () {
+      final current = LockedArrival.fromCandidate(bus(8, 25, trip: 'c'), now);
+      final found = previous([bus(8, 5, trip: 'a'), bus(8, 15, trip: 'b'), bus(8, 25, trip: 'c')], current);
+      expect(found?.tripId, 'b');
+    });
+
+    test('is none for the first bus in the window, or one already gone', () {
+      final first = LockedArrival.fromCandidate(bus(8, 5, trip: 'a'), now);
+      expect(previous([bus(7, 50, trip: 'z'), bus(8, 5, trip: 'a')], first), isNull);
+      final current = LockedArrival.fromCandidate(bus(8, 25, trip: 'c'), now);
+      expect(previous([bus(8, 10, trip: 'b'), bus(8, 25, trip: 'c')], current, at: DateTime(2026, 11, 9, 8, 12)), isNull);
+    });
+
+    test('prefers a live bus, as picking does', () {
+      final current = LockedArrival.fromCandidate(bus(8, 25, trip: 'c'), now);
+      final found = previous([bus(8, 5, live: true, vehicle: 'v'), bus(8, 15, trip: 'b'), bus(8, 25, trip: 'c')], current);
+      expect(found?.vehicleId, 'v');
+    });
+
+    test('a bus moved back to is kept by the next check', () {
+      final current = LockedArrival.fromCandidate(bus(8, 25, trip: 'c'), now);
+      final candidates = [bus(8, 15, trip: 'b'), bus(8, 25, trip: 'c')];
+      final back = previous(candidates, current)!;
+      expect(decide(candidates, current: back).locked?.tripId, 'b');
+    });
+  });
 }

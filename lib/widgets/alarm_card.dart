@@ -4,10 +4,14 @@ import 'package:transport_alarm/models/transport_alarm.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
+import 'package:transport_alarm/services/arrival_lock.dart';
 import 'package:transport_alarm/services/bus_following.dart';
+import 'package:transport_alarm/services/next_bus.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/transit/models/threshold_state.dart';
+import 'package:transport_alarm/widgets/arrival_progress_bar.dart';
 import 'package:transport_alarm/widgets/route_pill_strip.dart';
 import 'package:flutter/material.dart';
 
@@ -42,6 +46,14 @@ class _AlarmCardState extends State<AlarmCard> with WidgetsBindingObserver {
   // extension, update the bus it's following without the list knowing.
   TransportAlarm? _saved;
   bool _skipping = false;
+  // The buses "Previous bus" and "Next bus" would move to, looked up ahead
+  // so the buttons can show their times, or stay off when there's none: for
+  // which followed bus, and when they were last looked up.
+  LockedArrival? _previousBus;
+  LockedArrival? _nextBus;
+  String? _neighboursFor;
+  DateTime? _neighboursCheckedAt;
+  bool _neighboursLoading = false;
 
   @override
   void initState() {
@@ -63,7 +75,13 @@ class _AlarmCardState extends State<AlarmCard> with WidgetsBindingObserver {
     if (old.gtfsStopId != alarm.gtfsStopId || old.localeCode != alarm.localeCode) {
       _stopFuture = _loadStop();
     }
-    if (old.id != alarm.id) _saved = null;
+    if (old.id != alarm.id) {
+      _saved = null;
+      _previousBus = null;
+      _nextBus = null;
+      _neighboursFor = null;
+      _neighboursCheckedAt = null;
+    }
     _reloadSaved();
   }
 
@@ -71,15 +89,66 @@ class _AlarmCardState extends State<AlarmCard> with WidgetsBindingObserver {
     final saved = (await AlarmStorageService().loadAlarms())
         .where((alarm) => alarm.id == widget.alarm.id)
         .firstOrNull;
-    if (mounted) setState(() => _saved = saved);
+    if (!mounted) return;
+    setState(() => _saved = saved);
+    if (saved != null) unawaited(_refreshNeighbourBuses(saved));
+  }
+
+  /// Looks up the buses "Previous bus" and "Next bus" would move to, when
+  /// the followed bus (or what's been skipped) changed, and otherwise at most
+  /// once a minute.
+  Future<void> _refreshNeighbourBuses(TransportAlarm alarm) async {
+    final locked = alarm.lockedArrival;
+    if (locked == null || !canFollowOneBus(alarm)) {
+      _previousBus = null;
+      _nextBus = null;
+      _neighboursFor = null;
+      return;
+    }
+    final key = '${locked.identity}|${locked.arrivalEpochSeconds}|${alarm.skippedArrivals.length}';
+    final checkedAt = _neighboursCheckedAt;
+    final recent = checkedAt != null && DateTime.now().difference(checkedAt) < const Duration(minutes: 1);
+    if (_neighboursLoading || (key == _neighboursFor && recent)) return;
+    if (key != _neighboursFor) {
+      setState(() {
+        _previousBus = null;
+        _nextBus = null;
+      });
+    }
+    _neighboursLoading = true;
+    ({LockedArrival? previous, LockedArrival? next}) found = (previous: null, next: null);
+    try {
+      found = await findNeighbourBuses(alarm);
+    } catch (e) {
+      // Offline or the feed failed: no bus to move to until the next look.
+      debugPrint('Could not look up the previous and next buses for ${alarm.id}: $e');
+    } finally {
+      _neighboursLoading = false;
+    }
+    _neighboursCheckedAt = DateTime.now();
+    if (mounted) {
+      setState(() {
+        _previousBus = found.previous;
+        _nextBus = found.next;
+        _neighboursFor = key;
+      });
+    }
   }
 
   /// "Next bus": stops following the current bus and looks for the next.
-  Future<void> _skipToNextBus() async {
+  Future<void> _skipToNextBus() => _changeBus(
+    (lifecycle) => lifecycle.skipToNextBus(widget.alarm.id),
+  );
+
+  /// "Previous bus": goes back to [bus], an earlier one within the window.
+  Future<void> _followPreviousBus(LockedArrival bus) => _changeBus(
+    (lifecycle) => lifecycle.followBus(widget.alarm.id, bus),
+  );
+
+  Future<void> _changeBus(Future<void> Function(AlarmLifecycleService lifecycle) change) async {
     setState(() => _skipping = true);
     try {
-      await AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService())
-          .skipToNextBus(widget.alarm.id);
+      await change(AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService()));
     } finally {
       if (mounted) setState(() => _skipping = false);
       await _reloadSaved();
@@ -303,30 +372,68 @@ class _AlarmCardState extends State<AlarmCard> with WidgetsBindingObserver {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: const LinearProgressIndicator(minHeight: 6),
-        ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                text,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+        if (locked == null)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: const LinearProgressIndicator(minHeight: 6),
+          )
+        else
+          ArrivalProgressBar(
+            // As the Android countdown notification; iOS doesn't save the
+            // countdown's start, so it runs from when the bus was chosen.
+            start: DateTime.fromMillisecondsSinceEpoch(
+              (alarm.androidProgressStartEpochSeconds ?? locked.lockedAtEpochSeconds) * 1000,
             ),
-            if (locked != null && canFollowOneBus(alarm))
-              TextButton.icon(
-                onPressed: _skipping ? null : _skipToNextBus,
-                icon: const Icon(Icons.skip_next, size: 18),
-                label: Text(AppStrings.text('alarm.next_bus')),
-              ),
-          ],
+            arrival: locked.arrival,
+            rings: [
+              for (final state in alarm.thresholdStates)
+                (
+                  time: locked.arrival.subtract(Duration(minutes: state.minutesBeforeArrival)),
+                  done: state.outcome != ThresholdOutcome.pending &&
+                      state.outcome != ThresholdOutcome.ringing,
+                ),
+            ],
+            transportMode: alarm.transportMode,
+          ),
+        const SizedBox(height: 4),
+        Text(
+          text,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        if (locked != null && canFollowOneBus(alarm)) _buildChangeBusButtons(),
+      ],
+    );
+  }
+
+  /// "Previous bus" and "Next bus", each with the time of the bus it moves
+  /// to. Each is off while that's being looked up, and when there's no such
+  /// bus within the window.
+  Widget _buildChangeBusButtons() {
+    final looked = _neighboursFor != null;
+    String label(LockedArrival? bus, String key) => bus != null
+        ? AppStrings.text('$key.at', {'time': _formatTime(TimeOfDay.fromDateTime(bus.arrival))})
+        : AppStrings.text(looked ? '$key.none' : key);
+    final previous = _previousBus;
+    final next = _nextBus;
+    return Row(
+      children: [
+        Expanded(
+          child: TextButton.icon(
+            onPressed: _skipping || previous == null ? null : () => _followPreviousBus(previous),
+            icon: const Icon(Icons.skip_previous, size: 18),
+            label: Text(label(previous, 'alarm.previous_bus'), overflow: TextOverflow.ellipsis),
+          ),
+        ),
+        Expanded(
+          child: TextButton.icon(
+            onPressed: _skipping || next == null ? null : _skipToNextBus,
+            icon: const Icon(Icons.skip_next, size: 18),
+            label: Text(label(next, 'alarm.next_bus'), overflow: TextOverflow.ellipsis),
+          ),
         ),
       ],
     );

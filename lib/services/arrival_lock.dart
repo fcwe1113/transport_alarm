@@ -263,5 +263,52 @@ List<int> thresholdsStillAhead(
     if (arrival.subtract(Duration(minutes: minutesBeforeArrival[i])).isAfter(now)) i,
 ];
 
+/// The bus "Next bus" would move to from [current]: as [decideLock] picks
+/// after a skip, so the earliest bus within the window arriving after
+/// [current], other than it or one already skipped. Null when there's none,
+/// so "Next bus" has nothing to move to.
+LockedArrival? nextBusAfter({
+  required List<ArrivalCandidate> candidates,
+  required DateTime windowStart,
+  required DateTime windowEnd,
+  required DateTime now,
+  required LockedArrival current,
+  Set<String> skipped = const {},
+  bool liveOnly = false,
+}) => decideLock(
+  candidates: candidates,
+  windowStart: windowStart,
+  windowEnd: windowEnd,
+  now: now,
+  skipped: {...skipped, ?current.identity},
+  liveOnly: liveOnly,
+  onlyAfter: current.arrival,
+).locked;
+
+/// The bus "Previous bus" would move back to from [current]: the latest bus
+/// within the window still to arrive (after [now]) and arriving before
+/// [current]. A bus skipped earlier counts, since going back to it is the
+/// point. Live buses are preferred over timetabled ones, as when picking.
+/// Null when there's none.
+LockedArrival? previousBusBefore({
+  required List<ArrivalCandidate> candidates,
+  required DateTime windowStart,
+  required DateTime windowEnd,
+  required DateTime now,
+  required LockedArrival current,
+  bool liveOnly = false,
+}) {
+  final earlier = candidates
+      .where((c) => !liveOnly || c.isLive)
+      .where((c) => c.identity == null || c.identity != current.identity)
+      .where((c) => c.arrival.isAfter(now) && c.arrival.isBefore(current.arrival))
+      .where((c) => !c.arrival.isBefore(windowStart) && !c.arrival.isAfter(windowEnd))
+      .toList()
+    ..sort((a, b) => a.arrival.compareTo(b.arrival));
+  final live = earlier.where((c) => c.isLive).toList();
+  final pool = live.isNotEmpty ? live : earlier;
+  return pool.isEmpty ? null : LockedArrival.fromCandidate(pool.last, now);
+}
+
 int _epoch(DateTime time) => time.millisecondsSinceEpoch ~/ 1000;
 DateTime _fromEpoch(int seconds) => DateTime.fromMillisecondsSinceEpoch(seconds * 1000);

@@ -145,7 +145,8 @@ class NotificationService {
   /// Shows a silent live update with a timeline ending at
   /// [estimatedArrivalTime], through the live_update_countdown plugin. With
   /// [staleSince], the arrival is from an earlier check, and the subtext
-  /// says how long ago. With [canSkipBus], it has a "Next bus" button; see
+  /// says how long ago. With [nextBusAt], the time of the bus "Next bus"
+  /// would move to, it has a "Next bus" button showing that time; see
   /// [handleCountdownActions].
   static Future<void> showCountdown({
     required int notificationId,
@@ -158,7 +159,7 @@ class NotificationService {
     required DateTime estimatedArrivalTime,
     required List<DateTime> thresholdTimes,
     DateTime? staleSince,
-    bool canSkipBus = false,
+    DateTime? nextBusAt,
   }) async {
     await LiveUpdateCountdown.show(
       id: notificationId,
@@ -176,9 +177,13 @@ class NotificationService {
       countdownTargetTime: countdownTargetTime,
       estimatedArrivalTime: estimatedArrivalTime,
       thresholdTimes: thresholdTimes,
-      actionId: canSkipBus ? _skipBusAction : null,
-      actionLabel: canSkipBus ? AppStrings.text('alarm.next_bus') : null,
-      actionArgument: canSkipBus ? alarmId : null,
+      actionId: nextBusAt != null ? _skipBusAction : null,
+      actionLabel: nextBusAt != null
+          ? AppStrings.text('alarm.next_bus.at', {
+              'time': '${nextBusAt.hour.toString().padLeft(2, '0')}:${nextBusAt.minute.toString().padLeft(2, '0')}',
+            })
+          : null,
+      actionArgument: nextBusAt != null ? alarmId : null,
     );
   }
 

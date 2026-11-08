@@ -12,7 +12,9 @@ import 'package:transport_alarm/services/orphaned_ping_store.dart';
 import 'package:transport_alarm/services/ping_watchdog_service.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
+import 'package:transport_alarm/services/arrival_lock.dart';
 import 'package:transport_alarm/services/bus_following.dart';
+import 'package:transport_alarm/services/next_bus.dart';
 
 /// Creates, edits, turns on and off, and deletes alarms, keeping each
 /// platform's scheduling in step with storage: local alarms through
@@ -221,6 +223,27 @@ class AlarmLifecycleService {
       skippedArrivals: [...alarm.skippedArrivals, ?identity],
       nextBusAfterEpochSeconds: locked.arrivalEpochSeconds,
     ));
+    await _pingSoon(alarmId, pingId, secret);
+  }
+
+  /// "Previous bus": aims at [bus], an earlier one within the window (see
+  /// findNeighbourBuses). Android checks straight away; on iOS the change is
+  /// saved for the notification extension and the next ping is brought
+  /// forward, as for "Next bus".
+  Future<void> followBus(String alarmId, LockedArrival bus) async {
+    if (Platform.isAndroid) {
+      await AndroidAlarmCoordinator(_storage).followBus(alarmId, bus);
+      return;
+    }
+    final alarm = await _find(alarmId);
+    if (alarm == null || alarm.lockedArrival == null || !canFollowOneBus(alarm)) return;
+    await _storage.updateAlarm(followingBus(alarm, bus));
+    await _pingSoon(alarmId, alarm.pingId, alarm.pingSecret);
+  }
+
+  /// Asks the server to send [pingId] in a few seconds, so the notification
+  /// extension acts on a change to the followed bus straight away.
+  Future<void> _pingSoon(String alarmId, String? pingId, String? secret) async {
     if (pingId == null || secret == null) return;
     final pingAt = DateTime.now().add(const Duration(seconds: 5));
     try {
@@ -228,7 +251,7 @@ class AlarmLifecycleService {
         await PingWatchdogService.arm(alarmId, pingAt);
       }
     } catch (e) {
-      // The next scheduled ping still picks the next bus, just later.
+      // The next scheduled ping still picks the change up, just later.
       debugPrint("Could not bring ping $pingId forward: $e");
     }
   }
