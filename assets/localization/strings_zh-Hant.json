@@ -139,7 +139,6 @@
   "alarm.validation.invalid_month_days": "輸入入了無效日子",
   "alarm.validation.required": "必需",
   "alarm.validation.comma": "請勿連串逗號",
-  "alarm.validation.window_exceeded": "輸入了超出有效時間範圍的數字",
   "alarm.validation.max_rings": "不能超過15次",
   "alarm.warning.title": "警告",
   "alarm.warning.long_window": "不建議設定有效時間範圍為超過1小時",

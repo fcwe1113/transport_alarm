@@ -139,7 +139,6 @@
   "alarm.validation.invalid_month_days": "Some days in month are invalid",
   "alarm.validation.required": "Required",
   "alarm.validation.comma": "Do not chain commas",
-  "alarm.validation.window_exceeded": "number(s) exceed alarm active window",
   "alarm.validation.max_rings": "Cannot exceed 15 times",
   "alarm.warning.title": "Warning",
   "alarm.warning.long_window": "Setting an alarm window of over 1 hour is not recommended, make sure you know what you are doing before continuing.",

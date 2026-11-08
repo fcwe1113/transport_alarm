@@ -728,14 +728,9 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             return AppStrings.text('alarm.validation.required');
           }
 
-          final currentWindow = _calculateDurationInMinutes(_leftTime, _rightTime);
           for (final item in val.split(",")) {
-            final minutes = int.tryParse(item);
-            if (minutes == null) {
+            if (int.tryParse(item) == null) {
               return AppStrings.text('alarm.validation.comma');
-            }
-            if (minutes >= currentWindow) {
-              return AppStrings.text('alarm.validation.window_exceeded');
             }
           }
 

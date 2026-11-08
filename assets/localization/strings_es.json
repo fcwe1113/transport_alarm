@@ -139,7 +139,6 @@
   "alarm.validation.invalid_month_days": "Algunos días del mes no son válidos",
   "alarm.validation.required": "Obligatorio",
   "alarm.validation.comma": "No use comas seguidas",
-  "alarm.validation.window_exceeded": "Los números exceden el rango de tiempo activo de la alarma",
   "alarm.validation.max_rings": "No puede superar las 15 veces",
   "alarm.warning.title": "Advertencia",
   "alarm.warning.long_window": "No se recomienda configurar un rango de alarma de más de 1 hora. Asegúrese de saber lo que hace antes de continuar.",
