@@ -10,6 +10,8 @@ class LiveEta {
   final String? remark;
   /// The GTFS trip the vehicle is running, if the provider can tell.
   final String? tripId;
+  /// The provider's own ID for the vehicle, where it has one (TfL).
+  final String? vehicleId;
   /// The vehicle on [tripId] has already passed the stop; [etaTime] is null.
   final bool hasPassed;
 
@@ -20,6 +22,7 @@ class LiveEta {
     this.etaTime,
     this.remark,
     this.tripId,
+    this.vehicleId,
     this.hasPassed = false,
   });
 

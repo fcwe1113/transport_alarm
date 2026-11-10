@@ -41,6 +41,14 @@ class AppGroupStorage {
     return _deviceId ??= await _channel.invokeMethod<String>('deviceId');
   }
 
+  /// iOS: whether to show, now, the tip that a ring's Acknowledge action
+  /// works without opening the app: true once, after the user acknowledged
+  /// a ring by tapping it, until they've used the action. False elsewhere.
+  static Future<bool> takeAcknowledgeTip() async {
+    if (!Platform.isIOS) return false;
+    return await _channel.invokeMethod<bool>('takeAcknowledgeTip') ?? false;
+  }
+
   /// Mirrors the selected app language into the iOS App Group for extensions.
   static Future<void> setAppLanguageCode(String languageCode) async {
     if (!Platform.isIOS) return;

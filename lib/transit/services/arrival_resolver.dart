@@ -1,4 +1,5 @@
 import 'package:transport_alarm/models/scheduled_departure.dart';
+import 'package:transport_alarm/services/arrival_lock.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/route_arrival.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
@@ -107,6 +108,45 @@ Future<List<RouteArrival>> resolveArrivals({
 
   arrivals.sort((a, b) => a.minutesFromNow.compareTo(b.minutesFromNow));
   return arrivals;
+}
+
+/// Every bus on the alarm's routes in [routeNumberFilter] that could reach
+/// [gtfsStopId] soon, for an alarm to choose from: each live prediction (with
+/// its trip or vehicle ID where the provider has one), then each timetabled
+/// departure not already tracked live.
+Future<List<ArrivalCandidate>> resolveArrivalCandidates({
+  required String gtfsStopId,
+  required Map<String, Map<String, String>> routeNumberFilter,
+  required String locale,
+  void Function()? onLiveFetchFailed,
+}) async {
+  final db = GtfsDatabase.forLocale(locale);
+  final gtfsStop = await db.getGtfsStopById(gtfsStopId);
+  if (gtfsStop == null) return const [];
+  final allLiveEtas = await _fetchLiveEtaForFilteredRoutes(gtfsStop, routeNumberFilter, onLiveFetchFailed);
+  final scheduled = withoutLiveTrips(
+    await db.getUpcomingDepartures(gtfsStopId, limit: 100),
+    allLiveEtas,
+  );
+  return [
+    for (final eta in allLiveEtas)
+      if (eta.etaTime != null && routeNumberFilter.containsKey(eta.routeNumber))
+        ArrivalCandidate(
+          arrival: eta.etaTime!.toLocal(),
+          isLive: true,
+          routeNumber: eta.routeNumber,
+          tripId: eta.tripId,
+          vehicleId: eta.vehicleId,
+        ),
+    for (final departure in scheduled)
+      if (routeNumberFilter.containsKey(departure.routeShortName))
+        ArrivalCandidate(
+          arrival: DateTime.now().add(Duration(minutes: departure.minutesFromNow)),
+          isLive: false,
+          routeNumber: departure.routeShortName,
+          tripId: departure.tripId,
+        ),
+  ];
 }
 
 /// Splits a saved "provider:id" operator stop ID; null if it isn't one.

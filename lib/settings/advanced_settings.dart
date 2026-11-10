@@ -30,7 +30,12 @@ class AdvancedSettings {
   /// Days before downloaded data counts as out of date.
   static const refreshIntervalDays = AdvancedSetting('advanced_refresh_interval_days', 7, [1, 3, 7, 14, 30]);
 
-  static const all = [parallelRequests, timetableRowsPerCommit, refreshIntervalDays];
+  /// Minutes before the earliest possible ring that an alarm starts
+  /// checking for its bus. Copied onto each alarm (checkLeadMinutes), which
+  /// the alarm checks and the iOS notification extension read.
+  static const checkLeadMinutes = AdvancedSetting('advanced_check_lead_minutes', 10, [5, 10, 15, 20, 30]);
+
+  static const all = [parallelRequests, timetableRowsPerCommit, refreshIntervalDays, checkLeadMinutes];
 
   static final Map<String, int> _values = {};
 

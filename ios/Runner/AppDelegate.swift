@@ -35,10 +35,12 @@ import UserNotifications
     ) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        // No .foreground: acknowledging runs in the background, without
+        // opening the app.
         let acknowledge = UNNotificationAction(
             identifier: Self.acknowledgeAction,
             title: NativeLocalization.text("native.acknowledge"),
-            options: [.foreground]
+            options: []
         )
         center.setNotificationCategories([
             UNNotificationCategory(identifier: Self.ringCategory, actions: [acknowledge], intentIdentifiers: [], options: []),
@@ -116,6 +118,8 @@ import UserNotifications
                     // Read by NativeLocalization in every target.
                     UserDefaults(suiteName: AppGroup.identifier)?.set(languageCode, forKey: "app_language_code")
                     result(true)
+                case "takeAcknowledgeTip":
+                    result(AcknowledgeTips.takeTip())
                 default:
                     result(FlutterMethodNotImplemented)
                 }
@@ -241,6 +245,11 @@ import UserNotifications
         guard isAlarmRing && (isAcknowledgement || isNotificationTap) else {
             super.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
             return
+        }
+        if isAcknowledgement {
+            AcknowledgeTips.markUsedAction()
+        } else {
+            AcknowledgeTips.markAcknowledgedByOpening()
         }
 
         let info = response.notification.request.content.userInfo

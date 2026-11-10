@@ -7,6 +7,7 @@ import 'package:transport_alarm/screens/map_screen.dart';
 import 'package:transport_alarm/services/alarm_server_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/ios_settings_service.dart';
+import 'package:transport_alarm/settings/advanced_settings.dart';
 import 'package:transport_alarm/services/notification_service.dart';
 import 'package:transport_alarm/transit/models/transport_route.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
@@ -330,6 +331,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         message: _messageController.text,
         localeCode: _selectedStop!.locale,
         enabled: true,
+        checkLeadMinutes: AdvancedSettings.value(AdvancedSettings.checkLeadMinutes),
     );
 
     final lifecycle = AlarmLifecycleService(storage: AlarmStorageService(), server: AlarmServerService());
@@ -571,7 +573,7 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, borderRadius: BorderRadius.circular(10)),
             child: Text(AppStrings.text('alarm.duration', {'minutes': _calculateDurationInMinutes(_leftTime, _rightTime)}), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),),
-          ), const SizedBox(height: 2,), const Icon(Icons.arrow_forward, size: 20,)
+          ), const SizedBox(height: 2,), Text(AppStrings.text('alarm.time_window.and')),
           ],),
 
           // right time button
@@ -580,6 +582,8 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             if (picked != null) _onRightTimeChanged(picked);
           }, label: Text(_formatTime(_rightTime)), icon: const Icon(Icons.access_time))
         ],),
+        const SizedBox(height: 8,),
+        _buildCheckStartHint(),
         const SizedBox(height: 12,),
         Row(children: [Text(AppStrings.text('alarm.slider.zero')), Expanded(child: Slider(
           value: _sliderMinutes + 0.0,
@@ -591,6 +595,28 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
         )), Text(AppStrings.text('alarm.slider.maximum'))],)
       ],)
     ,),);
+  }
+
+  /// When the alarm starts checking for a bus: the lead time before the
+  /// earliest possible ring, the window start minus the largest threshold.
+  Widget _buildCheckStartHint() {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _thresholdController,
+      builder: (context, value, _) {
+        final largest = value.text
+            .split(",")
+            .map((t) => int.tryParse(t.trim()))
+            .whereType<int>()
+            .fold(0, (a, b) => a > b ? a : b);
+        final lead = AdvancedSettings.value(AdvancedSettings.checkLeadMinutes);
+        // Wrapped first: the start can fall before midnight.
+        final startsAt = _fromMinutes((_toMinutes(_leftTime) - largest - lead) % (24 * 60));
+        return Text(
+          AppStrings.text('alarm.starts_checking', {'time': _formatTime(startsAt)}),
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
+        );
+      },
+    );
   }
 
   /// The stop search box, or a loading placeholder while stops load, with
@@ -702,14 +728,9 @@ class _AddAlarmScreenState extends State<AddAlarmScreen> {
             return AppStrings.text('alarm.validation.required');
           }
 
-          final currentWindow = _calculateDurationInMinutes(_leftTime, _rightTime);
           for (final item in val.split(",")) {
-            final minutes = int.tryParse(item);
-            if (minutes == null) {
+            if (int.tryParse(item) == null) {
               return AppStrings.text('alarm.validation.comma');
-            }
-            if (minutes >= currentWindow) {
-              return AppStrings.text('alarm.validation.window_exceeded');
             }
           }
 

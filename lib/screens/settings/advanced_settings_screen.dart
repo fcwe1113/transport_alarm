@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_strings.dart';
+import '../../services/alarm_storage_service.dart';
 import '../../services/app_data_export.dart';
 import '../../settings/advanced_settings.dart';
 import '../../widgets/app_shell.dart';
@@ -46,17 +47,28 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             {'count': value},
           ),
         ),
+        (
+          setting: AdvancedSettings.checkLeadMinutes,
+          key: 'settings.advanced.check_lead',
+          label: (value) => AppStrings.text('alarm.duration', {'minutes': value}),
+        ),
       ];
 
   Future<void> _set(AdvancedSetting setting, int value) async {
     await AdvancedSettings.set(setting, value);
+    if (setting == AdvancedSettings.checkLeadMinutes) await _applyCheckLead();
     if (mounted) setState(() {});
   }
 
   Future<void> _reset() async {
     await AdvancedSettings.resetToDefaults();
+    await _applyCheckLead();
     if (mounted) setState(() {});
   }
+
+  /// The alarm checks read the lead time from each alarm, so it's copied on.
+  Future<void> _applyCheckLead() => AlarmStorageService()
+      .setCheckLeadMinutes(AdvancedSettings.value(AdvancedSettings.checkLeadMinutes));
 
   bool _exporting = false;
 

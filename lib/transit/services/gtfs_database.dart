@@ -53,6 +53,16 @@ class GtfsDatabase {
   // run the routes query once. Cleared whenever the active database changes.
   final Map<String, Future<List<TransportRoute>>> _routesForStopCache = {};
 
+  /// Stop times this import may hold before its indexes are built, rather
+  /// than waiting for the end of the import. Building an index sorts every
+  /// row, and Android's SQLite keeps that sort in memory (about 75 bytes a
+  /// row for both indexes), so building after many GB regions at once could
+  /// get the app killed. Past this many rows the indexes are built once, and
+  /// later inserts update them as they go.
+  static const _unindexedStopTimesLimit = 2000000;
+  bool _stopTimesIndexed = false;
+  int? _unindexedStopTimes;
+
   GtfsDatabase._(this.locale, {String? databasePath})
     : _explicitDatabasePath = databasePath;
 
@@ -519,6 +529,34 @@ class GtfsDatabase {
     await db.execute(
       '''CREATE INDEX IF NOT EXISTS idx_stop_times_trip_ends ON gtfs_stop_times(trip_id, stop_sequence, stop_id)''',
     );
+    _stopTimesIndexed = true;
+  }
+
+  /// Builds the stop_times indexes once the import passes
+  /// [_unindexedStopTimesLimit] rows. [added] is the batch just inserted.
+  /// The count starts from the table, which may hold earlier regions' rows.
+  Future<void> _indexStopTimesIfLarge(int added) async {
+    if (_stopTimesIndexed) return;
+    final unindexed = _unindexedStopTimes;
+    if (unindexed == null) {
+      final db = await database;
+      final existing = await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_stop_times_lookup'",
+      );
+      if (existing.isNotEmpty) {
+        _stopTimesIndexed = true;
+        return;
+      }
+      _unindexedStopTimes = Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM gtfs_stop_times'),
+          ) ??
+          0;
+    } else {
+      _unindexedStopTimes = unindexed + added;
+    }
+    if (_unindexedStopTimes! >= _unindexedStopTimesLimit) {
+      await createStopTimesIndexes();
+    }
   }
 
   Future<void> _createCalendarDatesTable(DatabaseExecutor db) async {
@@ -680,8 +718,8 @@ class GtfsDatabase {
         },
       );
 
-  Future<void> batchInsertStopTimes(List<dynamic> header, List<List<dynamic>> rows) =>
-      _insertGtfsRows(
+  Future<void> batchInsertStopTimes(List<dynamic> header, List<List<dynamic>> rows) async {
+    await _insertGtfsRows(
         'stop_times.txt',
         'gtfs_stop_times',
         header,
@@ -696,6 +734,8 @@ class GtfsDatabase {
         // No unique key to replace on, so rows are only ever added.
         replace: false,
       );
+    await _indexStopTimesIfLarge(rows.length);
+  }
 
   Future<void> upsertOperatorStops(List<TransportStop> stops) async {
     final batch = (await database).batch();

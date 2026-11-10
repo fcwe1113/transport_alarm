@@ -2,9 +2,11 @@ import 'package:transport_alarm/screens/add_alarm_screen.dart';
 import 'package:transport_alarm/screens/loading_screen.dart';
 import 'package:transport_alarm/services/alarm_lifecycle_service.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
+import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/widgets/alarm_card.dart';
 import 'package:transport_alarm/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/transit/services/stale_data_reminder.dart';
 import 'package:transport_alarm/transit_bootstrap.dart';
@@ -21,7 +23,7 @@ class AlarmListScreen extends StatefulWidget {
   State<AlarmListScreen> createState() => _AlarmListScreenState();
 }
 
-class _AlarmListScreenState extends State<AlarmListScreen> {
+class _AlarmListScreenState extends State<AlarmListScreen> with WidgetsBindingObserver {
   final _storage = AlarmStorageService();
   late final _lifecycle = AlarmLifecycleService(storage: _storage, server: AlarmServerService());
   List<TransportAlarm> _alarms = [];
@@ -33,11 +35,39 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadAlarms();
+    _showAcknowledgeTipSoon();
     if (!_checkedStaleData) {
       _checkedStaleData = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _remindIfStale());
     }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _showAcknowledgeTipSoon();
+  }
+
+  /// iOS, once: after the user opened the app by tapping a ring to
+  /// acknowledge it, says the notification's action does that without
+  /// opening the app. A moment later, as iOS can report the tap just after
+  /// the app comes back.
+  void _showAcknowledgeTipSoon() {
+    Future<void>.delayed(const Duration(seconds: 1), () async {
+      if (!await AppGroupStorage.takeAcknowledgeTip() || !mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(AppStrings.text('alarm_list.acknowledge_tip')),
+        duration: const Duration(seconds: 10),
+        showCloseIcon: true,
+      ));
+    });
   }
 
   Future<void> _remindIfStale() async {
@@ -85,6 +115,31 @@ class _AlarmListScreenState extends State<AlarmListScreen> {
       _alarms = alarmList;
       _isLoading = false;
     });
+    if (alarmList.any((alarm) => alarm.needsReview)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _explainBoardingWindows());
+    }
+  }
+
+  static const _boardingWindowNoticeKey = 'boarding_window_notice_shown';
+
+  /// Once, after updating from a version where an alarm's times meant when
+  /// it watched: explains they now mean when to board, and that existing
+  /// alarms were adjusted and are marked to check.
+  Future<void> _explainBoardingWindows() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_boardingWindowNoticeKey) ?? false) return;
+    await prefs.setBool(_boardingWindowNoticeKey, true);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.text('boarding_window.notice.title')),
+        content: Text(AppStrings.text('boarding_window.notice.body')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(AppStrings.text('common.ok'))),
+        ],
+      ),
+    );
   }
 
   /// Turns [alarm] on or off, then reloads the list to show its saved state.

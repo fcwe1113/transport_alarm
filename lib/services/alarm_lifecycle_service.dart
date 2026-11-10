@@ -12,6 +12,9 @@ import 'package:transport_alarm/services/orphaned_ping_store.dart';
 import 'package:transport_alarm/services/ping_watchdog_service.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
+import 'package:transport_alarm/services/arrival_lock.dart';
+import 'package:transport_alarm/services/bus_following.dart';
+import 'package:transport_alarm/services/next_bus.dart';
 
 /// Creates, edits, turns on and off, and deletes alarms, keeping each
 /// platform's scheduling in step with storage: local alarms through
@@ -157,7 +160,9 @@ class AlarmLifecycleService {
           .map((t) => ThresholdState(minutesBeforeArrival: t.minutesBeforeArrival))
           .toList(),
       clearLastEstimatedMinutesUntilThreshold: true,
-      clearIgnoreArrivalsBefore: true,
+      clearLockedArrival: true,
+      skippedArrivals: const [],
+      clearNextBusAfter: true,
       clearPingId: Platform.isAndroid,
     );
     if (!Platform.isAndroid) {
@@ -191,11 +196,64 @@ class AlarmLifecycleService {
         enabled: false,
         clearPingId: true,
         clearAndroidOccurrence: true,
-        clearAndroidFallbackArrival: true,
-        clearAndroidLastArrival: true,
+        clearLockedArrival: true,
+        skippedArrivals: const [],
+        clearNextBusAfter: true,
       ),
     );
     return const AlarmActionResult.success();
+  }
+
+  /// "Next bus": the alarm stops aiming at its locked bus, which isn't
+  /// picked again this occurrence, and looks for the next one within its
+  /// window. On Android that happens straight away; on iOS the next ping is
+  /// brought forward to now, and the notification extension picks it.
+  Future<void> skipToNextBus(String alarmId) async {
+    if (Platform.isAndroid) {
+      await AndroidAlarmCoordinator(_storage).skipToNextBus(alarmId);
+      return;
+    }
+    final alarm = await _find(alarmId);
+    final locked = alarm?.lockedArrival;
+    final pingId = alarm?.pingId;
+    final secret = alarm?.pingSecret;
+    if (alarm == null || locked == null || !canFollowOneBus(alarm)) return;
+    final identity = locked.identity;
+    await _storage.updateAlarm(alarm.copyWith(
+      skippedArrivals: [...alarm.skippedArrivals, ?identity],
+      nextBusAfterEpochSeconds: locked.arrivalEpochSeconds,
+    ));
+    await _pingSoon(alarmId, pingId, secret);
+  }
+
+  /// "Previous bus": aims at [bus], an earlier one within the window (see
+  /// findNeighbourBuses). Android checks straight away; on iOS the change is
+  /// saved for the notification extension and the next ping is brought
+  /// forward, as for "Next bus".
+  Future<void> followBus(String alarmId, LockedArrival bus) async {
+    if (Platform.isAndroid) {
+      await AndroidAlarmCoordinator(_storage).followBus(alarmId, bus);
+      return;
+    }
+    final alarm = await _find(alarmId);
+    if (alarm == null || alarm.lockedArrival == null || !canFollowOneBus(alarm)) return;
+    await _storage.updateAlarm(followingBus(alarm, bus));
+    await _pingSoon(alarmId, alarm.pingId, alarm.pingSecret);
+  }
+
+  /// Asks the server to send [pingId] in a few seconds, so the notification
+  /// extension acts on a change to the followed bus straight away.
+  Future<void> _pingSoon(String alarmId, String? pingId, String? secret) async {
+    if (pingId == null || secret == null) return;
+    final pingAt = DateTime.now().add(const Duration(seconds: 5));
+    try {
+      if (await _server.reschedule(pingId: pingId, secret: secret, time: pingAt)) {
+        await PingWatchdogService.arm(alarmId, pingAt);
+      }
+    } catch (e) {
+      // The next scheduled ping still picks the change up, just later.
+      debugPrint("Could not bring ping $pingId forward: $e");
+    }
   }
 
   Future<void> deleteAlarm(String alarmId) async {
@@ -271,25 +329,14 @@ class AlarmLifecycleService {
     );
   }
 
-  /// When the first ping should arrive: shortly if the window is open now,
-  /// otherwise at the next window start on a day the alarm repeats on.
+  /// When the first ping should arrive: shortly if an occurrence is active
+  /// now, otherwise when the next one becomes active (see BoardingOccurrence).
   DateTime _firstPingTime(TransportAlarm alarm) {
     final now = DateTime.now();
-    if (alarm.isWithinWindow(TimeOfDay.now())) {
+    if (alarm.activeOccurrenceAt(now) != null) {
       return now.add(const Duration(seconds: 10));
     }
-    for (var offset = 0; offset <= 370; offset++) {
-      final day = DateTime(now.year, now.month, now.day + offset);
-      final start = DateTime(
-        day.year,
-        day.month,
-        day.day,
-        alarm.windowStart.hour,
-        alarm.windowStart.minute,
-      );
-      if (start.isAfter(now) && alarm.repeat.occursOn(day)) return start;
-    }
-    return now.add(const Duration(seconds: 10));
+    return alarm.nextOccurrenceAfter(now).activeFrom;
   }
 }
 

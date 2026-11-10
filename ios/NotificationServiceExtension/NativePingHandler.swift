@@ -121,7 +121,7 @@ final class NativePingHandler {
             guard let next = window.nextOccurrence(after: now, calendar: calendar) else {
                 throw PingHandlerError.invalidAlarmData
             }
-            return .beforeWindow(start: next.start)
+            return .beforeWindow(start: next.activeFrom)
         }
 
         if alarm["spent"] as? Bool == true {
@@ -206,8 +206,7 @@ final class NativePingHandler {
         }
         alarms[index]["thresholdStates"] = thresholdStates
         alarms[index]["spent"] = false
-        alarms[index]["lastEstimatedMinutesUntilThreshold"] = NSNull()
-        alarms[index]["ignoreArrivalsBeforeEpochSeconds"] = NSNull()
+        Self.clearOccurrenceProgress(&alarms[index])
         try saveAlarms(alarms)
     }
 
@@ -271,6 +270,27 @@ final class NativePingHandler {
         pingID: String
     ) async throws -> PingResult {
         let estimate = try await refreshEstimate(alarms: &alarms, index: index, thresholdIndex: thresholdIndex)
+        switch estimate.outcome {
+        case .tooLate, .noBus(windowPassed: true):
+            // A bus too close for every threshold rings nothing, and no bus
+            // by the window's end won't come: either way the occurrence ends.
+            return try await concludeOccurrence(
+                alarms: &alarms,
+                index: index,
+                thresholdStates: Self.sortedThresholds(of: alarms[index]),
+                pingID: pingID,
+                windowEnded: true
+            )
+        default:
+            break
+        }
+        if estimate.activeIndex != thresholdIndex {
+            // Thresholds already past when the bus was picked were skipped:
+            // decide again for the next one.
+            try saveAlarms(alarms)
+            let next = try decide(alarm: alarms[index], now: Date())
+            return try await act(on: next, alarms: &alarms, index: index, pingID: pingID)
+        }
         guard let estimateUntilThreshold = estimate.untilThreshold else {
             let retryAt = Date().addingTimeInterval(5 * 60)
             try await reschedule(pingID: pingID, at: retryAt, requireAck: false)
@@ -315,60 +335,124 @@ final class NativePingHandler {
         return ringResult(alarm: alarms[index], thresholdMinutes: estimate.thresholdMinutes)
     }
 
-    /// Fetches a fresh arrival estimate for the given threshold and stores it
-    /// on the alarm (unsaved), falling back to the last good value so a
-    /// transient API failure doesn't stop the alarm.
+    /// What a ping found when choosing its bus.
+    private enum LockOutcome {
+        /// The lookup timed out with no bus chosen before.
+        case unavailable
+        /// No bus is arriving within the window; [windowPassed] once its end
+        /// has passed, when none will.
+        case noBus(windowPassed: Bool)
+        /// The bus first picked is too close for every threshold.
+        case tooLate
+        case locked(LockedArrival, stale: Bool)
+    }
+
+    private struct Estimate {
+        let thresholdMinutes: Int
+        /// Minutes from now until the active threshold, or nil without a bus.
+        let untilThreshold: Int?
+        let outcome: LockOutcome
+        /// The threshold to aim at, which moves on when thresholds already
+        /// past are skipped as a bus is first picked.
+        let activeIndex: Int
+    }
+
+    /// Chooses the bus to aim at this ping (see ArrivalLock.decide) and
+    /// stores it on the alarm, unsaved, with the minutes left until the
+    /// given threshold.
     private func refreshEstimate(
         alarms: inout [[String: Any]],
         index: Int,
         thresholdIndex: Int
-    ) async throws -> (thresholdMinutes: Int, untilThreshold: Int?) {
+    ) async throws -> Estimate {
         let thresholdStates = Self.sortedThresholds(of: alarms[index])
         alarms[index]["thresholdStates"] = thresholdStates
         guard let thresholdMinutes = Self.intValue(thresholdStates[thresholdIndex]["minutesBeforeArrival"]) else {
             throw PingHandlerError.invalidAlarmData
         }
-        let cachedEstimateUntilThreshold = Self.intValue(alarms[index]["lastEstimatedMinutesUntilThreshold"])
-        let isFreshOccurrence = cachedEstimateUntilThreshold == nil &&
-            !thresholdStates.isEmpty &&
-            thresholdStates.allSatisfy { ($0["outcome"] as? String ?? "pending") == "pending" }
-        // The first check skips buses too close to make the first threshold,
-        // and the cutoff is kept so later checks don't latch on to them either.
-        let now = Int(Date().timeIntervalSince1970)
-        let ignoreArrivalsBefore = Self.intValue(alarms[index]["ignoreArrivalsBeforeEpochSeconds"]) ??
-            (isFreshOccurrence
-                ? thresholdStates.compactMap { Self.intValue($0["minutesBeforeArrival"]) }.max().map { now + $0 * 60 }
-                : nil)
-        let minimumArrivalMinutes = ignoreArrivalsBefore.map { max(0, ($0 - now + 59) / 60) }
-        let freshArrivalEstimate = await estimateWithinBudget(
-            for: alarms[index],
-            minimumArrivalMinutes: minimumArrivalMinutes
-        )
-        let freshEstimateUntilThreshold = freshArrivalEstimate.map { $0 - thresholdMinutes }
-        if let freshEstimateUntilThreshold {
-            alarms[index]["lastEstimatedMinutesUntilThreshold"] = freshEstimateUntilThreshold
-            if let ignoreArrivalsBefore {
-                alarms[index]["ignoreArrivalsBeforeEpochSeconds"] = ignoreArrivalsBefore
-            }
+        let outcome = await updateLock(alarms: &alarms, index: index)
+        let states = Self.sortedThresholds(of: alarms[index])
+        let activeIndex = states.firstIndex {
+            let outcome = $0["outcome"] as? String
+            return outcome == "pending" || outcome == "ringing"
+        } ?? thresholdIndex
+        guard case .locked(let locked, _) = outcome else {
+            return Estimate(thresholdMinutes: thresholdMinutes, untilThreshold: nil, outcome: outcome, activeIndex: activeIndex)
         }
-        return (thresholdMinutes, freshEstimateUntilThreshold ?? cachedEstimateUntilThreshold)
+        let untilThreshold = Int(locked.arrival.timeIntervalSinceNow / 60) - thresholdMinutes
+        alarms[index]["lastEstimatedMinutesUntilThreshold"] = untilThreshold
+        return Estimate(thresholdMinutes: thresholdMinutes, untilThreshold: untilThreshold, outcome: outcome, activeIndex: activeIndex)
     }
 
-    /// Runs [estimateMinutesUntilArrival] until [estimateBudget] after the
-    /// ping arrived. Past that, the lookup is cancelled and this returns nil,
-    /// as for a failed fetch, so the ping still has time to reschedule.
-    private func estimateWithinBudget(
-        for alarm: [String: Any],
-        minimumArrivalMinutes: Int?
-    ) async -> Int? {
+    /// Looks up this ping's buses, decides which to follow, and saves it on
+    /// the alarm, unsaved. When a bus is first picked, thresholds already
+    /// past are marked missed.
+    private func updateLock(alarms: inout [[String: Any]], index: Int) async -> LockOutcome {
+        let alarm = alarms[index]
+        let now = Date()
+        guard let window = AlarmWindow(alarm: alarm),
+              let occurrence = window.activeOccurrence(at: now, calendar: NativeTransitLocales.gregorianCalendar()) else {
+            return .noBus(windowPassed: true)
+        }
+        let current = LockedArrival(json: alarm["lockedArrival"])
+        let thresholdStates = Self.sortedThresholds(of: alarm)
+        let fresh = current == nil &&
+            thresholdStates.allSatisfy { ($0["outcome"] as? String ?? "pending") == "pending" }
+        let candidates = await candidatesWithinBudget(for: alarm)
+        if candidates == nil && current == nil { return .unavailable }
+        let decision = ArrivalLock.decide(
+            candidates: candidates ?? [],
+            windowStart: occurrence.boardFrom,
+            windowEnd: occurrence.boardUntil,
+            now: now,
+            current: current,
+            skipped: Set(alarm["skippedArrivals"] as? [String] ?? []),
+            liveOnly: alarm["liveOnly"] as? Bool == true,
+            stableIDs: Self.followsOneBus(alarm),
+            onlyAfter: (alarm["nextBusAfterEpochSeconds"] as? NSNumber).map {
+                Date(timeIntervalSince1970: $0.doubleValue)
+            }
+        )
+        guard let locked = decision.locked else {
+            alarms[index]["lockedArrival"] = NSNull()
+            return .noBus(windowPassed: now >= occurrence.boardUntil)
+        }
+        alarms[index]["lockedArrival"] = locked.json
+        // Once "Next bus" has found its bus, later picks are unrestricted.
+        if decision.changedBus { alarms[index]["nextBusAfterEpochSeconds"] = NSNull() }
+        if fresh {
+            let minutes = thresholdStates.map { Self.intValue($0["minutesBeforeArrival"]) ?? 0 }
+            let ahead = ArrivalLock.thresholdsStillAhead(minutes, arrival: locked.arrival, now: now)
+            guard let firstAhead = ahead.first else { return .tooLate }
+            if firstAhead > 0 {
+                var states = thresholdStates
+                for skipped in 0..<firstAhead { states[skipped]["outcome"] = "missed" }
+                alarms[index]["thresholdStates"] = states
+            }
+        }
+        return .locked(locked, stale: decision.stale)
+    }
+
+    /// Whether every route of the alarm can follow one bus: BODS and TfL
+    /// identify buses, the HK operators don't. The app's canFollowOneBus.
+    private static func followsOneBus(_ alarm: [String: Any]) -> Bool {
+        let configs = alarm["routeApiConfigs"] as? [[String: Any]] ?? []
+        if configs.isEmpty { return (alarm["localeCode"] as? String) == "gb" }
+        return configs.allSatisfy { ($0["providerCode"] as? String) == "bods" }
+    }
+
+    /// Runs [arrivalCandidates] until [estimateBudget] after the ping
+    /// arrived. Past that, the lookup is cancelled and this returns nil, as
+    /// for a failed fetch, so the ping still has time to reschedule.
+    private func candidatesWithinBudget(for alarm: [String: Any]) async -> [ArrivalCandidate]? {
         let remaining = Self.estimateBudget - Date().timeIntervalSince(receivedAt)
         guard remaining > 0 else {
             estimateTimedOut = true
             return nil
         }
-        let outcome: Int?? = await withTaskGroup(of: Int??.self) { group in
+        let outcome: [ArrivalCandidate]?? = await withTaskGroup(of: [ArrivalCandidate]??.self) { group in
             group.addTask {
-                .some(await self.estimateMinutesUntilArrival(for: alarm, minimumArrivalMinutes: minimumArrivalMinutes))
+                .some(await self.arrivalCandidates(for: alarm))
             }
             group.addTask {
                 try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
@@ -393,16 +477,25 @@ final class NativePingHandler {
         }
     }
 
-    /// Whether the alarm has started its current occurrence: it has an
-    /// estimate, or a threshold has moved on from pending.
+    /// Whether the alarm has started its current occurrence: it's following
+    /// a bus, has an estimate, or a threshold has moved on from pending.
     private static func occurrenceInProgress(
         _ alarm: [String: Any],
         thresholdStates: [[String: Any]]
     ) -> Bool {
         alarm["spent"] as? Bool != true && (
-            intValue(alarm["lastEstimatedMinutesUntilThreshold"]) != nil ||
+            LockedArrival(json: alarm["lockedArrival"]) != nil ||
+                intValue(alarm["lastEstimatedMinutesUntilThreshold"]) != nil ||
                 thresholdStates.contains { ($0["outcome"] as? String ?? "pending") != "pending" }
         )
+    }
+
+    /// Clears what an occurrence chose, for the next one.
+    private static func clearOccurrenceProgress(_ alarm: inout [String: Any]) {
+        alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
+        alarm["lockedArrival"] = NSNull()
+        alarm["skippedArrivals"] = [String]()
+        alarm["nextBusAfterEpochSeconds"] = NSNull()
     }
 
     /// Ends the current occurrence, because its thresholds are done or its
@@ -417,8 +510,7 @@ final class NativePingHandler {
         var alarm = alarms[index]
         alarm["thresholdStates"] = thresholdStates
         alarm["spent"] = true
-        alarm["lastEstimatedMinutesUntilThreshold"] = NSNull()
-        alarm["ignoreArrivalsBeforeEpochSeconds"] = NSNull()
+        Self.clearOccurrenceProgress(&alarm)
         if repeatFrequency(of: alarm) != "none" {
             let nextRepeat = try nextRepeatDate(for: alarm)
             try await reschedule(pingID: pingID, at: nextRepeat, requireAck: false)
@@ -448,9 +540,13 @@ final class NativePingHandler {
         let title = (alarm["message"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? NativeLocalization.text("native.ring.title", values: modeValues)
         var bodyValues = modeValues
         bodyValues["minutes"] = thresholdMinutes
+        var body = NativeLocalization.text("native.ring.body", values: bodyValues)
+        if !AcknowledgeTips.usedAction {
+            body += "\n" + NativeLocalization.text("native.ring.acknowledge_hint")
+        }
         return PingResult(
             title: title,
-            body: NativeLocalization.text("native.ring.body", values: bodyValues),
+            body: body,
             categoryIdentifier: "transport_alarm_ring",
             style: .ring
         )
@@ -469,7 +565,9 @@ final class NativePingHandler {
         guard let alarms = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw PingHandlerError.invalidAlarmData
         }
-        return alarms
+        // Saved before windows meant boarding times; stored converted on the
+        // next save.
+        return alarms.map(AlarmWindow.migrated)
     }
 
     /// Atomically writes the updated alarm list so an interrupted write does not
@@ -506,22 +604,20 @@ final class NativePingHandler {
 
     // MARK: Arrival estimate (GTFS SQLite plus provider APIs)
 
-    /// Finds the earliest matching live ETA through registered operators. If no
-    /// live result exists, uses the GTFS schedule unless the alarm is live-only.
-    private func estimateMinutesUntilArrival(
-        for alarm: [String: Any],
-        minimumArrivalMinutes: Int?
-    ) async -> Int? {
+    /// Every bus on the alarm's routes this ping could aim at: live ones
+    /// from the registered operators, then timetabled ones not already
+    /// tracked live. Whether the alarm is live only is left to the lock.
+    private func arrivalCandidates(for alarm: [String: Any]) async -> [ArrivalCandidate] {
         let routeNumbers = Self.routeNumbers(of: alarm)
         guard let stopID = alarm["gtfsStopId"] as? String, !routeNumbers.isEmpty else {
-            return nil
+            return []
         }
 
         let locale = NativeTransitLocales.locale(for: alarm["localeCode"] as? String)
         var hkRequests: [NativeTransitETARequest] = []
-        var liveDates: [Date] = []
+        var candidates: [ArrivalCandidate] = []
         // Trips a live feed shows as running or already past the stop, so the
-        // timetable fallback doesn't offer a bus that has gone.
+        // timetable doesn't offer a bus that has gone.
         var liveTripIDs: Set<String> = []
         for source in LiveSource.sources(for: alarm, locale: locale) {
             switch source {
@@ -534,7 +630,7 @@ final class NativePingHandler {
                     routes: Self.routeDestinations(of: alarm),
                     timeZone: locale.timeZone
                 ).fetch()
-                liveDates += result.arrivals
+                candidates += result.arrivals
                 liveTripIDs.formUnion(result.liveTripIDs)
             case .unsupported:
                 break
@@ -542,96 +638,81 @@ final class NativePingHandler {
         }
 
         if !hkRequests.isEmpty {
-            liveDates += await fetchLiveETAs(from: hkRequests, allowedRoutes: Set(routeNumbers))
-        }
-        let eligibleLiveDates = liveDates.filter { date in
-            guard let minimumArrivalMinutes else { return true }
-            return Int(date.timeIntervalSinceNow / 60) >= minimumArrivalMinutes
-        }
-        if let earliest = eligibleLiveDates.min() {
-            return Int(earliest.timeIntervalSinceNow / 60)
-        }
-        if alarm["liveOnly"] as? Bool == true {
-            return nil
+            candidates += await fetchLiveETAs(from: hkRequests, allowedRoutes: Set(routeNumbers))
         }
         // Each locale's timetable comes from its own GTFS database; add a case
         // for a locale whose timetable needs a different query.
         switch locale.code {
         case "hk", "gb":
-            return scheduledMinutesUntilArrival(
+            candidates += scheduledCandidates(
                 stopID: stopID,
                 routeNumbers: routeNumbers,
                 locale: locale,
-                minimumArrivalMinutes: minimumArrivalMinutes,
                 excludingTrips: liveTripIDs
             )
         default:
-            return nil
+            break
         }
+        return candidates
     }
 
-    /// Minutes until the next timetabled arrival of the selected routes at the
-    /// stop, from the locale's GTFS calendar. Searches today's service day
-    /// and yesterday's, whose trips after midnight carry times past 24:00.
-    private func scheduledMinutesUntilArrival(
+    /// The timetabled arrivals of the selected routes at the stop, from the
+    /// locale's GTFS calendar. Searches today's service day and yesterday's,
+    /// whose trips after midnight carry times past 24:00.
+    private func scheduledCandidates(
         stopID: String,
         routeNumbers: [String],
         locale: NativeTransitLocale,
-        minimumArrivalMinutes: Int?,
         excludingTrips: Set<String> = []
-    ) -> Int? {
+    ) -> [ArrivalCandidate] {
         guard !routeNumbers.isEmpty,
-              let database = GBLiveArrivals.openDatabase(locale.databaseURL(in: appGroupDirectory)) else { return nil }
+              let database = GBLiveArrivals.openDatabase(locale.databaseURL(in: appGroupDirectory)) else { return [] }
         defer { sqlite3_close(database) }
 
         let calendar = locale.gregorianCalendar
         let now = Date()
         let today = calendar.startOfDay(for: now)
         let secondsIntoToday = Int(now.timeIntervalSince(today))
-        var soonest: Int?
+        var candidates: [ArrivalCandidate] = []
         for dayOffset in [0, -1] {
             guard let serviceDay = calendar.date(byAdding: .day, value: dayOffset, to: today) else { continue }
             // GTFS times count from the service day's start, so on yesterday's
             // service day now is 24 hours later.
             let after = secondsIntoToday - dayOffset * 86400
-            let minutes = scheduledMinutes(
+            candidates += scheduledArrivals(
                 database: database,
                 stopID: stopID,
                 routeNumbers: routeNumbers,
                 serviceDay: serviceDay,
                 afterSeconds: after,
                 calendar: calendar,
-                now: now,
-                minimumArrivalMinutes: minimumArrivalMinutes,
                 excludingTrips: excludingTrips
             )
-            if let minutes, soonest.map({ minutes < $0 }) ?? true { soonest = minutes }
         }
-        return soonest
+        return candidates
     }
 
-    /// The soonest qualifying departure on one GTFS service day.
-    private func scheduledMinutes(
+    /// The selected routes' departures after [afterSeconds] on one GTFS
+    /// service day.
+    private func scheduledArrivals(
         database: OpaquePointer,
         stopID: String,
         routeNumbers: [String],
         serviceDay: Date,
         afterSeconds: Int,
         calendar: Calendar,
-        now: Date,
-        minimumArrivalMinutes: Int?,
         excludingTrips: Set<String>
-    ) -> Int? {
+    ) -> [ArrivalCandidate] {
         let components = calendar.dateComponents([.year, .month, .day, .weekday], from: serviceDay)
         guard let year = components.year, let month = components.month,
-              let day = components.day, let weekday = components.weekday else { return nil }
+              let day = components.day, let weekday = components.weekday else { return [] }
         let weekdayColumns = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
         let weekdayColumn = weekdayColumns[weekday - 1]
         let dateString = String(format: "%04d%02d%02d", year, month, day)
         let afterTime = String(format: "%02d:%02d:%02d", afterSeconds / 3600, (afterSeconds % 3600) / 60, afterSeconds % 60)
         let placeholders = Array(repeating: "?", count: routeNumbers.count).joined(separator: ",")
         let sql = """
-            SELECT st.arrival_time, st.trip_id
+            SELECT st.arrival_time, st.trip_id, r.route_short_name
             FROM gtfs_stop_times st
             INNER JOIN gtfs_trips t ON st.trip_id = t.trip_id
             INNER JOIN gtfs_routes r ON t.route_id = r.route_id
@@ -659,24 +740,27 @@ final class NativePingHandler {
             ORDER BY st.arrival_time ASC LIMIT 50
             """
         let bindings = [stopID] + routeNumbers + [afterTime, dateString, dateString, dateString, dateString]
-        var soonest: Int?
+        var arrivals: [ArrivalCandidate] = []
         GBLiveArrivals.query(database, sql, bindings) { row in
-            if let tripID = GBLiveArrivals.text(row, 1), excludingTrips.contains(tripID) { return }
-            guard let seconds = GBLiveArrivals.gtfsSeconds(GBLiveArrivals.text(row, 0)) else { return }
-            let departure = serviceDay.addingTimeInterval(TimeInterval(seconds))
-            let minutes = Int(departure.timeIntervalSince(now) / 60)
-            let meetsThreshold = minimumArrivalMinutes.map { minutes >= $0 } ?? true
-            if minutes >= 0, meetsThreshold, soonest.map({ minutes < $0 }) ?? true {
-                soonest = minutes
-            }
+            let tripID = GBLiveArrivals.text(row, 1)
+            if let tripID, excludingTrips.contains(tripID) { return }
+            guard let seconds = GBLiveArrivals.gtfsSeconds(GBLiveArrivals.text(row, 0)),
+                  let route = GBLiveArrivals.text(row, 2) else { return }
+            arrivals.append(ArrivalCandidate(
+                arrival: serviceDay.addingTimeInterval(TimeInterval(seconds)),
+                isLive: false,
+                routeNumber: route,
+                tripID: tripID,
+                vehicleID: nil
+            ))
         }
-        return soonest
+        return arrivals
     }
 
     /// Fetches at most 24 operator/route endpoints, keeping no more than six
     /// network requests active at once to bound extension work and memory use.
-    private func fetchLiveETAs(from requests: [NativeTransitETARequest], allowedRoutes: Set<String>) async -> [Date] {
-        await withTaskGroup(of: [Date].self, returning: [Date].self) { group in
+    private func fetchLiveETAs(from requests: [NativeTransitETARequest], allowedRoutes: Set<String>) async -> [ArrivalCandidate] {
+        await withTaskGroup(of: [ArrivalCandidate].self, returning: [ArrivalCandidate].self) { group in
             var iterator = requests.prefix(24).makeIterator()
             for _ in 0..<min(6, requests.count) {
                 if let request = iterator.next() {
@@ -684,31 +768,34 @@ final class NativePingHandler {
                 }
             }
 
-            var dates: [Date] = []
+            var arrivals: [ArrivalCandidate] = []
             while let result = await group.next() {
-                dates.append(contentsOf: result)
+                arrivals.append(contentsOf: result)
                 if let request = iterator.next() {
                     group.addTask { await Self.fetchLiveETA(request: request, allowedRoutes: allowedRoutes) }
                 }
             }
-            return dates
+            return arrivals
         }
     }
 
     /// Performs one API request and delegates its response decoding to the
-    /// matching operator provider. Failed or non-200 responses produce no ETAs.
-    private static func fetchLiveETA(request: NativeTransitETARequest, allowedRoutes: Set<String>) async -> [Date] {
+    /// matching operator provider. Failed or non-200 responses produce no
+    /// ETAs. The HK operators' ETAs carry no ID for their bus.
+    private static func fetchLiveETA(request: NativeTransitETARequest, allowedRoutes: Set<String>) async -> [ArrivalCandidate] {
         var urlRequest = URLRequest(url: request.url)
         urlRequest.timeoutInterval = 3
         urlRequest.cachePolicy = .reloadIgnoringLocalCacheData
         do {
             let (data, response) = try await URLSession.shared.data(for: urlRequest)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
-            return NativeTransitETAProviders.arrivalDates(
+            return NativeTransitETAProviders.arrivals(
                 from: data,
                 providerCode: request.providerCode,
                 matching: allowedRoutes
-            )
+            ).map {
+                ArrivalCandidate(arrival: $0.date, isLive: true, routeNumber: $0.route, tripID: nil, vehicleID: nil)
+            }
         } catch {
             return []
         }
@@ -716,8 +803,8 @@ final class NativePingHandler {
 
     // MARK: Alarm schedule and server ping
 
-    /// The start of the alarm's next occurrence after now, from its window
-    /// and repeat days in the device's timezone.
+    /// When the alarm's next occurrence becomes active, from its window and
+    /// repeat days in the device's timezone.
     private func nextRepeatDate(for alarm: [String: Any]) throws -> Date {
         guard let window = AlarmWindow(alarm: alarm),
               let next = window.nextOccurrence(
@@ -726,7 +813,7 @@ final class NativePingHandler {
               ) else {
             throw PingHandlerError.invalidAlarmData
         }
-        return next.start
+        return next.activeFrom
     }
 
     /// When to schedule a ping that should ring at [target], so it arrives

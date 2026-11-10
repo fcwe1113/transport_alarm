@@ -41,6 +41,21 @@ class AlarmServerService {
     return true;
   }
 
+  /// Moves a ping to [time], as the notification extension does after each
+  /// ping. Returns false when the server no longer has the ping.
+  Future<bool> reschedule({required String pingId, required String secret, required DateTime time}) async {
+    final response = await _post("reschedule", {
+      "ping_id": pingId,
+      "ping_secret": secret,
+      "delay_seconds": _delaySeconds(time),
+      "require_ack": false,
+      "expire_on": null,
+    });
+    if (response.statusCode == 404) return false;
+    if (response.statusCode != 200) throw Exception("reschedule failed with HTTP ${response.statusCode}");
+    return true;
+  }
+
   /// Removes a ping from the server. A ping that's already gone counts as
   /// removed; other failures throw.
   Future<void> cancelPing({required String pingId, required String secret}) async {

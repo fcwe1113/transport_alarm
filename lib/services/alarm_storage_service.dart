@@ -5,7 +5,6 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:transport_alarm/services/app_group_storage.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
-import 'package:transport_alarm/transit/models/threshold_state.dart';
 
 /// The saved alarms, in alarms.json in the App Group so the iOS
 /// notification extension reads and updates the same list.
@@ -93,33 +92,13 @@ class AlarmStorageService {
   Future<void> updateAlarm(TransportAlarm updated) =>
       _modify(updated.id, (_) => updated);
 
-  /// Saves an arrival [estimate] (minutes from now) as the time left until
-  /// the alarm's active threshold, which the iOS notification extension
-  /// falls back on when a fetch fails. Also saves [ignoreArrivalsBefore] if
-  /// the alarm has no cutoff yet, so the extension skips the same buses.
-  Future<void> updateLastEstimate(
-    String alarmId,
-    int estimate, {
-    int? ignoreArrivalsBefore,
-  }) =>
-      _modify(alarmId, (alarm) {
-        final activeThreshold = alarm.thresholdStates
-            .where((state) =>
-                state.outcome == ThresholdOutcome.pending ||
-                state.outcome == ThresholdOutcome.ringing)
-            .firstOrNull;
-        if (activeThreshold == null) return null;
-        final minutesUntilThreshold = estimate - activeThreshold.minutesBeforeArrival;
-        final cutoff = alarm.ignoreArrivalsBeforeEpochSeconds ?? ignoreArrivalsBefore;
-        if (alarm.lastEstimatedMinutesUntilThreshold == minutesUntilThreshold &&
-            alarm.ignoreArrivalsBeforeEpochSeconds == cutoff) {
-          return null;
-        }
-        return alarm.copyWith(
-          lastEstimatedMinutesUntilThreshold: minutesUntilThreshold,
-          ignoreArrivalsBeforeEpochSeconds: cutoff,
-        );
-      });
+  /// Sets every alarm's checkLeadMinutes, after the Advanced setting
+  /// changes. Each alarm uses it from its next occurrence.
+  Future<void> setCheckLeadMinutes(int minutes) => _serialized(() async {
+    final alarms = await loadAlarms();
+    if (alarms.every((alarm) => alarm.checkLeadMinutes == minutes)) return;
+    await _save([for (final alarm in alarms) alarm.copyWith(checkLeadMinutes: minutes)]);
+  });
 
   /// Records [deviceId] as the owner of the alarm's current ping [pingId],
   /// unless the ping has changed since.

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:transport_alarm/app_navigator.dart';
 import 'package:transport_alarm/l10n/app_strings.dart';
 import 'package:transport_alarm/models/transport_alarm.dart';
+import 'package:transport_alarm/services/acknowledge_tips.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/services/android_alarm_coordinator.dart';
 import 'package:transport_alarm/settings/appearance_settings.dart';
@@ -59,11 +60,15 @@ class _RingScreenState extends State<RingScreen> {
   Timer? _poll;
   bool _acknowledging = false;
   bool _closed = false;
+  bool _showButtonTip = false;
 
   @override
   void initState() {
     super.initState();
     unawaited(_refresh());
+    unawaited(AcknowledgeTips.usedNotificationButton().then((used) {
+      if (mounted && !used) setState(() => _showButtonTip = true);
+    }));
     // The notification's own button, or the window ending, can also stop the
     // ring; this screen follows the saved alarm.
     _poll = Timer.periodic(const Duration(seconds: 2), (_) => _refresh());
@@ -166,6 +171,14 @@ class _RingScreenState extends State<RingScreen> {
                           ),
                         ),
                       ),
+                      if (_showButtonTip) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          AppStrings.text('ring.acknowledge_tip'),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ],
                     ],
                   ),
           ),

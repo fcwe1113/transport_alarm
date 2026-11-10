@@ -33,6 +33,10 @@ abstract class TransitProvider {
   /// Whether [refresh] is due.
   Future<bool> isStale();
 
+  /// Whether this provider's live arrivals identify each bus (a GTFS trip or
+  /// vehicle ID), so an alarm can follow one bus; see decideLock.
+  bool get hasStableVehicleIds => false;
+
   /// A route pill's colours; the provider's defaults unless overridden.
   RouteColourScheme coloursForRoute(TransportRoute route) => RouteColourScheme(iconColour: defaultIconColor, textColour: defaultTextColor);
 
