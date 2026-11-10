@@ -8,6 +8,7 @@ import 'package:transport_alarm/services/arrival_lock.dart';
 import 'package:transport_alarm/services/bus_following.dart';
 import 'package:transport_alarm/services/next_bus.dart';
 import 'package:transport_alarm/transit/models/gtfs_stop.dart';
+import 'package:transport_alarm/transit/models/repeat_pattern.dart';
 import 'package:transport_alarm/transit/services/gtfs_database.dart';
 import 'package:transport_alarm/services/alarm_storage_service.dart';
 import 'package:transport_alarm/transit/models/threshold_state.dart';
@@ -247,7 +248,10 @@ class _AlarmCardState extends State<AlarmCard> with WidgetsBindingObserver {
                   const SizedBox(height: 6),
                   _buildReviewMarker(),
                 ],
-                if (widget.alarm.enabled &&
+                if (_isSpent) ...[
+                  const SizedBox(height: 4),
+                  _buildSpentStatus(_saved ?? widget.alarm),
+                ] else if (widget.alarm.enabled &&
                     widget.alarm.activeOccurrenceAt(DateTime.now()) != null) ...[
                   const SizedBox(height: 4),
                   _buildBusStatus(_saved ?? widget.alarm),
@@ -257,6 +261,36 @@ class _AlarmCardState extends State<AlarmCard> with WidgetsBindingObserver {
           ),
         ],
       ),
+    );
+  }
+
+  /// A repeating alarm that's done for this occurrence, until its next one
+  /// starts. Its switch stays on: turning it off would cancel the repeats.
+  bool get _isSpent {
+    final alarm = _saved ?? widget.alarm;
+    return alarm.enabled && alarm.spent && alarm.repeat.frequency != RepeatFrequency.none;
+  }
+
+  /// That a spent alarm is done, and when its next occurrence's window starts.
+  Widget _buildSpentStatus(TransportAlarm alarm) {
+    final colour = Theme.of(context).colorScheme.onSurfaceVariant;
+    final now = DateTime.now();
+    final when = describeNextRepeat(
+      alarm.nextOccurrenceAfter(now).boardFrom,
+      now,
+      shortDate: MaterialLocalizations.of(context).formatShortMonthDay,
+    );
+    return Row(
+      children: [
+        Icon(Icons.check_circle_outline, size: 18, color: colour),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            AppStrings.text('alarm_card.spent', {'when': when}),
+            style: TextStyle(color: colour, fontSize: 13, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
     );
   }
 
@@ -275,7 +309,7 @@ class _AlarmCardState extends State<AlarmCard> with WidgetsBindingObserver {
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
-                color: widget.alarm.enabled
+                color: widget.alarm.enabled && !_isSpent
                     ? Theme.of(context).colorScheme.onSurface
                     : Theme.of(context).colorScheme.outline,
               ),
@@ -438,4 +472,24 @@ class _AlarmCardState extends State<AlarmCard> with WidgetsBindingObserver {
       ],
     );
   }
+}
+
+/// When a spent alarm next starts, from [now]: "today 07:30" or "tomorrow
+/// 07:30", the weekday within the next week ("Tue 07:30"), or else
+/// [shortDate]'s date ("12 Dec 07:30").
+String describeNextRepeat(
+  DateTime next,
+  DateTime now, {
+  required String Function(DateTime) shortDate,
+}) {
+  const weekdayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  final time = "${next.hour.toString().padLeft(2, "0")}:${next.minute.toString().padLeft(2, "0")}";
+  // Calendar days apart, unaffected by clock changes.
+  final days = DateTime.utc(next.year, next.month, next.day)
+      .difference(DateTime.utc(now.year, now.month, now.day))
+      .inDays;
+  if (days <= 0) return AppStrings.text('alarm_card.spent.today', {'time': time});
+  if (days == 1) return AppStrings.text('alarm_card.spent.tomorrow', {'time': time});
+  if (days < 7) return '${AppStrings.text('repeat.day.${weekdayKeys[next.weekday - 1]}')} $time';
+  return '${shortDate(next)} $time';
 }
